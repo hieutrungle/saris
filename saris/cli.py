@@ -14,10 +14,21 @@ os.environ["XLA_FLAGS"] = (
 )
 
 import argparse
+from saris.utils import utils
+import numpy as np
 
 
 def main():
     args = parse_agrs()
+    drl_config = utils.load_yaml_file(args.drl_config_file)
+    sionna_config = utils.load_yaml_file(args.sionna_config_file)
+
+    # set random seeds
+    np.random.seed(args.seed)
+    if args.verbose:
+        utils.log_args(args)
+        utils.log_config(drl_config)
+        utils.log_config(sionna_config)
 
 
 def parse_agrs():
@@ -30,8 +41,6 @@ def parse_agrs():
     parser.add_argument("--verbose", "-v", action="store_true")
 
     args = parser.parse_args()
-    for k, v in args.__dict__.items():
-        print(f"{k}: {v}")
     return args
 
 
