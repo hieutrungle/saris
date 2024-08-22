@@ -18,6 +18,7 @@ packages = [{ include = "saris" }, { include = "tests", format = "sdist" }]
 
 [tool.poetry.dependencies]
 python = ">=3.10,<3.13"
+tensorboardx = "^2.6.2.2"
 
 [tool.poetry.dev-dependencies]
 bumpversion = "*"
