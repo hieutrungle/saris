@@ -1,0 +1,65 @@
+base_config: hallway
+mitsuba_filename: hallway
+scene_name: hallway_L_1
+resolution:
+    - 1920
+    - 1080
+cm_vmin: -120
+cm_vmax: -60
+verbose: true
+video: false
+default_end: ""
+test: true
+cam_position:
+    - -7.5
+    - -4.0
+    - 50.0
+cam_orientation:
+    - 0.0
+    - 0.0
+    - 0.0
+cam_look_at:
+    - -7.5
+    - -4.0
+    - 0.0
+frequency: 28e9
+synthetic_array: true
+scene_end: ""
+tx_num_rows: 4
+tx_num_cols: 4
+tx_vertical_spacing: 0.5
+tx_horizontal_spacing: 0.5
+tx_pattern: iso
+tx_polarization: V
+tx_position:
+    - 1.0
+    - 0.0
+    - 1.5
+tx_orientation:
+    - 0.0
+    - 0.0
+    - 0.0
+rx_included: true
+rx_num_rows: 1
+rx_num_cols: 1
+rx_vertical_spacing: 0.5
+rx_horizontal_spacing: 0.5
+rx_pattern: iso
+rx_polarization: V
+rx_position:
+    - -12.75
+    - -2.75
+    - 1.5
+rx_orientation:
+    - 0.0
+    - 0.0
+    - 0.0
+device_end: ""
+cm_max_depth: 15
+cm_cell_size:
+    - 0.2
+    - 0.2
+cm_num_samples: 4000000.0
+path_max_depth: 15
+path_num_samples: 4000000.0
+diffraction: true
