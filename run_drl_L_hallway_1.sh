@@ -36,7 +36,6 @@ echo Blender directory: $BLENDER_DIR
 echo Coverage map directory: $SIGMAP_DIR
 echo -e Assets directory: $ASSETS_DIR '\n'
 
-CONFIG_FILE=${SIGMAP_DIR}/config/drl_L_hallway_1.yaml
 
 # Find the blender executable
 # for file in ${BLENDER_DIR}/*
@@ -62,20 +61,24 @@ ${BLENDER_APP} -b ${BLENDER_DIR}/models/hallway_L_1.blend --python ${SIGMAP_DIR}
 TMP_DIR=${SIGMAP_DIR}/tmp
 mkdir -p ${TMP_DIR}
 
+# Configuration files
+SIONNA_CONFIG_FILE=${SIGMAP_DIR}/configs/sionna_L_hallway.yaml
+DRL_CONFIG_FILE=${SIGMAP_DIR}/configs/drl_L_hallway.yaml
+
 export BLENDER_APP
 export BLENDER_DIR
 export SIGMAP_DIR
 export ASSETS_DIR
-export CONFIG_FILE
+export SIONNA_CONFIG_FILE
+export DRL_CONFIG_FILE
 export TMP_DIR
-
 export OPTIX_CACHE_PATH=${SIGMAP_DIR}/tmp/optix_cache_1
 mkdir -p ${OPTIX_CACHE_PATH}
 
 ##############################
 # DRL run
 ##############################
-poetry run main --command train -dcfg ${SIGMAP_DIR}/config/drl_L_beamfocusing_1.yaml -scfg ${CONFIG_FILE} -v
+poetry run main --command train -dcfg ${DRL_CONFIG_FILE} -scfg ${SIONNA_CONFIG_FILE} -v
 
 # export OPTIX_CACHE_PATH=${SIGMAP_DIR}/tmp/optix_cache_1
-# python ${SIGMAP_DIR}/sigmap/drl_wireless_main.py --command eval -dcfg ${SIGMAP_DIR}/config/drl_L_beamfocusing_1.yaml -scfg ${CONFIG_FILE} -v $DEVICE_CONFIG
+# python ${SIGMAP_DIR}/sigmap/drl_wireless_main.py --command eval -dcfg ${SIGMAP_DIR}/config/drl_L_beamfocusing_1.yaml -scfg ${SIONNA_CONFIG_FILE} -v $DEVICE_CONFIG
