@@ -13,12 +13,26 @@ os.environ["XLA_FLAGS"] = (
     "--xla_gpu_enable_highest_priority_async_stream=true "
 )
 
-import tensorflow as tf
+import argparse
 
 
 def main():
-    print(f"Hello, world!")
-    print(f"default device: {tf.config.get_visible_devices()}")
+    args = parse_agrs()
+
+
+def parse_agrs():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--drl_config_file", "-dcfg", type=str, required=True)
+    parser.add_argument("--sionna_config_file", "-scfg", type=str, required=True)
+    parser.add_argument("--command", "-cmd", type=str, required=True)
+    parser.add_argument("--seed", type=int, default=1)
+    parser.add_argument("--log_interval", type=int, default=1)
+    parser.add_argument("--verbose", "-v", action="store_true")
+
+    args = parser.parse_args()
+    for k, v in args.__dict__.items():
+        print(f"{k}: {v}")
+    return args
 
 
 if __name__ == "__main__":
