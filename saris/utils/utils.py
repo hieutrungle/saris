@@ -63,28 +63,28 @@ def sort_nicely(l: List[str]):
 # Logging
 def log_args(args: argparse.Namespace) -> None:
     """Logs arguments to the console."""
-    print.log(f"{'*'*23} ARGS BEGIN {'*'*23}")
+    print(f"{'*'*23} ARGS BEGIN {'*'*23}")
     message = ""
     for k, v in args.__dict__.items():
         if isinstance(v, str):
             message += f"{k} = '{v}'\n"
         else:
             message += f"{k} = {v}\n"
-    print.log(f"{message}")
-    print.log(f"{'*'*24} ARGS END {'*'*24}\n")
+    print(f"{message}")
+    print(f"{'*'*24} ARGS END {'*'*24}\n")
 
 
 def log_config(config: Dict[str, Union[str, float, bool]]) -> None:
     """Logs configuration to the console."""
-    print.log(f"{'*'*23} CONFIG BEGIN {'*'*23}")
+    print(f"{'*'*23} CONFIG BEGIN {'*'*23}")
     message = ""
-    for k, v in config.__dict__.items():
+    for k, v in config.items():
         if isinstance(v, str):
             message += f"{k} = '{v}'\n"
         else:
             message += f"{k} = {v}\n"
-    print.log(f"{message}")
-    print.log(f"{'*'*24} CONFIG END {'*'*24}\n")
+    print(f"{message}")
+    print(f"{'*'*24} CONFIG END {'*'*24}\n")
 
 
 # Input and output folders
@@ -254,7 +254,7 @@ def read_n_to_last_line(filename, n=1) -> str:
 
 # Conversion
 def linear2dB(x: float) -> float:
-    return float(10 * np.log10(x))
+    return float(10 * np10(x))
 
 
 def dB2linear(x: float) -> float:
