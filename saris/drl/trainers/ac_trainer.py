@@ -125,6 +125,7 @@ class ActorCriticTrainer:
         # Create empty actor. Note: no parameters yet
         actor = self.create_model(self.actor_class, self.actor_hparams)
         exmp_inputs = np.zeros(self.observation_shape, dtype=np.float32)
+        exmp_inputs = self.add_batch_dimension(exmp_inputs)
         exmp_inputs = (
             [exmp_inputs] if not isinstance(exmp_inputs, (list, tuple)) else exmp_inputs
         )
@@ -138,6 +139,7 @@ class ActorCriticTrainer:
             np.zeros(self.observation_shape, dtype=np.float32),
             np.zeros(self.action_shape, dtype=np.float32),
         ]
+        exmp_inputs = self.add_batch_dimension(exmp_inputs)
         exmp_inputs = (
             [exmp_inputs] if not isinstance(exmp_inputs, (list, tuple)) else exmp_inputs
         )
@@ -422,3 +424,24 @@ class ActorCriticTrainer:
                 print(f" - {key}: {value}")
         print(f"*" * 80)
         print()
+
+    def add_batch_dimension(
+        self, data: Union[np.ndarray, jnp.ndarray, list, dict, tuple]
+    ) -> Union[jnp.ndarray, list, dict, tuple]:
+        """
+        Adds a batch dimension to the data.
+
+        Args:
+          data: The data to add a batch dimension to.
+
+        Returns:
+          The data with a batch dimension added.
+        """
+        if isinstance(data, dict):
+            return {key: self.add_batch_dimension(value) for key, value in data.items()}
+        elif isinstance(data, list) or isinstance(data, tuple):
+            return [self.add_batch_dimension(value) for value in data]
+        elif isinstance(data, (np.ndarray, jnp.ndarray)):
+            return jnp.expand_dims(data, axis=0)
+        else:
+            raise ValueError(f"Unsupported data type: {type(data)}")
