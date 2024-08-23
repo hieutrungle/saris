@@ -3,19 +3,47 @@ import os
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
 os.environ["TF_GPU_ALLOCATOR"] = "cuda_malloc_async"  # to avoid memory fragmentation
 # os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
+os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = ".30"
 
 # Jax acceleration flags
 os.environ["XLA_FLAGS"] = (
     "--xla_gpu_enable_triton_softmax_fusion=true "
     "--xla_gpu_triton_gemm_any=True "
-    "--xla_gpu_enable_async_collectives=true "
-    "--xla_gpu_enable_latency_hiding_scheduler=true "
-    "--xla_gpu_enable_highest_priority_async_stream=true "
+    # "--xla_gpu_enable_async_collectives=true "
+    # "--xla_gpu_enable_latency_hiding_scheduler=true "
+    # "--xla_gpu_enable_highest_priority_async_stream=true "
 )
 
 import argparse
 from saris.utils import utils
 import numpy as np
+import gymnasium as gym
+from saris.drl.envs import register_envs
+from saris.drl.networks import actor, critic
+import jax
+
+
+def make_env(
+    env_id, sionna_config_file, drl_config_file, idx, capture_video=None, run_name=None
+):
+    drl_config = utils.load_yaml_file(drl_config_file)
+    seed = drl_config["seed"]
+
+    def thunk():
+        env = gym.make(env_id, sionna_config_file=sionna_config_file, seed=seed)
+        env = gym.wrappers.TimeLimit(env, max_episode_steps=drl_config["ep_len"])
+        env = gym.wrappers.RecordEpisodeStatistics(env)
+        if capture_video:
+            if run_name is None:
+                run_name = f"{env_id}_seed_{seed}_idx_{idx}"
+            else:
+                if idx == 0:
+                    env = gym.wrappers.RecordVideo(env, f"videos/{run_name}")
+        env.action_space.seed(seed)
+        env.observation_space.seed(seed)
+        return env
+
+    return thunk
 
 
 def main():
@@ -29,6 +57,79 @@ def main():
         utils.log_args(args)
         utils.log_config(drl_config)
         utils.log_config(sionna_config)
+
+    # Env
+    register_envs()
+    env = make_env(
+        env_id=drl_config["env_id"],
+        sionna_config_file=args.sionna_config_file,
+        drl_config_file=args.drl_config_file,
+        idx=0,
+    )()
+    discrete = isinstance(env.action_space, gym.spaces.Discrete)
+    assert (
+        not discrete
+    ), "Our wireless DRL implementation only supports continuous action spaces."
+
+    print(env)
+    ob_space = env.observation_space
+    ac_space = env.action_space
+    print(f"Observation space: {ob_space}")
+    print(f"Action space: {ac_space}")
+
+    # Create AC agent
+    key = jax.random.PRNGKey(args.seed)
+    actor_model = actor.Actor.create(
+        num_actions=ac_space.shape[0],
+        features=drl_config["hidden_sizes"],
+        activation="tanh",
+        dtype="bfloat16",
+    )
+    critic_model = critic.Crtic.create(
+        features=drl_config["hidden_sizes"],
+        activation="relu",
+        dtype="bfloat16",
+    )
+    actor_example_inputs = np.zeros(ob_space.shape, dtype=np.float32)
+    critic_example_inputs = [
+        np.zeros(ob_space.shape, dtype=np.float32),
+        np.zeros(ac_space.shape, dtype=np.float32),
+    ]
+    print(actor_model.tabulate(key, actor_example_inputs))
+    print(critic_model.tabulate(key, *critic_example_inputs))
+
+    # for i in range(1):
+    #     ob, info = env.reset()
+    #     done = False
+    #     j = 0
+    #     while not done:
+    #         ac = ac_space.sample()
+    #         ob, rew, terminated, truncated, info = env.step(ac)
+    #         print(
+    #             f"step={j}, reward={rew}, truncated={truncated}, terminated={terminated}, info={info}"
+    #         )
+    #         if "episode" in info.keys():
+    #             print(f"global_step={j}, episodic_return={info['episode']['r']}")
+    #         done = terminated or truncated
+    #         if done or j >= 300:
+    #             break
+
+    if args.command == "train":
+
+        # assets_dir = utils.get_asset_dir()
+        # replay_buffer_dir = os.path.join(assets_dir, "replay_buffer")
+        # buffer_saved_dir = os.path.join(replay_buffer_dir, drl_config.log_name)
+        # utils.mkdir_not_exists(buffer_saved_dir)
+        # replay_buffer = WirelessReplayBuffer(
+        #     drl_config.replay_buffer_capacity, buffer_saved_dir, seed=seed
+        # )
+
+        # run_training_loop(drl_config, tsb_logger, args, env, agent, replay_buffer)
+        pass
+    elif args.command == "eval":
+        pass
+    else:
+        raise ValueError(f"Invalid command: {args.command}")
 
 
 def parse_agrs():
