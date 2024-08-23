@@ -38,10 +38,6 @@ def export_drl_hallway_device_state(args, config):
             tile.rotation_euler = [0, device_states[i][j][0], device_states[i][j][1]]
             tile.scale = [0.1, 0.1, 0.01]
 
-    # tmp_file = os.path.join(tmp_dir, "tmp.blend")
-    # print(f"tmp_file: {tmp_file}")
-    # bpy.ops.wm.save_mainfile(filepath=tmp_file)
-
     # Save files without ceiling
     folder_dir = os.path.join(
         args.output_dir,
@@ -78,11 +74,12 @@ def export_drl_hallway_focal_pts(args, config):
             devices.append(v.objects)
 
     with open(args.input_path, "rb") as f:
-        focal_pts = pickle.load(f)  # focal_pts: [num_devices, 2, 3]
+        tuple_focal_pts = pickle.load(f)  # focal_pts: [num_devices, 6]
 
-    for device, focal_pt_tuple in zip(devices, focal_pts):
-        pt1 = focal_pt_tuple[0]
-        pt2 = focal_pt_tuple[1]
+    for device, focal_pts in zip(devices, tuple_focal_pts):
+        focal_pts = focal_pts.reshape(-1, 3)
+        pt1 = focal_pts[0]
+        pt2 = focal_pts[1]
         for tile in device:
             r, theta, phi = bl_utils.compute_rot_angle_3pts(
                 pt1,
