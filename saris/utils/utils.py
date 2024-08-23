@@ -192,24 +192,10 @@ class NpEncoder(json.JSONEncoder):
         return json.JSONEncoder.default(self, obj)
 
 
-def get_tmp_dir(source_dir: str) -> str:
-    tmp_dir = os.path.join(source_dir, "tmp")
-    mkdir_not_exists(tmp_dir)
-    return tmp_dir
-
-
-def get_assets_dir(source_dir: str) -> str:
-    assets_dir = os.path.join(source_dir, "assets")
-    mkdir_not_exists(assets_dir)
-    return assets_dir
-
-
-def get_os_dir(name):
-    os_dir = os.getenv(name)
-    if os_dir is None:
-        raise Exception(f"{name} environment variable is not set.")
-    mkdir_not_exists(os_dir)
-    return os_dir
+def get_dir(source_dir: str, name: str) -> str:
+    dir = os.path.join(source_dir, name)
+    mkdir_not_exists(dir)
+    return dir
 
 
 # Read and write files
