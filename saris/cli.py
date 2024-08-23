@@ -21,6 +21,7 @@ import gymnasium as gym
 from saris.drl.envs import register_envs
 from saris.drl.networks import actor, critic
 from saris.drl.trainers import sac_trainer
+from saris.drl.infrastructure.replay_buffer import ReplayBuffer
 import jax
 import importlib.resources
 import saris
@@ -28,7 +29,7 @@ import time
 
 
 def make_env(
-    env_id,
+    env_id: str,
     sionna_config_file: str,
     drl_config_file: str,
     log_string: str,
@@ -61,20 +62,9 @@ def make_env(
     return thunk
 
 
-def main():
-    args = parse_agrs()
-    drl_config = utils.load_yaml_file(args.drl_config_file)
-    sionna_config = utils.load_yaml_file(args.sionna_config_file)
-
-    # set random seeds
-    np.random.seed(args.seed)
-    if args.verbose:
-        utils.log_args(args)
-        utils.log_config(drl_config)
-        utils.log_config(sionna_config)
-
+def get_log_string(drl_config: dict):
     # Log string
-    current_time = time.strftime("%Y%m%d-%H%M%S")
+    # current_time = time.strftime("%Y%m%d-%H%M%S")
     log_string = "{}-{}-s{}-aclr{}-crlr{}-allr{}-b{}-d{}".format(
         drl_config["exp_name"],
         drl_config["env_id"],
@@ -91,24 +81,11 @@ def main():
         log_string = log_string.replace(replaced_str, "")
     for replaced_str in ["[", ",", ".", "{"]:
         log_string = log_string.replace(replaced_str, "_")
-    log_string = f"{log_string}_{current_time}"
+    # log_string = f"{log_string}_{current_time}"
+    return log_string
 
-    # Env
-    register_envs()
-    env = make_env(
-        env_id=drl_config["env_id"],
-        sionna_config_file=args.sionna_config_file,
-        drl_config_file=args.drl_config_file,
-        log_string=log_string,
-        idx=0,
-        seed=args.seed,
-    )()
-    discrete = isinstance(env.action_space, gym.spaces.Discrete)
-    assert (
-        not discrete
-    ), "Our wireless DRL implementation only supports continuous action spaces."
 
-    print(env)
+def get_trainer_config(env: gym.Env, drl_config: dict, args: argparse.Namespace):
     ob_space = env.observation_space
     ac_space = env.action_space
     print(f"Observation space: {ob_space}")
@@ -146,19 +123,40 @@ def main():
         "seed": args.seed,
         "logger_params": {
             "log_dir": os.path.join(args.source_dir, "logs"),
-            "log_name": os.path.join("SARIS_SAC" + log_string),
+            "log_name": os.path.join("SARIS_SAC" + drl_config["log_string"]),
         },
         "enable_progress_bar": True,
         "debug": False,
     }
+    return trainer_config
 
-    trainer = sac_trainer.SoftActorCriticTrainer(**trainer_config)
-    trainer.print_class_variables()
 
+def train_model(
+    trainer: sac_trainer.SoftActorCriticTrainer,
+    env: gym.Env,
+    drl_config: dict,
+    args: argparse.Namespace,
+):
     print(f"*" * 80)
     print(
         f"Training {trainer.actor_class.__name__} and {trainer.critic_class.__name__}"
     )
+
+    local_assets_dir = utils.get_dir(args.source_dir, "local_assets")
+    buffer_saved_name = os.path.join("replay_buffer", drl_config["log_string"])
+    buffer_saved_dir = utils.get_dir(local_assets_dir, buffer_saved_name)
+    replay_buffer = ReplayBuffer(
+        drl_config["replay_buffer_capacity"], buffer_saved_dir, seed=args.seed
+    )
+
+    ep_len = env.spec.max_episode_steps
+    best_episodic_return = -np.inf
+    best_episodic_return_std = np.inf
+    best_episodic_return_epoch = 0
+    best_episodic_return_std_epoch = 0
+
+    # Training loop
+    (observation, info) = env.reset()
 
     # for i in range(1):
     #     ob, info = env.reset()
@@ -175,21 +173,54 @@ def main():
     #         done = terminated or truncated
     #         if done or j >= 300:
     #             break
+    pass
+
+
+def eval_model(trainer, env, drl_config, args):
+    print(f"*" * 80)
+    print(
+        f"Evaluating {trainer.actor_class.__name__} and {trainer.critic_class.__name__}"
+    )
+    pass
+
+
+def main():
+    args = parse_agrs()
+    drl_config = utils.load_yaml_file(args.drl_config_file)
+    drl_config["log_string"] = get_log_string(drl_config)
+    sionna_config = utils.load_yaml_file(args.sionna_config_file)
+
+    # set random seeds
+    np.random.seed(args.seed)
+    if args.verbose:
+        utils.log_args(args)
+        utils.log_config(drl_config)
+        utils.log_config(sionna_config)
+
+    # Env
+    register_envs()
+    env = make_env(
+        env_id=drl_config["env_id"],
+        sionna_config_file=args.sionna_config_file,
+        drl_config_file=args.drl_config_file,
+        log_string=drl_config["log_string"],
+        idx=0,
+        seed=args.seed,
+    )()
+    discrete = isinstance(env.action_space, gym.spaces.Discrete)
+    assert (
+        not discrete
+    ), "Our wireless DRL implementation only supports continuous action spaces."
+
+    # Trainer
+    trainer_config = get_trainer_config(env, drl_config, args)
+    trainer = sac_trainer.SoftActorCriticTrainer(**trainer_config)
+    trainer.print_class_variables()
 
     if args.command == "train":
-
-        # assets_dir = utils.get_asset_dir()
-        # replay_buffer_dir = os.path.join(assets_dir, "replay_buffer")
-        # buffer_saved_dir = os.path.join(replay_buffer_dir, drl_config.log_name)
-        # utils.mkdir_not_exists(buffer_saved_dir)
-        # replay_buffer = WirelessReplayBuffer(
-        #     drl_config.replay_buffer_capacity, buffer_saved_dir, seed=seed
-        # )
-
-        # run_training_loop(drl_config, tsb_logger, args, env, agent, replay_buffer)
-        pass
+        train_model(trainer, env, drl_config, args)
     elif args.command == "eval":
-        pass
+        eval_model(trainer, env, drl_config, args)
     else:
         raise ValueError(f"Invalid command: {args.command}")
 
