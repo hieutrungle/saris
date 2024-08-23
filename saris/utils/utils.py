@@ -192,18 +192,14 @@ class NpEncoder(json.JSONEncoder):
         return json.JSONEncoder.default(self, obj)
 
 
-def get_tmp_dir():
-    tmp_dir = os.getenv("TMP_DIR")
-    if tmp_dir is None:
-        raise Exception("TMP_DIR environment variable is not set.")
+def get_tmp_dir(source_dir: str) -> str:
+    tmp_dir = os.path.join(source_dir, "tmp")
     mkdir_not_exists(tmp_dir)
     return tmp_dir
 
 
-def get_assets_dir():
-    assets_dir = os.getenv("ASSETS_DIR")
-    if assets_dir is None:
-        raise Exception("ASSETS_DIR environment variable is not set.")
+def get_assets_dir(source_dir: str) -> str:
+    assets_dir = os.path.join(source_dir, "assets")
     mkdir_not_exists(assets_dir)
     return assets_dir
 
@@ -254,7 +250,7 @@ def read_n_to_last_line(filename, n=1) -> str:
 
 # Conversion
 def linear2dB(x: float) -> float:
-    return float(10 * np10(x))
+    return float(10 * np.log10(x))
 
 
 def dB2linear(x: float) -> float:
