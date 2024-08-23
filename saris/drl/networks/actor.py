@@ -23,8 +23,8 @@ class Actor(nn.Module):
     def __call__(self, observations: jnp.ndarray, train: bool = True) -> jnp.ndarray:
         mapped = Fourier(self.features[0] // 2)(observations)
         actions = MLP(self.features, self.activation, self.dtype)(mapped)
-        ac_means = nn.Dense(self.num_actions)(actions)
-        ac_log_stds = nn.Dense(self.num_actions)(actions)
+        ac_means = nn.Dense(self.num_actions, name="means")(actions)
+        ac_log_stds = nn.Dense(self.num_actions, name="log_stds")(actions)
         return ac_means.astype(jnp.float32), ac_log_stds.astype(jnp.float32)
 
     @staticmethod

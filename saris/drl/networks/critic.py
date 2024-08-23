@@ -26,7 +26,7 @@ class Crtic(nn.Module):
         mixed = jnp.concatenate([observations, actions], axis=-1)
         mixed = Fourier(self.features[0] // 2)(mixed)
         mixed = MLP(self.features, self.activation, self.dtype)(mixed)
-        q_values = nn.Dense(1)(mixed)
+        q_values = nn.Dense(1, name="q_value")(mixed)
         return q_values.astype(jnp.float32)
 
     @staticmethod
