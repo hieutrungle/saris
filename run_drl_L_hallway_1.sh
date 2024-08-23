@@ -24,16 +24,16 @@ while [ -L "$SOURCE" ]; do # resolve $SOURCE until the file is no longer a symli
 done
 SCRIPT_DIR=$( cd -P "$( dirname "$SOURCE" )" >/dev/null 2>&1 && pwd )
 echo "Source directory: $SCRIPT_DIR"
-SIGMAP_DIR=$SCRIPT_DIR
-ASSETS_DIR=${SIGMAP_DIR}/assets
+SOURCE_DIR=$SCRIPT_DIR
+ASSETS_DIR=${SOURCE_DIR}/local_assets
 
 # * Change this to your blender directory
-RESEARCH_DIR=$(dirname $SIGMAP_DIR)
+RESEARCH_DIR=$(dirname $SOURCE_DIR)
 HOME_DIR=$(dirname $RESEARCH_DIR)
 BLENDER_DIR=${HOME_DIR}/blender 
 
 echo Blender directory: $BLENDER_DIR
-echo Coverage map directory: $SIGMAP_DIR
+echo Coverage map directory: $SOURCE_DIR
 echo -e Assets directory: $ASSETS_DIR '\n'
 
 
@@ -52,27 +52,27 @@ if [ ! -f ${BLENDER_DIR}/addons/mitsuba*.zip ]; then
     wget -P ${BLENDER_DIR}/addons https://github.com/mitsuba-renderer/mitsuba-blender/releases/download/v0.3.0/mitsuba-blender.zip 
     # unzip mitsuba-blender.zip -d ${BLENDER_DIR}/addons
 fi
-${BLENDER_APP} -b ${BLENDER_DIR}/models/hallway_L_1.blend --python ${SIGMAP_DIR}/saris/blender_script/install_mitsuba_addon.py -- --blender_app ${BLENDER_APP}
+${BLENDER_APP} -b ${BLENDER_DIR}/models/hallway_L_1.blend --python ${SOURCE_DIR}/saris/blender_script/install_mitsuba_addon.py -- --blender_app ${BLENDER_APP}
 
 # get scene_name from CONFIG_FILE
 # SCENE_NAME=$(python -c "import yaml; print(yaml.safe_load(open('${CONFIG_FILE}', 'r'))['scene_name'])")
 
 # Create a temporary directory
-TMP_DIR=${SIGMAP_DIR}/tmp
+TMP_DIR=${SOURCE_DIR}/tmp
 mkdir -p ${TMP_DIR}
 
 # Configuration files
-SIONNA_CONFIG_FILE=${SIGMAP_DIR}/configs/sionna_L_hallway.yaml
-DRL_CONFIG_FILE=${SIGMAP_DIR}/configs/drl_L_hallway.yaml
+SIONNA_CONFIG_FILE=${SOURCE_DIR}/configs/sionna_L_hallway.yaml
+DRL_CONFIG_FILE=${SOURCE_DIR}/configs/drl_L_hallway.yaml
 
 export BLENDER_APP
 export BLENDER_DIR
-export SIGMAP_DIR
+export SOURCE_DIR
 export ASSETS_DIR
 export SIONNA_CONFIG_FILE
 export DRL_CONFIG_FILE
 export TMP_DIR
-export OPTIX_CACHE_PATH=${SIGMAP_DIR}/tmp/optix_cache_1
+export OPTIX_CACHE_PATH=${SOURCE_DIR}/tmp/optix_cache_1
 mkdir -p ${OPTIX_CACHE_PATH}
 
 ##############################
@@ -80,5 +80,5 @@ mkdir -p ${OPTIX_CACHE_PATH}
 ##############################
 poetry run main --command train -dcfg ${DRL_CONFIG_FILE} -scfg ${SIONNA_CONFIG_FILE} -v
 
-# export OPTIX_CACHE_PATH=${SIGMAP_DIR}/tmp/optix_cache_1
-# python ${SIGMAP_DIR}/sigmap/drl_wireless_main.py --command eval -dcfg ${SIGMAP_DIR}/config/drl_L_beamfocusing_1.yaml -scfg ${SIONNA_CONFIG_FILE} -v $DEVICE_CONFIG
+# export OPTIX_CACHE_PATH=${SOURCE_DIR}/tmp/optix_cache_1
+# python ${SOURCE_DIR}/sigmap/drl_wireless_main.py --command eval -dcfg ${SOURCE_DIR}/config/drl_L_beamfocusing_1.yaml -scfg ${SIONNA_CONFIG_FILE} -v $DEVICE_CONFIG
