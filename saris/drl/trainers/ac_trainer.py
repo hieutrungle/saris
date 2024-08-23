@@ -23,7 +23,8 @@ import optax
 import orbax.checkpoint as ocp
 
 # Logging
-from tensorboardX import SummaryWriter
+# from tensorboardX import SummaryWriter
+from saris.utils.logger import TensorboardLogger
 
 
 class TrainState(train_state.TrainState):
@@ -112,6 +113,8 @@ class ActorCriticTrainer:
             "actor_optimizer_hparams": actor_optimizer_hparams,
             "critic_optimizer_hparams": critic_optimizer_hparams,
             "num_critics": num_critics,
+            "discount": discount,
+            "ema_decay": ema_decay,
             "logger_params": logger_params,
             "enable_progress_bar": self.enable_progress_bar,
             "debug": self.debug,
@@ -154,6 +157,7 @@ class ActorCriticTrainer:
         # Init trainer parts
         self.logger = self.init_logger(logger_params)
         self.create_jitted_functions()
+        self.checkpoint_manager = self.init_checkpoint_manager(self.logger.log_dir)
 
     def create_model(self, model_class: Callable, model_hparams: Dict[str, Any]):
         """
@@ -246,7 +250,7 @@ class ActorCriticTrainer:
             log_dir = os.path.join(log_dir, logger_params["log_name"])
         logger_type = logger_params.get("logger_type", "TensorBoard").lower()
         if logger_type == "tensorboard":
-            logger = SummaryWriter(logdir=log_dir, comment=version)
+            logger = TensorboardLogger(log_dir=log_dir, comment=version)
         elif logger_type == "wandb":
             logger = WandbLogger(
                 name=logger_params.get("project_name", None),
@@ -258,7 +262,7 @@ class ActorCriticTrainer:
             assert False, f'Unknown logger type "{logger_type}"'
 
         # Save config hyperparameters
-        log_dir = logger.logdir
+        log_dir = logger.log_dir
         if not os.path.isfile(os.path.join(log_dir, "hparams.json")):
             os.makedirs(os.path.join(log_dir, "metrics/"), exist_ok=True)
             with open(os.path.join(log_dir, "hparams.json"), "w") as f:
@@ -445,11 +449,10 @@ class ActorCriticTrainer:
         else:
             raise ValueError(f"Unsupported data type: {type(data)}")
 
-    def save_model(self, path: str, step: int):
+    def save_models(self, step: int):
         """
         Save the agent's parameters to a file.
         """
-        self.checkpoint_manager = self.init_checkpoint_manager(path)
         self.checkpoint_manager.save(
             step,
             args=ocp.args.StandardSave(
@@ -467,11 +470,10 @@ class ActorCriticTrainer:
         """
         self.checkpoint_manager.wait_until_finished()
 
-    def load_model(self, path: str, step: int = None):
+    def load_models(self, step: Optional[int] = None):
         """
         Load the agent's parameters from a file.
         """
-        self.checkpoint_manager = self.init_checkpoint_manager(path)
         if step == None:
             step = self.checkpoint_manager.best_step()
         state_dict = self.checkpoint_manager.restore(
