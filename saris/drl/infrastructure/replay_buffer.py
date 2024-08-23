@@ -4,7 +4,7 @@ import os
 import json
 
 
-class WirelessReplayBuffer:
+class ReplayBuffer:
     def __init__(
         self,
         max_size: int = 100000,
