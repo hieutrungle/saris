@@ -20,17 +20,32 @@ import numpy as np
 import gymnasium as gym
 from saris.drl.envs import register_envs
 from saris.drl.networks import actor, critic
+from saris.drl.trainers import sac_trainer
 import jax
+import importlib.resources
+import saris
+import time
 
 
 def make_env(
-    env_id, sionna_config_file, drl_config_file, idx, capture_video=None, run_name=None
+    env_id,
+    sionna_config_file: str,
+    drl_config_file: str,
+    log_string: str,
+    idx: int,
+    seed: int,
+    capture_video: bool = None,
+    run_name: str = None,
 ):
     drl_config = utils.load_yaml_file(drl_config_file)
-    seed = drl_config["seed"]
 
     def thunk():
-        env = gym.make(env_id, sionna_config_file=sionna_config_file, seed=seed)
+        env = gym.make(
+            env_id,
+            sionna_config_file=sionna_config_file,
+            log_string=log_string,
+            seed=seed,
+        )
         env = gym.wrappers.TimeLimit(env, max_episode_steps=drl_config["ep_len"])
         env = gym.wrappers.RecordEpisodeStatistics(env)
         if capture_video:
@@ -58,13 +73,35 @@ def main():
         utils.log_config(drl_config)
         utils.log_config(sionna_config)
 
+    # Log string
+    current_time = time.strftime("%Y%m%d-%H%M%S")
+    log_string = "{}-{}-s{}-aclr{}-crlr{}-allr{}-b{}-d{}".format(
+        drl_config["exp_name"],
+        drl_config["env_id"],
+        drl_config["hidden_sizes"],
+        drl_config["actor_learning_rate"],
+        drl_config["critic_learning_rate"],
+        drl_config["alpha_learning_rate"],
+        drl_config["batch_size"],
+        drl_config["discount"],
+    )
+    log_string += f"-tem{drl_config['temperature']}"
+    log_string += f"-stu{drl_config['ema_decay']}"  # soft_target_update_rate
+    for replaced_str in [" ", "]", "}"]:
+        log_string = log_string.replace(replaced_str, "")
+    for replaced_str in ["[", ",", ".", "{"]:
+        log_string = log_string.replace(replaced_str, "_")
+    log_string = f"{log_string}_{current_time}"
+
     # Env
     register_envs()
     env = make_env(
         env_id=drl_config["env_id"],
         sionna_config_file=args.sionna_config_file,
         drl_config_file=args.drl_config_file,
+        log_string=log_string,
         idx=0,
+        seed=args.seed,
     )()
     discrete = isinstance(env.action_space, gym.spaces.Discrete)
     assert (
@@ -77,26 +114,51 @@ def main():
     print(f"Observation space: {ob_space}")
     print(f"Action space: {ac_space}")
 
-    # Create AC agent
-    key = jax.random.PRNGKey(args.seed)
-    actor_model = actor.Actor.create(
-        num_actions=ac_space.shape[0],
-        features=drl_config["hidden_sizes"],
-        activation="tanh",
-        dtype="bfloat16",
+    # Trainer
+    trainer_config = {
+        "observation_shape": ob_space.shape,
+        "action_shape": ac_space.shape,
+        "actor_class": actor.Actor,
+        "actor_hparams": {
+            "num_actions": ac_space.shape[0],
+            "features": drl_config["hidden_sizes"],
+            "activation": "tanh",
+            "dtype": "bfloat16",
+        },
+        "critic_class": critic.Crtic,
+        "critic_hparams": {
+            "features": drl_config["hidden_sizes"],
+            "activation": "relu",
+            "dtype": "bfloat16",
+        },
+        "actor_optimizer_hparams": {
+            "optimizer": "adamw",
+            "lr": drl_config["actor_learning_rate"],
+        },
+        "critic_optimizer_hparams": {
+            "optimizer": "adamw",
+            "lr": drl_config["critic_learning_rate"],
+        },
+        "num_critics": drl_config["num_critics"],
+        "discount": drl_config["discount"],
+        "ema_decay": drl_config["ema_decay"],
+        "grad_accum_steps": 1,
+        "seed": args.seed,
+        "logger_params": {
+            "log_dir": os.path.join(args.source_dir, "logs"),
+            "log_name": os.path.join("SARIS_SAC" + log_string),
+        },
+        "enable_progress_bar": True,
+        "debug": False,
+    }
+
+    trainer = sac_trainer.SoftActorCriticTrainer(**trainer_config)
+    trainer.print_class_variables()
+
+    print(f"*" * 80)
+    print(
+        f"Training {trainer.actor_class.__name__} and {trainer.critic_class.__name__}"
     )
-    critic_model = critic.Crtic.create(
-        features=drl_config["hidden_sizes"],
-        activation="relu",
-        dtype="bfloat16",
-    )
-    actor_example_inputs = np.zeros(ob_space.shape, dtype=np.float32)
-    critic_example_inputs = [
-        np.zeros(ob_space.shape, dtype=np.float32),
-        np.zeros(ac_space.shape, dtype=np.float32),
-    ]
-    print(actor_model.tabulate(key, actor_example_inputs))
-    print(critic_model.tabulate(key, *critic_example_inputs))
 
     # for i in range(1):
     #     ob, info = env.reset()
@@ -142,6 +204,9 @@ def parse_agrs():
     parser.add_argument("--verbose", "-v", action="store_true")
 
     args = parser.parse_args()
+    lib_dir = importlib.resources.files(saris)
+    source_dir = os.path.dirname(lib_dir)
+    args.source_dir = source_dir
     return args
 
 

@@ -10,9 +10,16 @@ from saris.utils import utils
 
 class WirelessEnvV0(Env):
 
-    def __init__(self, sionna_config_file: str, seed: int = 0, **kwargs):
+    def __init__(
+        self,
+        sionna_config_file: str,
+        log_string: str = "WirelessEnvV0",
+        seed: int = 0,
+        **kwargs
+    ):
         super(WirelessEnvV0, self).__init__()
         self.sionna_config_file = sionna_config_file
+        self.log_string = log_string
         self.seed = seed
         self.np_rng = np.random.default_rng(self.seed)
         self.current_time = "_" + time.strftime("%d-%m-%Y_%H-%M-%S")
