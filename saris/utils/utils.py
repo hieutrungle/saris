@@ -198,6 +198,14 @@ def get_dir(source_dir: str, name: str) -> str:
     return dir
 
 
+def get_os_dir(name):
+    os_dir = os.getenv(name)
+    if os_dir is None:
+        raise Exception(f"{name} environment variable is not set.")
+    mkdir_not_exists(os_dir)
+    return os_dir
+
+
 # Read and write files
 def read_first_line(file_path: str) -> str:
     with open(file_path, "rb") as f:
