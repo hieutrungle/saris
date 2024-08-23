@@ -8,6 +8,7 @@ from saris.drl.networks.network_utils import (
     _str_to_dtype,
 )
 from saris.drl.networks.mlp import MLP
+from saris.drl.networks.common_blocks import Fourier
 
 
 class Actor(nn.Module):
@@ -20,10 +21,11 @@ class Actor(nn.Module):
 
     @nn.compact
     def __call__(self, observations: jnp.ndarray, train: bool = True) -> jnp.ndarray:
-        actions = MLP(self.features, self.activation, self.dtype)(observations)
+        mapped = Fourier(self.features[0] // 2)(observations)
+        actions = MLP(self.features, self.activation, self.dtype)(mapped)
         ac_means = nn.Dense(self.num_actions)(actions)
-        ac_stds = nn.Dense(self.num_actions)(actions)
-        return ac_means.astype(jnp.float32), ac_stds.astype(jnp.float32)
+        ac_log_stds = nn.Dense(self.num_actions)(actions)
+        return ac_means.astype(jnp.float32), ac_log_stds.astype(jnp.float32)
 
     @staticmethod
     def create(

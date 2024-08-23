@@ -8,6 +8,7 @@ from saris.drl.networks.network_utils import (
     _str_to_dtype,
 )
 from saris.drl.networks.mlp import MLP
+from saris.drl.networks.common_blocks import Fourier
 
 
 class Crtic(nn.Module):
@@ -21,7 +22,9 @@ class Crtic(nn.Module):
     def __call__(
         self, observations: jnp.ndarray, actions: jnp.ndarray, train: bool = True
     ) -> jnp.ndarray:
+
         mixed = jnp.concatenate([observations, actions], axis=-1)
+        mixed = Fourier(self.features[0] // 2)(mixed)
         mixed = MLP(self.features, self.activation, self.dtype)(mixed)
         q_values = nn.Dense(1)(mixed)
         return q_values.astype(jnp.float32)

@@ -2,6 +2,7 @@ from typing import Tuple
 from jax import numpy as jnp
 from flax import linen as nn
 import functools
+import numpy as np
 
 
 class DownResidualBlock(nn.Module):
@@ -143,4 +144,21 @@ class TransformerEncoderBlock(nn.Module):
         )
         x = nn.LayerNorm(dtype=self.dtype)(x)
 
+        return x
+
+
+class Fourier(nn.Module):
+    """Fourier features for encoding the input signal."""
+
+    num_features: int
+
+    @nn.compact
+    def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
+        weights = self.param(
+            "weights",
+            nn.initializers.normal(),
+            (x.shape[-1], self.num_features),
+        )
+        x = jnp.dot(2 * np.pi * x, weights)
+        x = jnp.concatenate([jnp.sin(x), jnp.cos(x)], axis=-1)
         return x
