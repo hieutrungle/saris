@@ -154,7 +154,6 @@ class ActorCriticTrainer:
         # Init trainer parts
         self.logger = self.init_logger(logger_params)
         self.create_jitted_functions()
-        self.checkpoint_manager = self.init_checkpoint_manager(self.logger.logdir)
 
     def create_model(self, model_class: Callable, model_hparams: Dict[str, Any]):
         """
@@ -445,3 +444,55 @@ class ActorCriticTrainer:
             return jnp.expand_dims(data, axis=0)
         else:
             raise ValueError(f"Unsupported data type: {type(data)}")
+
+    def save_model(self, path: str, step: int):
+        """
+        Save the agent's parameters to a file.
+        """
+        self.checkpoint_manager = self.init_checkpoint_manager(path)
+        self.checkpoint_manager.save(
+            step,
+            args=ocp.args.StandardSave(
+                {
+                    "actor": self.actor_state,
+                    "critic": self.critic_states,
+                    "target_critic": self.target_critic_states,
+                }
+            ),
+        )
+
+    def wait_for_checkpoint(self):
+        """
+        Wait for the checkpoint manager to finish writing checkpoints.
+        """
+        self.checkpoint_manager.wait_until_finished()
+
+    def load_model(self, path: str, step: int = None):
+        """
+        Load the agent's parameters from a file.
+        """
+        self.checkpoint_manager = self.init_checkpoint_manager(path)
+        if step == None:
+            step = self.checkpoint_manager.best_step()
+        state_dict = self.checkpoint_manager.restore(
+            step,
+            args=ocp.args.StandardRestore(
+                {
+                    "actor": self.actor_state,
+                    "critic": self.critic_states,
+                    "target_critic": self.target_critic_states,
+                }
+            ),
+        )
+        self.actor_state = state_dict["actor"]
+        self.critic_states = state_dict["critic"]
+        self.target_critic_states = state_dict["target_critic"]
+        # self.state = TrainState.create(
+        #     apply_fn=self.model.apply,
+        #     params=state_dict["params"],
+        #     batch_stats=state_dict["batch_stats"],
+        #     # batch_stats=state_dict["batch_stats"],
+        #     # Optimizer will be overwritten when training starts
+        #     tx=self.state.tx if self.state.tx else optax.sgd(0.1),
+        #     rng=self.state.rng,
+        # )
