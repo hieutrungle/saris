@@ -21,6 +21,10 @@ python = ">=3.10,<3.13"
 tensorboardx = "^2.6.2.2"
 swig = "^4.2.1"
 gymnasium = "^0.29.1"
+tensorflow = {version = "^2.15", extras = ["and-cuda"]}
+sionna = "^0.18"
+jax = "^0.4.31"
+flax = "^0.8.5"
 
 [tool.poetry.dev-dependencies]
 bumpversion = "*"
@@ -35,12 +39,9 @@ black = "*"
 scipy = "^1.14.0"
 matplotlib = "^3.9.0"
 ipykernel = "^6.29.5"
-jax = { version = "^0.4.28", extras = ["cuda12"] }
 flax = "^0.8.5"
 numpy = "<2.0.0"
 tqdm = "^4.66.5"
-tensorflow = { version = "^2.14.0", extras = ["and-cuda"] }
-sionna = "^0.18.0"
 
 
 [build-system]
