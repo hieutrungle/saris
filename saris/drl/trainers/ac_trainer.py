@@ -323,6 +323,7 @@ class ActorCriticTrainer:
         options = ocp.CheckpointManagerOptions(max_to_keep=5, create=True)
         return ocp.CheckpointManager(
             checkpoint_path,
+            checkpointers=ocp.AsyncCheckpointer(ocp.PyTreeCheckpointHandler()),
             options=options,
         )
 
