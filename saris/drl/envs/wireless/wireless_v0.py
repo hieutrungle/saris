@@ -146,43 +146,14 @@ class WirelessEnvV0(Env):
 
         # Sionna simulation
         scene_name = utils.load_yaml_file(self.sionna_config_file)["scene_name"]
-        for file in glob.glob(os.path.join(assets_dir, "blender", scene_name, "*")):
-            print(file)
 
-        exit(0)
-        compute_scene_path = (
-            subprocess.check_output(
-                f'find {os.path.join(assets_dir, "blender", scene_name)} -type d -name "ceiling_idx*"',
-                shell=True,
-            )
-            .decode()
-            .strip()
-        )
-        compute_scene_path = (
-            subprocess.check_output(
-                f'find "{compute_scene_path}" -type f -name "*.xml"', shell=True
-            )
-            .decode()
-            .strip()
-        )
-        viz_scene_path = (
-            subprocess.check_output(
-                f'find {os.path.join(assets_dir, "blender", scene_name)} -type d -name "idx*"',
-                shell=True,
-            )
-            .decode()
-            .strip()
-        )
-        viz_scene_path = (
-            subprocess.check_output(
-                f'find "{viz_scene_path}" -type f -name "*.xml"', shell=True
-            )
-            .decode()
-            .strip()
-        )
+        blender_output_dir = os.path.join(assets_dir, "blender", scene_name)
+        compute_scene_dir = os.path.join(blender_output_dir, "ceiling_idx")
+        compute_scene_path = glob.glob(os.path.join(compute_scene_dir, "*.xml"))[0]
+        viz_scene_dir = os.path.join(blender_output_dir, "idx")
+        viz_scene_path = glob.glob(os.path.join(viz_scene_dir, "*.xml"))[0]
 
-        sigmap_dir = utils.get_os_dir("SIGMAP_DIR")
-
+        source_dir = utils.get_os_dir("SOURCE_DIR")
         img_dir = os.path.join(
             assets_dir, "images", self.log_string + self.current_time
         )
@@ -194,7 +165,7 @@ class WirelessEnvV0(Env):
         )
 
         siona_script = os.path.join(
-            sigmap_dir, "sigmap", "sub_tasks", "calc_pathgain.py"
+            source_dir, "sigmap", "sub_tasks", "calc_pathgain.py"
         )
         sionna_command = [
             "python",
