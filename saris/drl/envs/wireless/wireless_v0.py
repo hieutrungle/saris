@@ -188,8 +188,7 @@ class WirelessEnvV0(Env):
         tmp_dir = utils.get_os_dir("TMP_DIR")
         sionna_output_txt = os.path.join(tmp_dir, "sionna_outputs.txt")
         try:
-            subprocess.run(sionna_cmd, check=True)
-            # subprocess.run(sionna_cmd, check=True, stdout=open(sionna_output_txt, "a"))
+            subprocess.run(sionna_cmd, check=True, stdout=open(sionna_output_txt, "a"))
         except subprocess.CalledProcessError as e:
             raise Exception(f"Error running Sionna command: {e}")
         finally:

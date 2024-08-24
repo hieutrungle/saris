@@ -29,10 +29,8 @@ def main():
 
     if not args.use_cmap:
         paths = sig_cmap.compute_paths()
-        a, tau = paths.cir()
-        print(f"a shape: {a.shape}")
+        a, _ = paths.cir()
         a = tf.squeeze(a)
-        print(f"a shape: {a.shape}")
         path_gain = tf.reduce_mean(tf.reduce_sum(tf.abs(a) ** 2, axis=-1)).numpy()
 
     else:
@@ -43,12 +41,10 @@ def main():
     results_name = "path_gain-" + args.saved_path.split("/")[-2] + ".txt"
     tmp_dir = utils.get_os_dir("TMP_DIR")
     results_file = os.path.join(tmp_dir, results_name)
-    # results_file = os.path.join(tmp_dir, "path_gain.txt")
     results_dict = {
         "path_gain": path_gain,
     }
     with open(results_file, "wb") as f:
-        # json.dump(results_dict, f, cls=utils.NpEncoder)
         pickle.dump(results_dict, f)
 
 
