@@ -132,8 +132,7 @@ class WirelessEnvV0(Env):
         ]
         try:
             bl_output_txt = os.path.join(tmp_dir, "bl_outputs.txt")
-            subprocess.run(blender_command, check=True)
-            # subprocess.run(blender_command, check=True, stdout=open(bl_output_txt, "w"))
+            subprocess.run(blender_command, check=True, stdout=open(bl_output_txt, "w"))
         except subprocess.CalledProcessError as e:
             raise Exception(f"Error running Blender command: {e}")
 
@@ -147,7 +146,7 @@ class WirelessEnvV0(Env):
 
         # Sionna simulation
         scene_name = utils.load_yaml_file(self.sionna_config_file)["scene_name"]
-        for file in glob.glob(os.path.join(assets_dir, "blender", scene_name)):
+        for file in glob.glob(os.path.join(assets_dir, "blender", scene_name, "*")):
             print(file)
 
         exit(0)

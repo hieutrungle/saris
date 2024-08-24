@@ -26,6 +26,7 @@ import jax
 import importlib.resources
 import saris
 import time
+import tqdm
 
 
 def make_env(
@@ -122,8 +123,8 @@ def get_trainer_config(env: gym.Env, drl_config: dict, args: argparse.Namespace)
         "grad_accum_steps": 1,
         "seed": args.seed,
         "logger_params": {
-            "log_dir": os.path.join(args.source_dir, "logs"),
-            "log_name": os.path.join("SARIS_SAC" + drl_config["log_string"]),
+            "log_dir": os.path.join(args.source_dir, "local_assets", "logs"),
+            "log_name": os.path.join("SARIS_SAC_" + drl_config["log_string"]),
         },
         "enable_progress_bar": True,
         "debug": False,
@@ -155,8 +156,93 @@ def train_model(
     best_episodic_return_epoch = 0
     best_episodic_return_std_epoch = 0
 
+    # Load model if exists
+    if args.resume and trainer.logger.log_dir is not None:
+        print(f"Loading model from {trainer.logger.log_dir}")
+        trainer.load_models()
+        start_step = trainer.checkpoint_manager.latest_step()
+    else:
+        print(f"Training from scratch")
+        start_step = 0
+    start_step = int(start_step)
+
     # Training loop
     (observation, info) = env.reset()
+
+    for step in tqdm.tqdm(
+        range(start_step, drl_config["total_steps"]),
+        total=drl_config["total_steps"],
+        dynamic_ncols=True,
+        initial=start_step,
+    ):
+        # accumulate data in replay buffer
+        if step < drl_config["random_steps"] * 1 / 2:
+            observation, info = env.reset()
+            action = env.action_space.sample()
+        elif step < drl_config["random_steps"]:
+            action = env.action_space.sample()
+        else:
+            action = trainer.get_action(observation)
+
+        try:
+            next_observation, reward, terminated, truncated, info = env.step(action)
+        except Exception as e:
+            print(f"Error in step {step}: {e}")
+            time.sleep(2)
+            continue
+
+        done = terminated or truncated
+        reward = np.asarray(reward, dtype=np.float32)
+        done = np.asarray(done, dtype=np.float16)
+
+        print(f"step={step}, info={info}")
+        print(f"observation={observation}")
+        print(f"action={action}")
+        print(f"next_observation={next_observation}")
+        print(f"reward={reward}")
+        print(f"done={done}")
+        exit()
+
+        replay_buffer.insert(
+            observation=observation,
+            action=action,
+            reward=reward,
+            next_observation=next_observation,
+            done=done,
+        )
+
+        if done:
+            trainer.logger.log_metrics({"train_return": info["episode"]["r"]}, step)
+            trainer.logger.log_metrics({"train_ep_len": info["episode"]["l"]}, step)
+            observation, info = env.reset()
+        else:
+            observation = next_observation
+
+        # train agent
+        if step > drl_config["training_starts"]:
+            for _ in range(drl_config["num_train_steps_per_env_step"]):
+                batch = replay_buffer.sample(drl_config["batch_size"])
+                obs, actions, rewards, next_obs, dones = (
+                    batch["observations"],
+                    batch["actions"],
+                    batch["rewards"],
+                    batch["next_observations"],
+                    batch["dones"],
+                )
+                update_info = trainer.update(
+                    obs, actions, rewards, next_obs, dones, step
+                )
+
+            # logging
+            if step % args.log_interval == 0:
+                trainer.logger.log_metrics(update_info, step)
+                trainer.logger.flush()
+
+            if reward > best_return:
+                best_return = reward
+                trainer.save_models(step)
+    trainer.wait_for_checkpoint()
+    return
 
     # for i in range(1):
     #     ob, info = env.reset()
@@ -233,6 +319,7 @@ def parse_agrs():
     parser.add_argument("--seed", type=int, default=1)
     parser.add_argument("--log_interval", type=int, default=1)
     parser.add_argument("--verbose", "-v", action="store_true")
+    parser.add_argument("--resume", "-r", action="store_true")
 
     args = parser.parse_args()
     lib_dir = importlib.resources.files(saris)
