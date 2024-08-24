@@ -87,45 +87,6 @@ def log_config(config: Dict[str, Union[str, float, bool]]) -> None:
     print(f"{'*'*24} CONFIG END {'*'*24}\n")
 
 
-# Input and output folders
-def get_input_folders(
-    args: argparse.Namespace, config: Dict[str, Union[str, float, bool]]
-) -> Tuple[str]:
-    # Scene directory
-    current_dir = os.path.dirname(os.path.realpath(__file__))
-    parent_dir = os.path.dirname(os.path.dirname(current_dir))
-    asset_dir = os.path.join(parent_dir, "assets")
-    mkdir_not_exists(asset_dir)
-    blender_scene_dir = os.path.join(asset_dir, "blender")
-    mkdir_not_exists(blender_scene_dir)
-
-    cm_scene_folders = glob.glob(
-        os.path.join(
-            blender_scene_dir,
-            f"{config.scene_name}",
-            f"ceiling_idx_{args.index}*",
-        )
-    )
-    cm_scene_folders = sorted(
-        cm_scene_folders, key=lambda x: float(re.findall("(\d+)", x)[0])
-    )
-    sort_nicely(cm_scene_folders)
-
-    viz_scene_folders = glob.glob(
-        os.path.join(
-            blender_scene_dir,
-            f"{config.scene_name}",
-            f"idx_{args.index}*",
-        )
-    )
-    viz_scene_folders = sorted(
-        viz_scene_folders, key=lambda x: float(re.findall("(\d+)", x)[0])
-    )
-    sort_nicely(viz_scene_folders)
-
-    return (cm_scene_folders, viz_scene_folders)
-
-
 def get_source_dir() -> str:
     current_dir = os.path.dirname(os.path.realpath(__file__))
     source_dir = os.path.dirname(os.path.dirname(current_dir))
@@ -136,28 +97,6 @@ def get_asset_dir() -> str:
     source_dir = get_source_dir()
     assets_dir = os.path.join(source_dir, "assets")
     return assets_dir
-
-
-def get_image_dir(config: Dict[str, Union[str, float, bool]]) -> str:
-    assets_dir = get_asset_dir()
-    img_dir = os.path.join(assets_dir, "images", f"{config.scene_name}")
-    mkdir_not_exists(img_dir)
-
-    return img_dir
-
-
-def get_video_dir(config: Dict[str, Union[str, float, bool]]) -> str:
-    assets_dir = get_asset_dir()
-    video_dir = os.path.join(assets_dir, "videos")
-    mkdir_not_exists(video_dir)
-    return video_dir
-
-
-def get_results_dir(config: Dict[str, Union[str, float, bool]]) -> str:
-    assets_dir = get_asset_dir()
-    results_dir = os.path.join(assets_dir, "results")
-    mkdir_not_exists(results_dir)
-    return results_dir
 
 
 def dict_to_csv(d: Dict[str, Union[str, float, bool]]) -> str:

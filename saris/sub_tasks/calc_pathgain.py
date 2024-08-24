@@ -5,10 +5,9 @@ gpu_num = 0
 os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_num)
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
 
-from saris.utils import utils, logger
+from saris.utils import utils
 from saris.sigmap import signal_cmap
 import tensorflow as tf
-import json
 import pickle
 
 
