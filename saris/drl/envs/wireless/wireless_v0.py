@@ -197,7 +197,7 @@ class WirelessEnvV0(Env):
 
         results_name = "path_gain-" + self.log_string + self.current_time + ".txt"
         results_file = os.path.join(tmp_dir, results_name)
-        with open(results_file, "r") as f:
+        with open(results_file, "rb") as f:
             # results_dict = json.load(f)
             results_dict = pickle.load(f)
             path_gain = float(results_dict["path_gain"])

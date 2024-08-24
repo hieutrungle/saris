@@ -3,7 +3,7 @@ import os
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
 os.environ["TF_GPU_ALLOCATOR"] = "cuda_malloc_async"  # to avoid memory fragmentation
 # os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
-os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = ".30"
+os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = ".20"
 
 # Jax acceleration flags
 os.environ["XLA_FLAGS"] = (
@@ -274,9 +274,9 @@ def eval_model(trainer, env, drl_config, args):
 
 def main():
     args = parse_agrs()
-    drl_config = utils.load_yaml_file(args.drl_config_file)
+    drl_config = utils.load_config(args.drl_config_file)
     drl_config["log_string"] = get_log_string(drl_config)
-    sionna_config = utils.load_yaml_file(args.sionna_config_file)
+    sionna_config = utils.load_config(args.sionna_config_file)
 
     # set random seeds
     np.random.seed(args.seed)

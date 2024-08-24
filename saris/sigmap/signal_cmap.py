@@ -2,6 +2,7 @@ from saris.utils import utils, timer, map_prep
 import tensorflow as tf
 import sionna.rt
 import gc
+from typing import Optional
 
 
 class SignalCoverageMap:
@@ -30,10 +31,10 @@ class SignalCoverageMap:
     def compute_cmap(self, **kwargs) -> sionna.rt.CoverageMap:
         # Compute coverage maps with ceiling on
         if self.verbose:
-            print.log(f"Computing coverage map for {self._compute_scene_path}")
+            print(f"Computing coverage map for {self._compute_scene_path}")
             with timer.Timer(
                 text="Elapsed coverage map time: {:0.4f} seconds\n",
-                print_fn=print.log,
+                print_fn=print,
             ):
                 cmap = self._compute_cmap(**kwargs)
         else:
@@ -46,10 +47,10 @@ class SignalCoverageMap:
         scene = map_prep.prepare_scene(self.config, self._compute_scene_path, self.cam)
 
         cm_kwargs = dict(
-            max_depth=self.config.cm_max_depth,
-            cm_cell_size=self.config.cm_cell_size,
-            num_samples=self.config.cm_num_samples,
-            diffraction=self.config.diffraction,
+            max_depth=self.config["cm_max_depth"],
+            cm_cell_size=self.config["cm_cell_size"],
+            num_samples=self.config["cm_num_samples"],
+            diffraction=self.config["diffraction"],
         )
         if kwargs:
             cm_kwargs.update(kwargs)
@@ -60,10 +61,10 @@ class SignalCoverageMap:
     def compute_paths(self, **kwargs) -> sionna.rt.Paths:
         # Compute coverage maps with ceiling on
         if self.verbose:
-            print.log(f"Computing paths for {self._compute_scene_path}")
+            print(f"Computing paths for {self._compute_scene_path}")
             with timer.Timer(
                 text="Elapsed paths time: {:0.4f} seconds\n",
-                print_fn=print.log,
+                print_fn=print,
             ):
                 paths = self._compute_paths(**kwargs)
         else:
@@ -76,8 +77,8 @@ class SignalCoverageMap:
         scene = map_prep.prepare_scene(self.config, self._compute_scene_path, self.cam)
 
         paths_kwargs = dict(
-            max_depth=self.config.path_max_depth,
-            num_samples=self.config.path_num_samples,
+            max_depth=self.config["path_max_depth"],
+            num_samples=self.config["path_num_samples"],
         )
         if kwargs:
             paths_kwargs.update(kwargs)
@@ -104,16 +105,16 @@ class SignalCoverageMap:
 
         img_dir = utils.get_image_dir(self.config)
         render_filename = utils.create_filename(
-            img_dir, f"{self.config.mitsuba_filename}_00000.png"
+            img_dir, f"{self.config['mitsuba_filename']}_00000.png"
         )
         render_config = dict(
             camera=self.cam,
             paths=paths,
             filename=render_filename,
             coverage_map=cm,
-            cm_vmin=self.config.cm_vmin,
-            cm_vmax=self.config.cm_vmax,
-            resolution=self.config.resolution,
+            cm_vmin=self.config["cm_vmin"],
+            cm_vmax=self.config["cm_vmax"],
+            resolution=self.config["resolution"],
             show_devices=True,
         )
         scene.render_to_file(**render_config)
@@ -122,14 +123,14 @@ class SignalCoverageMap:
         self,
         coverage_map: sionna.rt.CoverageMap = None,
         paths: sionna.rt.Paths = None,
-        filename: str = None,
+        filename: Optional[str] = None,
     ) -> None:
         scene = map_prep.prepare_scene(self.config, self._viz_scene_path, self.cam)
 
         if filename is None:
             img_dir = utils.get_image_dir(self.config)
             render_filename = utils.create_filename(
-                img_dir, f"{self.config.mitsuba_filename}_00000.png"
+                img_dir, f"{self.config['mitsuba_filename']}_00000.png"
             )
         else:
             render_filename = filename
@@ -138,9 +139,9 @@ class SignalCoverageMap:
             paths=paths,
             filename=render_filename,
             coverage_map=coverage_map,
-            cm_vmin=self.config.cm_vmin,
-            cm_vmax=self.config.cm_vmax,
-            resolution=self.config.resolution,
+            cm_vmin=self.config["cm_vmin"],
+            cm_vmax=self.config["cm_vmax"],
+            resolution=self.config["resolution"],
             show_devices=True,
         )
         scene.render_to_file(**render_config)
@@ -148,7 +149,7 @@ class SignalCoverageMap:
     def get_path_gain_slow(self, coverage_map: sionna.rt.CoverageMap) -> float:
         coverage_map_tensor = coverage_map.as_tensor()
         coverage_map_centers = coverage_map.cell_centers
-        rx_position = self.config.rx_position
+        rx_position = self.config["rx_position"]
         distances = tf.norm(coverage_map_centers - rx_position, axis=-1)
         min_dist = tf.reduce_min(distances)
         min_ind = tf.where(tf.equal(distances, min_dist))[0]
@@ -160,7 +161,7 @@ class SignalCoverageMap:
     def get_path_gain(self, coverage_map: sionna.rt.CoverageMap) -> float:
         coverage_map_tensor = coverage_map.as_tensor()
         coverage_map_centers = coverage_map.cell_centers
-        rx_position = tf.convert_to_tensor(self.config.rx_position)
+        rx_position = tf.convert_to_tensor(self.config["rx_position"])
 
         top_left_pos = coverage_map_centers[0, 0, 0:2] - (coverage_map.cell_size / 2)
         x_distance_to_top_left = rx_position[0] - top_left_pos[0]

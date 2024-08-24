@@ -9,22 +9,12 @@ from saris.utils import utils, logger
 from saris.sigmap import signal_cmap
 import tensorflow as tf
 import json
-import sionna
 import pickle
 
 
 def main():
     args = create_args()
-    config = utils.load_yaml_file(args.config_file)
-    log_dir = "./tmp_logs"
-    utils.mkdir_not_exists(log_dir)
-    logger.configure(dir=log_dir)
-
-    logger.log(f"using tensorflow version: {tf.__version__}")
-    if tf.config.list_physical_devices("GPU") == []:
-        logger.log(f"no GPU available\n")
-    else:
-        logger.log(f"Available GPUs: {tf.config.list_physical_devices('GPU')}\n")
+    config = utils.load_config(args.config_file)
 
     if args.verbose:
         utils.log_args(args)
@@ -51,13 +41,13 @@ def main():
         sig_cmap.render_to_file(coverage_map, None, filename=args.saved_path)
 
     results_name = "path_gain-" + args.saved_path.split("/")[-2] + ".txt"
-    tmp_dir = utils.get_tmp_dir()
+    tmp_dir = utils.get_os_dir("TMP_DIR")
     results_file = os.path.join(tmp_dir, results_name)
     # results_file = os.path.join(tmp_dir, "path_gain.txt")
     results_dict = {
         "path_gain": path_gain,
     }
-    with open(results_file, "w") as f:
+    with open(results_file, "wb") as f:
         # json.dump(results_dict, f, cls=utils.NpEncoder)
         pickle.dump(results_dict, f)
 
