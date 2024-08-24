@@ -13,6 +13,8 @@ classifiers = [
     'License :: OSI Approved :: MIT License',
     'Natural Language :: English',
     'Programming Language :: Python :: 3.10',
+    'Programming Language :: Python :: 3.11',
+    'Programming Language :: Python :: 3.12',
 ]
 packages = [{ include = "saris" }, { include = "tests", format = "sdist" }]
 
@@ -22,9 +24,9 @@ tensorboardx = ">=2.6"
 swig = ">=4.2"
 gymnasium = ">=0.29"
 orbax-checkpoint = ">0.4,<0.7"
-jax = {version = ">=0.4.28", extras = ["cuda12"]}
+jax = { version = ">=0.4.28", extras = ["cuda12"] }
 flax = ">=0.8"
-tensorflow = {version = ">=2.13,<=2.15", extras = ["and-cuda"]}
+tensorflow = { version = ">=2.13,<=2.15", extras = ["and-cuda"] }
 sionna = ">=0.15,<0.19"
 
 [tool.poetry.dev-dependencies]
