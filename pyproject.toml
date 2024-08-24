@@ -26,8 +26,8 @@ gymnasium = ">=0.29"
 orbax-checkpoint = ">0.4,<0.7"
 jax = { version = ">=0.4.28", extras = ["cuda12"] }
 flax = ">=0.8"
-tensorflow = { version = ">=2.13,<=2.15", extras = ["and-cuda"] }
-sionna = ">=0.15,<0.18"
+sionna = ">=0.15,<0.19"
+tensorflow = { version = ">=2.13,<2.16", extras = ["and-cuda"] }
 
 [tool.poetry.dev-dependencies]
 bumpversion = "*"
