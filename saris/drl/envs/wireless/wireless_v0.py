@@ -8,6 +8,7 @@ from gymnasium import Env, spaces
 from saris.utils import utils
 import pickle
 import glob
+import json
 
 
 class WirelessEnvV0(Env):
@@ -116,7 +117,7 @@ class WirelessEnvV0(Env):
         )
         scene_name = utils.load_yaml_file(self.sionna_config_file)["scene_name"]
 
-        blender_command = [
+        blender_cmd = [
             blender_app,
             "-b",
             os.path.join(blender_dir, "models", f"{scene_name}.blend"),
@@ -132,7 +133,7 @@ class WirelessEnvV0(Env):
         ]
         try:
             bl_output_txt = os.path.join(tmp_dir, "bl_outputs.txt")
-            subprocess.run(blender_command, check=True, stdout=open(bl_output_txt, "w"))
+            subprocess.run(blender_cmd, check=True, stdout=open(bl_output_txt, "w"))
         except subprocess.CalledProcessError as e:
             raise Exception(f"Error running Blender command: {e}")
 
@@ -144,15 +145,15 @@ class WirelessEnvV0(Env):
 
         assets_dir = utils.get_os_dir("ASSETS_DIR")
 
-        # Sionna simulation
+        # Set up geometry paths for Sionna script
         scene_name = utils.load_yaml_file(self.sionna_config_file)["scene_name"]
-
         blender_output_dir = os.path.join(assets_dir, "blender", scene_name)
         compute_scene_dir = os.path.join(blender_output_dir, "ceiling_idx")
         compute_scene_path = glob.glob(os.path.join(compute_scene_dir, "*.xml"))[0]
         viz_scene_dir = os.path.join(blender_output_dir, "idx")
         viz_scene_path = glob.glob(os.path.join(viz_scene_dir, "*.xml"))[0]
 
+        # Path for outputing iamges if we want to visualize the coverage map
         source_dir = utils.get_os_dir("SOURCE_DIR")
         img_dir = os.path.join(
             assets_dir, "images", self.log_string + self.current_time
@@ -164,10 +165,11 @@ class WirelessEnvV0(Env):
             img_dir, f"{mitsuba_filename}_00000.png"
         )
 
+        # Run Sionna script
         siona_script = os.path.join(
-            source_dir, "sigmap", "sub_tasks", "calc_pathgain.py"
+            source_dir, "saris", "sub_tasks", "calc_pathgain.py"
         )
-        sionna_command = [
+        sionna_cmd = [
             "python",
             siona_script,
             "-cfg",
@@ -182,13 +184,12 @@ class WirelessEnvV0(Env):
             str(self.seed),
         ]
         if use_cmap:
-            sionna_command.append("--use_cmap")
-        tmp_dir = utils.get_tmp_dir()
+            sionna_cmd.append("--use_cmap")
+        tmp_dir = utils.get_os_dir("TMP_DIR")
         sionna_output_txt = os.path.join(tmp_dir, "sionna_outputs.txt")
         try:
-            subprocess.run(
-                sionna_command, check=True, stdout=open(sionna_output_txt, "a")
-            )
+            subprocess.run(sionna_cmd, check=True)
+            # subprocess.run(sionna_cmd, check=True, stdout=open(sionna_output_txt, "a"))
         except subprocess.CalledProcessError as e:
             raise Exception(f"Error running Sionna command: {e}")
         finally:
@@ -197,11 +198,8 @@ class WirelessEnvV0(Env):
         results_name = "path_gain-" + self.log_string + self.current_time + ".txt"
         results_file = os.path.join(tmp_dir, results_name)
         with open(results_file, "r") as f:
-            results_dict = json.load(f)
-            path_gain = results_dict["path_gain"]
-
-        path_gain = float(path_gain)
+            # results_dict = json.load(f)
+            results_dict = pickle.load(f)
+            path_gain = float(results_dict["path_gain"])
         path_gain_dB = utils.linear2dB(path_gain)
-        plt.clf()
-        plt.close("all")
         return path_gain_dB

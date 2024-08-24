@@ -27,6 +27,7 @@ import importlib.resources
 import saris
 import time
 import tqdm
+from typing_extensions import TypeAliasType
 
 
 def make_env(
@@ -189,6 +190,7 @@ def train_model(
         except Exception as e:
             print(f"Error in step {step}: {e}")
             time.sleep(2)
+            exit()
             continue
 
         done = terminated or truncated

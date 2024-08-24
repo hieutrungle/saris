@@ -5,16 +5,17 @@ gpu_num = 0
 os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_num)
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
 
-from sigmap.utils import utils, logger, scripting_utils
-from sigmap import compute
+from saris.utils import utils, logger
+from saris.sigmap import signal_cmap
 import tensorflow as tf
 import json
 import sionna
+import pickle
 
 
 def main():
     args = create_args()
-    config = scripting_utils.make_sionna_config(args.config_file)
+    config = utils.load_yaml_file(args.config_file)
     log_dir = "./tmp_logs"
     utils.mkdir_not_exists(log_dir)
     logger.configure(dir=log_dir)
@@ -32,20 +33,21 @@ def main():
     tf.random.set_seed(args.seed)
 
     # Prepare folders
-    sig_cmap = compute.signal_cmap.SignalCoverageMap(
+    sig_cmap = signal_cmap.SignalCoverageMap(
         config, args.compute_scene_path, args.viz_scene_path, args.verbose
     )
 
     if not args.use_cmap:
         paths = sig_cmap.compute_paths()
         a, tau = paths.cir()
+        print(f"a shape: {a.shape}")
         a = tf.squeeze(a)
+        print(f"a shape: {a.shape}")
         path_gain = tf.reduce_mean(tf.reduce_sum(tf.abs(a) ** 2, axis=-1)).numpy()
 
     else:
         coverage_map = sig_cmap.compute_cmap()
         path_gain = sig_cmap.get_path_gain(coverage_map)
-
         sig_cmap.render_to_file(coverage_map, None, filename=args.saved_path)
 
     results_name = "path_gain-" + args.saved_path.split("/")[-2] + ".txt"
@@ -56,13 +58,12 @@ def main():
         "path_gain": path_gain,
     }
     with open(results_file, "w") as f:
-        json.dump(results_dict, f, cls=utils.NpEncoder)
+        # json.dump(results_dict, f, cls=utils.NpEncoder)
+        pickle.dump(results_dict, f)
 
 
 def create_args() -> argparse.ArgumentParser:
     """Parses command line arguments."""
-    defaults = dict()
-    # defaults.update(utils.rt_defaults())
     parser = argparse.ArgumentParser()
     parser.add_argument("--config_file", "-cfg", type=str, required=True)
     parser.add_argument("--compute_scene_path", "-cp", type=str, required=True)
@@ -72,7 +73,6 @@ def create_args() -> argparse.ArgumentParser:
     parser.add_argument("--verbose", "-v", action="store_true", default=False)
     parser.add_argument("--seed", type=int, default=0)
 
-    scripting_utils.add_dict_to_argparser(parser, defaults)
     args = parser.parse_args()
     if args.viz_scene_path is None or args.viz_scene_path == "":
         args.viz_scene_path = args.compute_scene_path
