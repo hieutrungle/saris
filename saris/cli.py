@@ -305,7 +305,6 @@ def main():
 
     if args.command == "train":
         trainer.train_agent(env, drl_config, args)
-        # train_model(trainer, env, drl_config, args)
     elif args.command == "eval":
         eval_model(trainer, env, drl_config, args)
     else:

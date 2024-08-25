@@ -19,6 +19,9 @@ import gymnasium as gym
 import argparse
 from saris.utils import utils
 from saris.drl.infrastructure.replay_buffer import ReplayBuffer
+from flax.training import orbax_utils
+import glob
+import re
 
 
 class ActorCriticTrainer:
@@ -426,7 +429,16 @@ class ActorCriticTrainer:
         )
 
         # Load model if exists
+        is_ckpt_available = False
         if args.resume and self.logger.log_dir is not None:
+            subdirs = [
+                name
+                for name in os.listdir(self.logger.log_dir)
+                if re.match(r"^\d+$", name)
+            ]
+            if subdirs:
+                is_ckpt_available = True
+        if is_ckpt_available:
             print(f"Loading model from {self.logger.log_dir}")
             self.load_models()
             start_step = self.checkpoint_manager.latest_step()
@@ -582,15 +594,15 @@ class ActorCriticTrainer:
         """
         Save the agent's parameters to a file.
         """
+        ckpt = {
+            "agent": self.agent,
+            "config": self.config,
+        }
+        save_args = orbax_utils.save_args_from_target(ckpt)
         self.checkpoint_manager.save(
             step,
-            args=ocp.args.StandardSave(
-                {
-                    "actor": self.agent.actor_state,
-                    "critic": self.agent.critic_states,
-                    "target_critic": self.agent.target_critic_states,
-                }
-            ),
+            ckpt,
+            save_kwargs={"save_args": save_args},
         )
 
     def wait_for_checkpoint(self):
@@ -605,27 +617,12 @@ class ActorCriticTrainer:
         """
         if step == None:
             step = self.checkpoint_manager.best_step()
+        target = {
+            "agent": self.agent,
+            "config": self.config,
+        }
         state_dict = self.checkpoint_manager.restore(
             step,
-            args=ocp.args.StandardRestore(
-                {
-                    "actor": self.agent.actor_state,
-                    "critic": self.agent.critic_states,
-                    "target_critic": self.agent.target_critic_states,
-                }
-            ),
+            items=target,
         )
-        self.agent = ActorCritic(
-            actor_state=state_dict["actor"],
-            critic_states=state_dict["critic"],
-            target_critic_states=state_dict["target_critic"],
-        )
-        # self.state = TrainState.create(
-        #     apply_fn=self.model.apply,
-        #     params=state_dict["params"],
-        #     batch_stats=state_dict["batch_stats"],
-        #     # batch_stats=state_dict["batch_stats"],
-        #     # Optimizer will be overwritten when training starts
-        #     tx=self.state.tx if self.state.tx else optax.sgd(0.1),
-        #     rng=self.state.rng,
-        # )
+        self.agent = state_dict["agent"]
