@@ -36,6 +36,7 @@ class WirelessEnvV0(Env):
 
         self.info = {}
         self.use_cmap = False
+        self.location_known = False
 
     def _get_observation(self) -> dict:
         observation = np.concatenate(
@@ -54,6 +55,7 @@ class WirelessEnvV0(Env):
         return spaces.Box(low=-1.0, high=1.0, shape=action_shape, dtype=np.float32)
 
     def reset(self, seed: int = None, options: dict = None) -> np.ndarray:
+        super().reset(seed=seed, options=options)
         if seed is not None:
             self.seed = seed
             self.np_rng = np.random.default_rng(self.seed)
@@ -67,7 +69,11 @@ class WirelessEnvV0(Env):
         pos = np.tile(pos, (focal_point_shape[0], 1))
 
         # TODO: get random uniform number from a sphere with radius that is half the distance between RIS and RX; RIS and tx
-        delta_focal_points = self.np_rng.uniform(-2, 2, size=self._focal_points.shape)
+        focal_shape = self._focal_points.shape
+        if self.location_known:
+            delta_focal_points = self.np_rng.uniform(-2, 2, focal_shape)
+        else:
+            delta_focal_points = self.np_rng.uniform(-12, 12, focal_shape)
         self._focal_points = pos + delta_focal_points
         self._focal_points = np.asarray(self._focal_points, dtype=np.float32)
 
