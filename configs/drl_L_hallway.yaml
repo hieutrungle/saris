@@ -3,15 +3,18 @@ exp_name: sac_beamforming_hallway_L
 
 replay_buffer_capacity: 25000
 total_steps: 7500
-random_steps: 800
-training_starts: 850
+# random_steps: 800
+# training_starts: 850
+# ep_len: 250
+random_steps: 2
+training_starts: 4
 ep_len: 250
 
 # Training settings
 actor_learning_rate: 0.0001
-critic_learning_rate: 0.0005
+critic_learning_rate: 0.0003
 alpha_learning_rate: 0.0002
-batch_size: 256
+batch_size: 3
 num_train_steps_per_env_step: 10
 
 # Actor-critic configuration
@@ -21,5 +24,5 @@ ema_decay: 0.95 # soft_target_update_rate
 num_critics: 2
 num_critic_updates: 5
 temperature: 0.05
-num_actor_samples: 20
+num_actor_samples: 4
 saved_path: "./saved_models/"

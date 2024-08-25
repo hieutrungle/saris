@@ -117,6 +117,7 @@ def get_trainer_config(env: gym.Env, drl_config: dict, args: argparse.Namespace)
             "optimizer": "adamw",
             "lr": drl_config["critic_learning_rate"],
         },
+        "num_actor_samples": drl_config["num_actor_samples"],
         "num_critics": drl_config["num_critics"],
         "discount": drl_config["discount"],
         "ema_decay": drl_config["ema_decay"],
@@ -149,12 +150,6 @@ def train_model(
     replay_buffer = ReplayBuffer(
         drl_config["replay_buffer_capacity"], buffer_saved_dir, seed=args.seed
     )
-
-    ep_len = env.spec.max_episode_steps
-    best_episodic_return = -np.inf
-    best_episodic_return_std = np.inf
-    best_episodic_return_epoch = 0
-    best_episodic_return_std_epoch = 0
 
     # Load model if exists
     if args.resume and trainer.logger.log_dir is not None:
@@ -217,49 +212,9 @@ def train_model(
         else:
             observation = next_observation
 
-        # # train agent
-        # if step > drl_config["training_starts"]:
-        #     for _ in range(drl_config["num_train_steps_per_env_step"]):
-        #         batch = replay_buffer.sample(drl_config["batch_size"])
-        #         obs, actions, rewards, next_obs, dones = (
-        #             batch["observations"],
-        #             batch["actions"],
-        #             batch["rewards"],
-        #             batch["next_observations"],
-        #             batch["dones"],
-        #         )
-        #         update_info = trainer.update(
-        #             obs, actions, rewards, next_obs, dones, step
-        #         )
-
-        #     # logging
-        #     if step % args.log_interval == 0:
-        #         trainer.logger.log_metrics(update_info, step)
-        #         trainer.logger.flush()
-
-        #     if reward > best_return:
-        #         best_return = reward
-        #         trainer.save_models(step)
     trainer.wait_for_checkpoint()
     print(f"Training complete!\n")
     return
-
-    # for i in range(1):
-    #     ob, info = env.reset()
-    #     done = False
-    #     j = 0
-    #     while not done:
-    #         ac = ac_space.sample()
-    #         ob, rew, terminated, truncated, info = env.step(ac)
-    #         print(
-    #             f"step={j}, reward={rew}, truncated={truncated}, terminated={terminated}, info={info}"
-    #         )
-    #         if "episode" in info.keys():
-    #             print(f"global_step={j}, episodic_return={info['episode']['r']}")
-    #         done = terminated or truncated
-    #         if done or j >= 300:
-    #             break
-    pass
 
 
 def eval_model(trainer, env, drl_config, args):

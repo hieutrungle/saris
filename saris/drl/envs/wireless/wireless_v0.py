@@ -88,9 +88,10 @@ class WirelessEnvV0(Env):
         next_observation = self._get_observation()
 
         truncated = False
-        reward = self._calculate_reward(use_cmap=self.use_cmap)
-        terminated = False
+        reward, sim_info = self._calculate_reward(use_cmap=self.use_cmap)
+        self.info.update(sim_info)
 
+        terminated = False
         return next_observation, reward, terminated, truncated, self.info
 
     def _calculate_reward(self, use_cmap: bool) -> float:
@@ -99,9 +100,9 @@ class WirelessEnvV0(Env):
         self._run_blender()
 
         # Run Sionna to get reward
-        reward = self._run_sionna(use_cmap=use_cmap)
+        reward, info = self._run_sionna(use_cmap=use_cmap)
 
-        return reward
+        return reward, info
 
     def _run_blender(self):
 
@@ -143,9 +144,11 @@ class WirelessEnvV0(Env):
         except subprocess.CalledProcessError as e:
             raise Exception(f"Error running Blender command: {e}")
 
-    def _run_sionna(self, use_cmap: bool = False) -> float:
-        path_gain = self._cal_path_gain(use_cmap=use_cmap)
-        return path_gain
+    def _run_sionna(self, use_cmap: bool = False) -> Tuple[float, float]:
+        path_gain_dB = self._cal_path_gain(use_cmap=use_cmap)
+        reward = path_gain_dB - (-90)
+        reward = reward * 1.5
+        return reward, {"path_gain_dB": path_gain_dB}
 
     def _cal_path_gain(self, use_cmap: bool = False) -> float:
 

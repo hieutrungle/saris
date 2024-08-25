@@ -39,6 +39,7 @@ class ActorCriticTrainer:
         critic_hparams: Dict[str, Any],
         actor_optimizer_hparams: Dict[str, Any],
         critic_optimizer_hparams: Dict[str, Any],
+        num_actor_samples: int = 16,
         num_critics: int = 2,
         discount: float = 0.9,
         ema_decay: float = 0.95,
@@ -83,6 +84,7 @@ class ActorCriticTrainer:
         self.critic_hparams = critic_hparams
         self.actor_optimizer_hparams = actor_optimizer_hparams
         self.critic_optimizer_hparams = critic_optimizer_hparams
+        self.num_actor_samples = num_actor_samples
         self.num_critics = num_critics
         self.discount = discount
         self.ema_decay = ema_decay
@@ -91,6 +93,8 @@ class ActorCriticTrainer:
         self.logger_params = logger_params
         self.enable_progress_bar = enable_progress_bar
         self.debug = debug
+        self.debug = True
+        jax.config.update("jax_debug_nans", True)
 
         # Set of hyperparameters to save
         self.config = {
@@ -357,7 +361,7 @@ class ActorCriticTrainer:
             assert False, f'Unknown optimizer "{opt_class}"'
 
         # Initialize learning rate scheduler
-        # A cosine decay scheduler is used, but others are also possible
+        # A cosine decay scheduler is used
         lr = hparams.pop("lr", 1e-3)
         num_train_steps = int(num_epochs * num_steps_per_epoch)
         warmup_steps = hparams.pop("warmup_steps", num_train_steps // 5)
@@ -382,7 +386,6 @@ class ActorCriticTrainer:
             return optax.chain(*transf, opt_class(learning_rate, **hparams))
 
         optimizer = chain_optimizer(learning_rate=lr_schedule)
-        # optimizer = optax.chain(*transf, opt_class(lr_schedule, **hparams))
 
         # Initialize training state
         state = TrainState.create(
@@ -404,21 +407,27 @@ class ActorCriticTrainer:
         print(f"Training {self.actor_class.__name__} and {self.critic_class.__name__}")
 
         # Initialize optimizer for actor and critic
-        self.agent.actor_state = self.init_optimizer(
+        actor_state = self.init_optimizer(
             self.agent.actor_state,
             self.actor_optimizer_hparams,
             drl_config["total_steps"],
             drl_config["num_train_steps_per_env_step"],
         )
+        critic_states = []
         for i in range(self.num_critics):
-            self.agent.critic_states[i] = self.agent.critic_states[i].replace(
-                tx=self.init_optimizer(
-                    self.agent.critic_states[i],
-                    self.critic_optimizer_hparams,
-                    drl_config["total_steps"],
-                    drl_config["num_train_steps_per_env_step"],
-                )
+            critic_state = self.init_optimizer(
+                self.agent.critic_states[i],
+                self.critic_optimizer_hparams,
+                drl_config["total_steps"],
+                drl_config["num_train_steps_per_env_step"]
+                * drl_config["num_critic_updates"],
             )
+            critic_states.append(critic_state)
+        self.agent = self.agent.replace(
+            actor_state=actor_state,
+            critic_states=critic_states,
+            target_critic_states=self.agent.target_critic_states,
+        )
 
         # Create replay buffer
         local_assets_dir = utils.get_dir(args.source_dir, "local_assets")
@@ -459,18 +468,20 @@ class ActorCriticTrainer:
         ):
             # accumulate data in replay buffer
             if step < drl_config["random_steps"] * 1 / 2:
+                print(f"location_known")
                 env.unwrapped.location_known = True
-                # env.set_location_known(True)
                 observation, info = env.reset()
                 action = env.action_space.sample()
             elif step < drl_config["random_steps"]:
-                # env.set_location_known(False)
+                print(f"random steps")
                 env.unwrapped.location_known = False
                 action = env.action_space.sample()
             else:
-                # env.set_location_known(False)
                 env.unwrapped.location_known = False
-                action = self.get_agent().get_action(observation)
+                print(f"no random steps")
+                actions = self.get_agent().get_actions(observation.reshape(1, -1))
+                actions = np.asarray(actions, dtype=np.float32)
+                action = np.squeeze(actions, axis=0)
 
             try:
                 next_observation, reward, terminated, truncated, info = env.step(action)
@@ -482,13 +493,14 @@ class ActorCriticTrainer:
             done = terminated or truncated
             reward = np.asarray(reward, dtype=np.float32)
             done = np.asarray(done, dtype=np.float16)
+            action = np.asarray(action, dtype=np.float32)
 
             print(f"step={step}, info={info}")
             print(f"observation={observation}")
             print(f"action={action}")
             print(f"next_observation={next_observation}")
             print(f"reward={reward}")
-            print(f"done={done}")
+            print(f"done={done}\n")
 
             replay_buffer.insert(
                 observation=observation,
@@ -505,19 +517,14 @@ class ActorCriticTrainer:
             else:
                 observation = next_observation
 
-            # train agent
-            if step > drl_config["training_starts"]:
+            # update agent
+            if step >= drl_config["training_starts"]:
                 for _ in range(drl_config["num_train_steps_per_env_step"]):
                     batch = replay_buffer.sample(drl_config["batch_size"])
-                    obs, actions, rewards, next_obs, dones = (
-                        batch["observations"],
-                        batch["actions"],
-                        batch["rewards"],
-                        batch["next_observations"],
-                        batch["dones"],
-                    )
                     self.agent, update_info = self.update_step(self.agent, batch)
-
+                    for k, v in update_info.items():
+                        print(f"{k}: {v}")
+                    print()
                 # logging
                 if step % args.log_interval == 0:
                     self.logger.log_metrics(update_info, step)
@@ -526,6 +533,8 @@ class ActorCriticTrainer:
                 if reward > best_return:
                     best_return = reward
                     self.save_models(step)
+
+                exit()
 
         self.wait_for_checkpoint()
         print(f"Training complete!\n")
@@ -626,3 +635,9 @@ class ActorCriticTrainer:
             items=target,
         )
         self.agent = state_dict["agent"]
+
+    def linear2dB(self, x):
+        return 10 * jnp.log10(x)
+
+    def dB2linear(self, x):
+        return jnp.power(10, x / 10)
