@@ -51,8 +51,23 @@ class ReplayBuffer:
             print(f"Loaded {len(tmp_container)} samples from {self.saved_path}")
             print(f"Current replay buffer size: {self.size_counter}")
 
-    def current_size(self):
-        return self.size_counter
+    def sample(
+        self, batch_size: int
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        """
+        Sample a batch of transitions from the replay buffer.
+
+        Use like:
+            observation, action, reward, next_observation, done = replay_buffer.sample(batch_size)
+        """
+        indices = self.rng.choice(self.size_counter, batch_size, replace=False)
+        return {
+            "observations": self.observations[indices],
+            "actions": self.actions[indices],
+            "rewards": self.rewards[indices],
+            "next_observations": self.next_observations[indices],
+            "dones": self.dones[indices],
+        }
 
     def __len__(self):
         return self.size_counter
