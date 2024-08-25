@@ -1,39 +1,24 @@
 # Standard libraries
 import os
-import sys
 from typing import Any, Sequence, Optional, Tuple, Iterator, Dict, Callable, Union
 import json
 import time
 from tqdm.auto import tqdm
 import numpy as np
 from copy import copy
-from glob import glob
-from collections import defaultdict
-
-# JAX/Flax
-# If you run this code on Colab, remember to install flax and optax
-# !pip install --quiet --upgrade flax optax
 import jax
 import jax.numpy as jnp
 from jax import random
 from flax import linen as nn
-from flax.training import train_state
 import optax
-
 import orbax.checkpoint as ocp
-
-# Logging
-# from tensorboardX import SummaryWriter
 from saris.utils.logger import TensorboardLogger
-
-
-class TrainState(train_state.TrainState):
-    # A simple extension of TrainState to also include batch statistics
-    # If a model has no batch statistics, it is None
-    batch_stats: Any = None
-    # You can further extend the TrainState by any additional part here
-    # For example, rng to keep for init, dropout, etc.
-    rng: Any = None
+from saris.drl.infrastructure.train_state import TrainState
+from saris.drl.agents.actor_critic import ActorCritic
+import gymnasium as gym
+import argparse
+from saris.utils import utils
+from saris.drl.infrastructure.replay_buffer import ReplayBuffer
 
 
 class ActorCriticTrainer:
@@ -132,9 +117,9 @@ class ActorCriticTrainer:
         exmp_inputs = (
             [exmp_inputs] if not isinstance(exmp_inputs, (list, tuple)) else exmp_inputs
         )
-        self.print_tabulate(actor, exmp_inputs)
+        # self.print_tabulate(actor, exmp_inputs)
         key, actor_rng = random.split(key)
-        self.actor_state = self.init_model(actor, exmp_inputs, actor_rng)
+        actor_state = self.init_model(actor, exmp_inputs, actor_rng)
 
         # Create empty critic. Note: no parameters yet
         critic = self.create_model(self.critic_class, self.critic_hparams)
@@ -146,13 +131,20 @@ class ActorCriticTrainer:
         exmp_inputs = (
             [exmp_inputs] if not isinstance(exmp_inputs, (list, tuple)) else exmp_inputs
         )
-        self.print_tabulate(critic, exmp_inputs)
-        self.critic_states = []
-        self.target_critic_states = []
+        # self.print_tabulate(critic, exmp_inputs)
+        critic_states = []
+        target_critic_states = []
         for i in range(self.num_critics):
             key, critic_rng = random.split(key)
-            self.critic_states.append(self.init_model(critic, exmp_inputs, critic_rng))
-            self.target_critic_states.append(copy(self.critic_states[i]))
+            critic_states.append(self.init_model(critic, exmp_inputs, critic_rng))
+            target_critic_states.append(copy(critic_states[i]))
+
+        # Create actor critic agent
+        self.agent = ActorCritic(
+            actor_state=actor_state,
+            critic_states=critic_states,
+            target_critic_states=target_critic_states,
+        )
 
         # Init trainer parts
         self.logger = self.init_logger(logger_params)
@@ -276,20 +268,23 @@ class ActorCriticTrainer:
         Creates jitted versions of the training and evaluation functions.
         If self.debug is True, not jitting is applied.
         """
-        train_step, eval_step = self.create_step_functions()
+        train_step, eval_step, update_step = self.create_step_functions()
         if self.debug:  # Skip jitting
             print("Skipping jitting due to debug=True")
             self.train_step = train_step
             self.eval_step = eval_step
+            self.update_step = update_step
         else:
             # self.train_step = jax.jit(train_step, donate_argnames=("state",))
             self.train_step = jax.jit(train_step)
             self.eval_step = jax.jit(eval_step)
+            self.update_step = jax.jit(update_step)
 
     @staticmethod
     def create_step_functions(
         self,
     ) -> Tuple[
+        Callable[[TrainState, Any], Tuple[TrainState, Dict]],
         Callable[[TrainState, Any], Tuple[TrainState, Dict]],
         Callable[[TrainState, Any], Tuple[TrainState, Dict]],
     ]:
@@ -310,6 +305,10 @@ class ActorCriticTrainer:
             metrics = {}
             return metrics
 
+        def update_step(state: TrainState, batch: Any):
+            metrics = {}
+            return state, metrics
+
         raise NotImplementedError
 
     def init_checkpoint_manager(self, checkpoint_path: str):
@@ -329,6 +328,7 @@ class ActorCriticTrainer:
 
     def init_optimizer(
         self,
+        state: TrainState,
         optimizer_hparams: Dict[str, Any],
         num_epochs: int,
         num_steps_per_epoch: int,
@@ -382,13 +382,141 @@ class ActorCriticTrainer:
         # optimizer = optax.chain(*transf, opt_class(lr_schedule, **hparams))
 
         # Initialize training state
-        self.state = TrainState.create(
-            apply_fn=self.state.apply_fn,
-            params=self.state.params,
-            batch_stats=self.state.batch_stats,
+        state = TrainState.create(
+            apply_fn=state.apply_fn,
+            params=state.params,
+            batch_stats=state.batch_stats,
             tx=optimizer,
-            rng=self.state.rng,
+            rng=state.rng,
         )
+        return state
+
+    def get_agent(self):
+        return self.agent
+
+    def train_agent(
+        self, env: gym.Env, drl_config: Dict[str, Any], args: argparse.Namespace
+    ):
+        print("\n" + f"*" * 80)
+        print(f"Training {self.actor_class.__name__} and {self.critic_class.__name__}")
+
+        # Initialize optimizer for actor and critic
+        self.agent.actor_state = self.init_optimizer(
+            self.agent.actor_state,
+            self.actor_optimizer_hparams,
+            drl_config["total_steps"],
+            drl_config["num_train_steps_per_env_step"],
+        )
+        for i in range(self.num_critics):
+            self.agent.critic_states[i] = self.agent.critic_states[i].replace(
+                tx=self.init_optimizer(
+                    self.agent.critic_states[i],
+                    self.critic_optimizer_hparams,
+                    drl_config["total_steps"],
+                    drl_config["num_train_steps_per_env_step"],
+                )
+            )
+
+        # Create replay buffer
+        local_assets_dir = utils.get_dir(args.source_dir, "local_assets")
+        buffer_saved_name = os.path.join("replay_buffer", drl_config["log_string"])
+        buffer_saved_dir = utils.get_dir(local_assets_dir, buffer_saved_name)
+        replay_buffer = ReplayBuffer(
+            drl_config["replay_buffer_capacity"], buffer_saved_dir, seed=args.seed
+        )
+
+        # Load model if exists
+        if args.resume and self.logger.log_dir is not None:
+            print(f"Loading model from {self.logger.log_dir}")
+            self.load_models()
+            start_step = self.checkpoint_manager.latest_step()
+        else:
+            print(f"Training from scratch")
+            start_step = 0
+        start_step = int(start_step)
+
+        # Training loop
+        (observation, info) = env.reset()
+
+        best_return = -np.inf
+        for step in tqdm(
+            range(start_step, drl_config["total_steps"]),
+            total=drl_config["total_steps"],
+            dynamic_ncols=True,
+            initial=start_step,
+        ):
+            # accumulate data in replay buffer
+            if step < drl_config["random_steps"] * 1 / 2:
+                env.unwrapped.location_known = True
+                # env.set_location_known(True)
+                observation, info = env.reset()
+                action = env.action_space.sample()
+            elif step < drl_config["random_steps"]:
+                # env.set_location_known(False)
+                env.unwrapped.location_known = False
+                action = env.action_space.sample()
+            else:
+                # env.set_location_known(False)
+                env.unwrapped.location_known = False
+                action = self.get_agent().get_action(observation)
+
+            try:
+                next_observation, reward, terminated, truncated, info = env.step(action)
+            except Exception as e:
+                print(f"Error in step {step}: {e}")
+                time.sleep(2)
+                continue
+
+            done = terminated or truncated
+            reward = np.asarray(reward, dtype=np.float32)
+            done = np.asarray(done, dtype=np.float16)
+
+            print(f"step={step}, info={info}")
+            print(f"observation={observation}")
+            print(f"action={action}")
+            print(f"next_observation={next_observation}")
+            print(f"reward={reward}")
+            print(f"done={done}")
+
+            replay_buffer.insert(
+                observation=observation,
+                action=action,
+                reward=reward,
+                next_observation=next_observation,
+                done=done,
+            )
+
+            if done:
+                self.logger.log_metrics({"train_return": info["episode"]["r"]}, step)
+                self.logger.log_metrics({"train_ep_len": info["episode"]["l"]}, step)
+                observation, info = env.reset()
+            else:
+                observation = next_observation
+
+            # train agent
+            if step > drl_config["training_starts"]:
+                for _ in range(drl_config["num_train_steps_per_env_step"]):
+                    batch = replay_buffer.sample(drl_config["batch_size"])
+                    obs, actions, rewards, next_obs, dones = (
+                        batch["observations"],
+                        batch["actions"],
+                        batch["rewards"],
+                        batch["next_observations"],
+                        batch["dones"],
+                    )
+                    self.agent, update_info = self.update_step(self.agent, batch)
+
+                # logging
+                if step % args.log_interval == 0:
+                    self.logger.log_metrics(update_info, step)
+                    self.logger.flush()
+
+                if reward > best_return:
+                    best_return = reward
+                    self.save_models(step)
+
+        self.wait_for_checkpoint()
+        print(f"Training complete!\n")
 
     def tracker(self, iterator: Iterator, **kwargs) -> Iterator:
         """
@@ -458,9 +586,9 @@ class ActorCriticTrainer:
             step,
             args=ocp.args.StandardSave(
                 {
-                    "actor": self.actor_state,
-                    "critic": self.critic_states,
-                    "target_critic": self.target_critic_states,
+                    "actor": self.agent.actor_state,
+                    "critic": self.agent.critic_states,
+                    "target_critic": self.agent.target_critic_states,
                 }
             ),
         )
@@ -481,15 +609,17 @@ class ActorCriticTrainer:
             step,
             args=ocp.args.StandardRestore(
                 {
-                    "actor": self.actor_state,
-                    "critic": self.critic_states,
-                    "target_critic": self.target_critic_states,
+                    "actor": self.agent.actor_state,
+                    "critic": self.agent.critic_states,
+                    "target_critic": self.agent.target_critic_states,
                 }
             ),
         )
-        self.actor_state = state_dict["actor"]
-        self.critic_states = state_dict["critic"]
-        self.target_critic_states = state_dict["target_critic"]
+        self.agent = ActorCritic(
+            actor_state=state_dict["actor"],
+            critic_states=state_dict["critic"],
+            target_critic_states=state_dict["target_critic"],
+        )
         # self.state = TrainState.create(
         #     apply_fn=self.model.apply,
         #     params=state_dict["params"],

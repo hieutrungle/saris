@@ -87,24 +87,22 @@ class SoftActorCriticTrainer(ac_trainer.ActorCriticTrainer):
         #     grads = jax.tree_map(lambda g: g / num_minibatches, grads)
         #     return loss, grads
 
-        def train_step(actor_state, critic_states, target_critic_states, batch):
-            # rng, step_rng = jax.random.split(actor_state.rng)
-            # loss, grads = accumulate_gradients(
-            #     actor_state, critic_states, target_critic_states, batch, step_rng
-            # )
-            # actor_state = actor_state.apply_gradients(grads=grads, rng=rng)
-            # metrics = {"loss": loss}
+        def train_step(agent, batch):
             metrics = {"loss": 0.0}
-            return actor_state, metrics
+            return agent, metrics
 
-        def eval_step(actor_state, critic_states, target_critic_states, batch):
-            # loss = actor_loss(
-            #     actor_state.params, batch, train=False, rng_key=actor_state.rng
-            # )
+        def eval_step(agent, batch):
             return {"loss": 0.0}
-            # loss = actor_loss(
-            #     actor_state.params, batch, train=False, rng_key=actor_state.rng
-            # )
-            # return {"loss": loss}
 
-        return train_step, eval_step
+        def update_step(agent, batch):
+            obs, actions, rewards, next_obs, dones = (
+                batch["observations"],
+                batch["actions"],
+                batch["rewards"],
+                batch["next_observations"],
+                batch["dones"],
+            )
+            metrics = {"loss": 0.0}
+            return agent, metrics
+
+        return train_step, eval_step, update_step
