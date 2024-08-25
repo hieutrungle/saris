@@ -14,6 +14,7 @@ os.environ["XLA_FLAGS"] = (
     # "--xla_gpu_enable_highest_priority_async_stream=true "
 )
 
+from typing import Optional
 import argparse
 from saris.utils import utils
 import numpy as np
@@ -22,12 +23,10 @@ from saris.drl.envs import register_envs
 from saris.drl.networks import actor, critic
 from saris.drl.trainers import sac_trainer
 from saris.drl.infrastructure.replay_buffer import ReplayBuffer
-import jax
 import importlib.resources
 import saris
 import time
 import tqdm
-from typing_extensions import TypeAliasType
 
 
 def make_env(
@@ -37,8 +36,8 @@ def make_env(
     log_string: str,
     idx: int,
     seed: int,
-    capture_video: bool = None,
-    run_name: str = None,
+    capture_video: Optional[bool] = None,
+    run_name: Optional[str] = None,
 ):
     drl_config = utils.load_yaml_file(drl_config_file)
 
@@ -139,7 +138,7 @@ def train_model(
     drl_config: dict,
     args: argparse.Namespace,
 ):
-    print(f"*" * 80)
+    print("\n" + f"*" * 80)
     print(
         f"Training {trainer.actor_class.__name__} and {trainer.critic_class.__name__}"
     )
@@ -183,14 +182,13 @@ def train_model(
         elif step < drl_config["random_steps"]:
             action = env.action_space.sample()
         else:
-            action = trainer.get_action(observation)
+            action = trainer.get_agent().get_action(observation)
 
         try:
             next_observation, reward, terminated, truncated, info = env.step(action)
         except Exception as e:
             print(f"Error in step {step}: {e}")
             time.sleep(2)
-            exit()
             continue
 
         done = terminated or truncated
@@ -203,7 +201,6 @@ def train_model(
         print(f"next_observation={next_observation}")
         print(f"reward={reward}")
         print(f"done={done}")
-        exit()
 
         replay_buffer.insert(
             observation=observation,
@@ -220,30 +217,31 @@ def train_model(
         else:
             observation = next_observation
 
-        # train agent
-        if step > drl_config["training_starts"]:
-            for _ in range(drl_config["num_train_steps_per_env_step"]):
-                batch = replay_buffer.sample(drl_config["batch_size"])
-                obs, actions, rewards, next_obs, dones = (
-                    batch["observations"],
-                    batch["actions"],
-                    batch["rewards"],
-                    batch["next_observations"],
-                    batch["dones"],
-                )
-                update_info = trainer.update(
-                    obs, actions, rewards, next_obs, dones, step
-                )
+        # # train agent
+        # if step > drl_config["training_starts"]:
+        #     for _ in range(drl_config["num_train_steps_per_env_step"]):
+        #         batch = replay_buffer.sample(drl_config["batch_size"])
+        #         obs, actions, rewards, next_obs, dones = (
+        #             batch["observations"],
+        #             batch["actions"],
+        #             batch["rewards"],
+        #             batch["next_observations"],
+        #             batch["dones"],
+        #         )
+        #         update_info = trainer.update(
+        #             obs, actions, rewards, next_obs, dones, step
+        #         )
 
-            # logging
-            if step % args.log_interval == 0:
-                trainer.logger.log_metrics(update_info, step)
-                trainer.logger.flush()
+        #     # logging
+        #     if step % args.log_interval == 0:
+        #         trainer.logger.log_metrics(update_info, step)
+        #         trainer.logger.flush()
 
-            if reward > best_return:
-                best_return = reward
-                trainer.save_models(step)
+        #     if reward > best_return:
+        #         best_return = reward
+        #         trainer.save_models(step)
     trainer.wait_for_checkpoint()
+    print(f"Training complete!\n")
     return
 
     # for i in range(1):
@@ -306,7 +304,8 @@ def main():
     trainer.print_class_variables()
 
     if args.command == "train":
-        train_model(trainer, env, drl_config, args)
+        trainer.train_agent(env, drl_config, args)
+        # train_model(trainer, env, drl_config, args)
     elif args.command == "eval":
         eval_model(trainer, env, drl_config, args)
     else:
