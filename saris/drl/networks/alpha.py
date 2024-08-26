@@ -46,5 +46,5 @@ class Alpha(nn.Module):
 
         x = jnp.dot(x, alpha)
         x = jnp.mean(x)
-        x = jnp.clip(x, 0.0001, 0.1)
+        x = jnp.clip(x, 0.0001, 0.15)
         return x
