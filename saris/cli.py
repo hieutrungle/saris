@@ -118,6 +118,7 @@ def get_trainer_config(env: gym.Env, drl_config: dict, args: argparse.Namespace)
             "lr": drl_config["critic_learning_rate"],
         },
         "num_actor_samples": drl_config["num_actor_samples"],
+        "num_critic_updates": drl_config["num_critic_updates"],
         "num_critics": drl_config["num_critics"],
         "discount": drl_config["discount"],
         "ema_decay": drl_config["ema_decay"],
@@ -131,98 +132,6 @@ def get_trainer_config(env: gym.Env, drl_config: dict, args: argparse.Namespace)
         "debug": False,
     }
     return trainer_config
-
-
-def train_model(
-    trainer: sac_trainer.SoftActorCriticTrainer,
-    env: gym.Env,
-    drl_config: dict,
-    args: argparse.Namespace,
-):
-    print("\n" + f"*" * 80)
-    print(
-        f"Training {trainer.actor_class.__name__} and {trainer.critic_class.__name__}"
-    )
-
-    local_assets_dir = utils.get_dir(args.source_dir, "local_assets")
-    buffer_saved_name = os.path.join("replay_buffer", drl_config["log_string"])
-    buffer_saved_dir = utils.get_dir(local_assets_dir, buffer_saved_name)
-    replay_buffer = ReplayBuffer(
-        drl_config["replay_buffer_capacity"], buffer_saved_dir, seed=args.seed
-    )
-
-    # Load model if exists
-    if args.resume and trainer.logger.log_dir is not None:
-        print(f"Loading model from {trainer.logger.log_dir}")
-        trainer.load_models()
-        start_step = trainer.checkpoint_manager.latest_step()
-    else:
-        print(f"Training from scratch")
-        start_step = 0
-    start_step = int(start_step)
-
-    # Training loop
-    (observation, info) = env.reset()
-
-    for step in tqdm.tqdm(
-        range(start_step, drl_config["total_steps"]),
-        total=drl_config["total_steps"],
-        dynamic_ncols=True,
-        initial=start_step,
-    ):
-        # accumulate data in replay buffer
-        if step < drl_config["random_steps"] * 1 / 2:
-            observation, info = env.reset()
-            action = env.action_space.sample()
-        elif step < drl_config["random_steps"]:
-            action = env.action_space.sample()
-        else:
-            action = trainer.get_agent().get_action(observation)
-
-        try:
-            next_observation, reward, terminated, truncated, info = env.step(action)
-        except Exception as e:
-            print(f"Error in step {step}: {e}")
-            time.sleep(2)
-            continue
-
-        done = terminated or truncated
-        reward = np.asarray(reward, dtype=np.float32)
-        done = np.asarray(done, dtype=np.float16)
-
-        print(f"step={step}, info={info}")
-        print(f"observation={observation}")
-        print(f"action={action}")
-        print(f"next_observation={next_observation}")
-        print(f"reward={reward}")
-        print(f"done={done}")
-
-        replay_buffer.insert(
-            observation=observation,
-            action=action,
-            reward=reward,
-            next_observation=next_observation,
-            done=done,
-        )
-
-        if done:
-            trainer.logger.log_metrics({"train_return": info["episode"]["r"]}, step)
-            trainer.logger.log_metrics({"train_ep_len": info["episode"]["l"]}, step)
-            observation, info = env.reset()
-        else:
-            observation = next_observation
-
-    trainer.wait_for_checkpoint()
-    print(f"Training complete!\n")
-    return
-
-
-def eval_model(trainer, env, drl_config, args):
-    print(f"*" * 80)
-    print(
-        f"Evaluating {trainer.actor_class.__name__} and {trainer.critic_class.__name__}"
-    )
-    pass
 
 
 def main():
@@ -261,7 +170,7 @@ def main():
     if args.command == "train":
         trainer.train_agent(env, drl_config, args)
     elif args.command == "eval":
-        eval_model(trainer, env, drl_config, args)
+        trainer.eval_agent(env, drl_config, args)
     else:
         raise ValueError(f"Invalid command: {args.command}")
 
