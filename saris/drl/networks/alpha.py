@@ -36,7 +36,7 @@ class Alpha(nn.Module):
     alpha_init: Callable = alpha_init
 
     @nn.compact
-    def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
+    def __call__(self, x: jnp.ndarray, train: bool = False) -> jnp.ndarray:
         alpha = self.param(
             "alpha",  # parametar name (as it will appear in the FrozenDict)
             self.alpha_init,  # initialization function, RNG passed implicitly through init fn

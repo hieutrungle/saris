@@ -40,6 +40,7 @@ class ActorCriticTrainer:
         actor_optimizer_hparams: Dict[str, Any],
         critic_optimizer_hparams: Dict[str, Any],
         num_actor_samples: int = 16,
+        num_critic_updates: int = 4,
         num_critics: int = 2,
         discount: float = 0.9,
         ema_decay: float = 0.95,
@@ -85,6 +86,7 @@ class ActorCriticTrainer:
         self.actor_optimizer_hparams = actor_optimizer_hparams
         self.critic_optimizer_hparams = critic_optimizer_hparams
         self.num_actor_samples = num_actor_samples
+        self.num_critic_updates = num_critic_updates
         self.num_critics = num_critics
         self.discount = discount
         self.ema_decay = ema_decay
@@ -93,7 +95,7 @@ class ActorCriticTrainer:
         self.logger_params = logger_params
         self.enable_progress_bar = enable_progress_bar
         self.debug = debug
-        self.debug = True
+        # self.debug = True
         jax.config.update("jax_debug_nans", True)
 
         # Set of hyperparameters to save
@@ -115,7 +117,7 @@ class ActorCriticTrainer:
         }
         self.config.update(kwargs)
 
-        key = random.PRNGKey(self.seed)
+        self.rng_key = random.PRNGKey(self.seed)
 
         # Create empty actor. Note: no parameters yet
         actor = self.create_model(self.actor_class, self.actor_hparams)
@@ -125,7 +127,7 @@ class ActorCriticTrainer:
             [exmp_inputs] if not isinstance(exmp_inputs, (list, tuple)) else exmp_inputs
         )
         # self.print_tabulate(actor, exmp_inputs)
-        key, actor_rng = random.split(key)
+        self.rng_key, actor_rng = random.split(self.rng_key)
         actor_state = self.init_model(actor, exmp_inputs, actor_rng)
 
         # Create empty critic. Note: no parameters yet
@@ -142,7 +144,7 @@ class ActorCriticTrainer:
         critic_states = []
         target_critic_states = []
         for i in range(self.num_critics):
-            key, critic_rng = random.split(key)
+            self.rng_key, critic_rng = random.split(self.rng_key)
             critic_states.append(self.init_model(critic, exmp_inputs, critic_rng))
             target_critic_states.append(copy(critic_states[i]))
 
@@ -400,35 +402,40 @@ class ActorCriticTrainer:
     def get_agent(self):
         return self.agent
 
+    def init_agent_optimizer(
+        self,
+        agent: ActorCritic,
+        drl_config: Dict[str, Any],
+    ) -> ActorCritic:
+        """
+        Initializes the optimizer for the agent's components:
+        - actor
+        - critics
+        - target critics
+        - other components
+
+        Returns:
+            agent: The agent with initialized optimizers.
+        """
+        raise NotImplementedError
+
     def train_agent(
         self, env: gym.Env, drl_config: Dict[str, Any], args: argparse.Namespace
     ):
         print("\n" + f"*" * 80)
         print(f"Training {self.actor_class.__name__} and {self.critic_class.__name__}")
 
-        # Initialize optimizer for actor and critic
-        actor_state = self.init_optimizer(
-            self.agent.actor_state,
-            self.actor_optimizer_hparams,
-            drl_config["total_steps"],
-            drl_config["num_train_steps_per_env_step"],
+        self.agent = self.init_agent_optimizer(self.agent, drl_config)
+        print(f"agent: {self.agent}")
+        print("number of crtitics", len(self.agent.critic_states))
+        print("number of target crtitics", len(self.agent.target_critic_states))
+        print(f"crtics: {jax.tree_map(lambda x: x.shape, self.agent.critic_states)}")
+        print(
+            f"target_crtics: {jax.tree_map(lambda x: x.shape, self.agent.target_critic_states)}"
         )
-        critic_states = []
-        for i in range(self.num_critics):
-            critic_state = self.init_optimizer(
-                self.agent.critic_states[i],
-                self.critic_optimizer_hparams,
-                drl_config["total_steps"],
-                drl_config["num_train_steps_per_env_step"]
-                * drl_config["num_critic_updates"],
-            )
-            critic_states.append(critic_state)
-        self.agent = self.agent.replace(
-            actor_state=actor_state,
-            critic_states=critic_states,
-            target_critic_states=self.agent.target_critic_states,
-        )
-
+        print(f"actor: {jax.tree_map(lambda x: x.shape, self.agent.actor_state)}")
+        print(f"alpha: {jax.tree_map(lambda x: x.shape, self.agent.alpha_state)}")
+        exit()
         # Create replay buffer
         local_assets_dir = utils.get_dir(args.source_dir, "local_assets")
         buffer_saved_name = os.path.join("replay_buffer", drl_config["log_string"])
@@ -518,7 +525,9 @@ class ActorCriticTrainer:
             if step >= drl_config["training_starts"]:
                 for _ in range(drl_config["num_train_steps_per_env_step"]):
                     batch = replay_buffer.sample(drl_config["batch_size"])
+                    start_time = time.time()
                     self.agent, update_info = self.update_step(self.agent, batch)
+                    print(f"update_time={time.time()-start_time}")
                     for k, v in update_info.items():
                         print(f"{k}: {v}")
                     print()
@@ -535,6 +544,15 @@ class ActorCriticTrainer:
 
         self.wait_for_checkpoint()
         print(f"Training complete!\n")
+
+    def eval_agent(
+        self, env: gym.Env, drl_config: Dict[str, Any], args: argparse.Namespace
+    ):
+        print("\n" + f"*" * 80)
+        print(
+            f"Evaluating {self.actor_class.__name__} and {self.critic_class.__name__}"
+        )
+        pass
 
     def tracker(self, iterator: Iterator, **kwargs) -> Iterator:
         """
@@ -563,15 +581,15 @@ class ActorCriticTrainer:
         print(f"Class variables of {self.__class__.__name__}:")
         skipped_keys = ["state", "variables", "encoder", "decoder"]
 
-        def check_for_skipped_keys(key):
+        def check_for_skipped_keys(k):
             for skip_key in skipped_keys:
-                if str(skip_key).lower() in str(key).lower():
+                if str(skip_key).lower() in str(k).lower():
                     return True
             return False
 
-        for key, value in self.__dict__.items():
-            if not check_for_skipped_keys(key):
-                print(f" - {key}: {value}")
+        for k, v in self.__dict__.items():
+            if not check_for_skipped_keys(k):
+                print(f" - {k}: {v}")
         print(f"*" * 80)
         print()
 
@@ -588,9 +606,9 @@ class ActorCriticTrainer:
           The data with a batch dimension added.
         """
         if isinstance(data, dict):
-            return {key: self.add_batch_dimension(value) for key, value in data.items()}
+            return {k: self.add_batch_dimension(v) for k, v in data.items()}
         elif isinstance(data, list) or isinstance(data, tuple):
-            return [self.add_batch_dimension(value) for value in data]
+            return [self.add_batch_dimension(v) for v in data]
         elif isinstance(data, (np.ndarray, jnp.ndarray)):
             return jnp.expand_dims(data, axis=0)
         else:

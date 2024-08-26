@@ -1,21 +1,79 @@
-from typing import Any, Tuple, Callable
+from typing import Any, Tuple, Callable, Dict
 import jax
 from jax import numpy as jnp
 from saris.drl.trainers import ac_trainer
 from saris.drl.infrastructure.train_state import TrainState
 from saris import distributions as D
 from saris.drl.agents.actor_critic import ActorCritic
+from saris.drl.agents.sac import SoftActorCritic
+from saris.drl.networks.alpha import Alpha
 import numpy as np
 from flax import struct
-
-# Type aliases
-PyTree = Any
+import functools
 
 
 class SoftActorCriticTrainer(ac_trainer.ActorCriticTrainer):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
+        self.target_entropy = -np.prod(self.action_shape)
+        self.rng_key, alpha_key = jax.random.split(self.rng_key)
+        alpha = Alpha(0.05)
+        exmp_inputs = jnp.array(1.0).reshape(1, 1)
+        alpha_state = self.init_model(alpha, exmp_inputs, alpha_key)
+        self.agent = SoftActorCritic(
+            actor_state=self.agent.actor_state,
+            critic_states=self.agent.critic_states,
+            target_critic_states=self.agent.target_critic_states,
+            alpha_state=alpha_state,
+        )
+
+    def init_agent_optimizer(
+        self,
+        agent: SoftActorCritic,
+        drl_config: Dict[str, Any],
+    ) -> SoftActorCritic:
+        """
+        Initializes the optimizer for the agent's components:
+        - actor
+        - critics
+        - target critics
+        - other components
+        """
+        # Initialize optimizer for actor and critic
+        actor_state = self.init_optimizer(
+            agent.actor_state,
+            self.actor_optimizer_hparams,
+            drl_config["total_steps"],
+            drl_config["num_train_steps_per_env_step"],
+        )
+
+        critic_states = []
+        for i in range(self.num_critics):
+            state = self.init_optimizer(
+                agent.critic_states[i],
+                self.critic_optimizer_hparams,
+                drl_config["total_steps"],
+                drl_config["num_train_steps_per_env_step"]
+                * drl_config["num_critic_updates"],
+            )
+            critic_states.append(state)
+
+        alpha_state = self.init_optimizer(
+            agent.alpha_state,
+            self.actor_optimizer_hparams,
+            drl_config["total_steps"],
+            drl_config["num_train_steps_per_env_step"],
+        )
+        agent = SoftActorCritic(
+            actor_state=actor_state,
+            critic_states=critic_states,
+            target_critic_states=agent.target_critic_states,
+            alpha_state=alpha_state,
+        )
+        print("number of crtitics", len(agent.critic_states))
+        print("number of target crtitics", len(agent.target_critic_states))
+        return agent
 
     def create_step_functions(self):
 
@@ -28,7 +86,7 @@ class SoftActorCriticTrainer(ac_trainer.ActorCriticTrainer):
 
             def _minibatch_step(
                 minibatch_idx: jax.Array | int,
-            ) -> Tuple[PyTree, jnp.ndarray]:
+            ) -> Tuple[struct.PyTreeNode, jnp.ndarray]:
                 """Determine gradients and metrics for a single minibatch."""
                 minibatch = jax.tree_map(
                     lambda x: jax.lax.dynamic_slice_in_dim(  # Slicing with variable index (jax.Array).
@@ -48,8 +106,9 @@ class SoftActorCriticTrainer(ac_trainer.ActorCriticTrainer):
                 return step_loss, step_grads
 
             def _scan_step(
-                carry: Tuple[PyTree, jnp.ndarray], minibatch_idx: jax.Array | int
-            ) -> Tuple[Tuple[PyTree, jnp.ndarray], None]:
+                carry: Tuple[struct.PyTreeNode, jnp.ndarray],
+                minibatch_idx: jax.Array | int,
+            ) -> Tuple[Tuple[struct.PyTreeNode, jnp.ndarray], None]:
                 """Scan step function for looping over minibatches."""
                 step_loss, step_grads = _minibatch_step(minibatch_idx)
                 carry = jax.tree_map(jnp.add, carry, (step_loss, step_grads))
@@ -91,7 +150,7 @@ class SoftActorCriticTrainer(ac_trainer.ActorCriticTrainer):
         def calc_critic_loss(
             tuple_critic_params: Tuple[struct.PyTreeNode],
             critic_apply_fns: Tuple[Callable],
-            agent: ActorCritic,
+            agent: SoftActorCritic,
             batch: dict[str, np.ndarray],
         ) -> Tuple[jnp.ndarray, dict[str, jnp.ndarray]]:
             obs, actions, rewards, next_obs, dones = (
@@ -156,22 +215,18 @@ class SoftActorCriticTrainer(ac_trainer.ActorCriticTrainer):
             crtic_loss = 0.5 * jnp.mean((q_values - target_q_values) ** 2, where=~mask)
 
             critic_info = {
-                "q_vals": q_values,
-                "next_q_vals": next_q_values,
-                "target_q_vals": target_q_values,
                 "q_values": jnp.mean(q_values),
                 "next_q_values": jnp.mean(next_q_values),
                 "target_q_values": jnp.mean(target_q_values),
             }
             return crtic_loss, critic_info
 
-        def update_crtics(agent: ActorCritic, batch: dict[str, np.ndarray]):
-            tuple_critic_params = tuple(
-                [critic_state.params for critic_state in agent.critic_states]
-            )
-            critic_apply_fns = tuple(
-                [critic_state.apply_fn for critic_state in agent.critic_states]
-            )
+        def update_crtics(
+            agent: SoftActorCritic, batch: dict[str, np.ndarray]
+        ) -> Tuple[SoftActorCritic, dict[str, jnp.ndarray]]:
+            print(f"len of critic states: {len(agent.critic_states)}")
+            tuple_critic_params = tuple([state.params for state in agent.critic_states])
+            critic_apply_fns = tuple([state.apply_fn for state in agent.critic_states])
             grad_fn = jax.value_and_grad(calc_critic_loss, has_aux=True)
             (crtic_loss, (critic_info)), grads = grad_fn(
                 tuple_critic_params, critic_apply_fns, agent, batch
@@ -182,14 +237,12 @@ class SoftActorCriticTrainer(ac_trainer.ActorCriticTrainer):
             for i in range(len(agent.critic_states)):
                 new_state = agent.critic_states[i].apply_gradients(grads=grads[i])
                 c_states.append(new_state)
-            agent = agent.replace(
-                agent.actor_state, c_states, agent.target_critic_states
-            )
+            agent = agent.replace(critic_states=c_states)
             return agent, critic_info
 
         def update_target_crtics(
-            agent: ActorCritic,
-        ):
+            agent: SoftActorCritic,
+        ) -> Tuple[SoftActorCritic, dict[str, jnp.ndarray]]:
             """
             Update target critics with moving average of current critics.
             """
@@ -204,15 +257,26 @@ class SoftActorCriticTrainer(ac_trainer.ActorCriticTrainer):
                     step=agent.target_critic_states[i].step + 1,
                     params=new_target_params,
                 )
-            agent = agent.replace(
-                agent.actor_state, agent.critic_states, target_critic_states
-            )
+            agent = agent.replace(target_critic_states=target_critic_states)
             return agent, {}
+
+        def update_all_critics(
+            carry: Tuple[SoftActorCritic, dict[str, jnp.ndarray]],
+            idx: int,
+            batch: dict[str, np.ndarray],
+        ):
+            jax.debug.print("idx", idx)
+            agent, critic_info = carry
+            agent, critic_info = update_crtics(agent, batch)
+            agent, _ = update_target_crtics(agent)
+            carry = (agent, critic_info)
+
+            return carry, None
 
         def calc_actor_loss(
             actor_params: struct.PyTreeNode,
             actor_apply_fn: Callable,
-            agent: ActorCritic,
+            agent: SoftActorCritic,
             batch: dict[str, np.ndarray],
         ) -> Tuple[jnp.ndarray, dict[str, jnp.ndarray]]:
             obs, actions, rewards, next_obs, dones = (
@@ -222,6 +286,7 @@ class SoftActorCriticTrainer(ac_trainer.ActorCriticTrainer):
                 batch["next_observations"],
                 batch["dones"],
             )
+
             # Q-values
             action_distribution = agent.get_action_distribution(
                 obs, actor_params, actor_apply_fn
@@ -240,47 +305,47 @@ class SoftActorCriticTrainer(ac_trainer.ActorCriticTrainer):
             )
             q_values = jnp.mean(q_values)
 
-            # next Q-values
-            with jax.lax.stop_gradient(obs, actions):
-                next_action_distribution: D.Distribution = (
-                    agent.get_action_distribution(
-                        next_obs, agent.actor_state.params, agent.actor_state.apply_fn
-                    )
-                )
-                next_actions = next_action_distribution.sample(
-                    seed=agent.actor_state.rng, sample_shape=(self.num_actor_samples,)
-                )
-                next_obs = jnp.repeat(
-                    jnp.expand_dims(next_obs, axis=0), self.num_actor_samples, axis=0
-                )
-                next_q_values = agent.get_q_values(
-                    tuple([state.params for state in agent.target_critic_states]),
-                    tuple([state.apply_fn for state in agent.target_critic_states]),
-                    next_obs,
-                    next_actions,
-                )
-                next_q_values = jnp.mean(next_q_values)
-                target_q_values = (
-                    rewards + self.discount * (1.0 - dones) * next_q_values
-                )
-
             # Entropy regularization
-            enntropy = agent.get_entropy(
+            entropy = agent.get_entropy(
                 action_distribution,
                 sample_shape=(self.num_actor_samples,),
                 key=agent.actor_state.rng,
             )
+            entropy = jnp.mean(entropy)
+
+            # next Q-values
+            next_action_distribution: D.Distribution = agent.get_action_distribution(
+                next_obs,
+                jax.lax.stop_gradient(agent.actor_state.params),
+                agent.actor_state.apply_fn,
+            )
+            next_actions = next_action_distribution.sample(
+                seed=agent.actor_state.rng, sample_shape=(self.num_actor_samples,)
+            )
+            next_obs = jnp.repeat(
+                jnp.expand_dims(next_obs, axis=0), self.num_actor_samples, axis=0
+            )
+            next_q_values = agent.get_q_values(
+                tuple([state.params for state in agent.target_critic_states]),
+                tuple([state.apply_fn for state in agent.target_critic_states]),
+                next_obs,
+                next_actions,
+            )
+            next_q_values = do_q_backup(next_q_values)
+            next_q_values = jnp.mean(next_q_values, axis=0)
+            target_q_values = rewards + self.discount * (1.0 - dones) * next_q_values
+            target_q_values = jnp.mean(target_q_values)
 
             # Maximize entropy and return with gradient ascent
-            actor_loss = 0.05 * jnp.mean(enntropy) + (q_values - target_q_values)
+            actor_loss = (q_values - target_q_values) + 0.05 * entropy
             # Equivalent to minimizing -actor_loss with gradient descent
             actor_loss = -actor_loss
 
-            return actor_loss, {"entropy": enntropy}
+            return actor_loss, {"entropy": entropy}
 
         def update_actor(
-            agent: ActorCritic, batch: dict[str, np.ndarray]
-        ) -> Tuple[ActorCritic, dict[str, jnp.ndarray]]:
+            agent: SoftActorCritic, batch: dict[str, np.ndarray]
+        ) -> Tuple[SoftActorCritic, dict[str, jnp.ndarray]]:
             grad_fn = jax.value_and_grad(calc_actor_loss, has_aux=True)
             (actor_loss, (actor_info)), grads = grad_fn(
                 agent.actor_state.params, agent.actor_state.apply_fn, agent, batch
@@ -288,9 +353,7 @@ class SoftActorCriticTrainer(ac_trainer.ActorCriticTrainer):
             actor_info.update({"actor_loss": actor_loss})
 
             new_actor_state = agent.actor_state.apply_gradients(grads=grads)
-            agent = agent.replace(
-                new_actor_state, agent.critic_states, agent.target_critic_states
-            )
+            agent = agent.replace(actor_state=new_actor_state)
             return agent, actor_info
 
         def update_alpha():
@@ -303,13 +366,22 @@ class SoftActorCriticTrainer(ac_trainer.ActorCriticTrainer):
         def eval_step(agent, batch):
             return {"loss": 0.0}
 
-        def update_step(agent: ActorCritic, batch: dict[str, np.ndarray]):
-            agent, critic_info = update_crtics(agent, batch)
-            agent, _ = update_target_crtics(agent)
+        def update_step(agent: SoftActorCritic, batch: dict[str, np.ndarray]):
+
+            # Update critics
+            print(f"agent: {agent.critic_states}")
+            (_, info) = jax.eval_shape(update_crtics, agent, batch)
+            info = jax.tree_map(lambda x: jnp.zeros(x.shape, x.dtype), info)
+            critic_update_fn = functools.partial(update_all_critics, batch=batch)
+            (agent, info), _ = jax.lax.scan(
+                critic_update_fn,
+                init=(agent, info),
+                xs=jnp.arange(self.num_critic_updates),
+                length=self.num_critic_updates,
+            )
+
             agent, actor_info = update_actor(agent, batch)
-            metrics = {}
-            metrics.update(critic_info)
-            metrics.update(actor_info)
-            return agent, metrics
+            info.update(actor_info)
+            return agent, info
 
         return train_step, eval_step, update_step

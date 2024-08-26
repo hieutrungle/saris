@@ -5,19 +5,17 @@ from saris.drl.infrastructure.train_state import TrainState
 from saris import distributions as D
 from flax import struct
 import numpy as np
+import dataclasses
+from dataclasses import dataclass
 
 
 @jax.tree_util.register_pytree_node_class
+@dataclass
 class ActorCritic:
-    def __init__(
-        self,
-        actor_state: TrainState,
-        critic_states: Sequence[TrainState],
-        target_critic_states: Sequence[TrainState],
-    ):
-        self.actor_state = actor_state
-        self.critic_states = tuple(critic_states)
-        self.target_critic_states = tuple(target_critic_states)
+
+    actor_state: TrainState
+    critic_states: Sequence[TrainState]
+    target_critic_states: Sequence[TrainState]
 
     def get_action_distribution(
         self,
@@ -96,15 +94,12 @@ class ActorCritic:
         entropy_est = -jnp.mean(log_probs, axis=0)
         return entropy_est
 
-    def replace(
-        self,
-        actor_state: TrainState,
-        critic_states: Sequence[TrainState],
-        target_critic_states: Sequence[TrainState],
-    ) -> "ActorCritic":
-        critic_states = tuple(critic_states)
-        target_critic_states = tuple(target_critic_states)
-        return ActorCritic(actor_state, critic_states, target_critic_states)
+    def replace(self, **updates):
+        """Returns a new object replacing the specified fields with new values."""
+        return dataclasses.replace(self, **updates)
+
+    def __repr__(self):
+        return f"{self.__class__.__name__}"
 
     def tree_flatten(self):
         # first group (if it's non-hashable/dynamic)
