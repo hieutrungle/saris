@@ -6,6 +6,7 @@ from saris.drl.infrastructure.train_state import TrainState
 from saris import distributions as D
 from saris.drl.agents.actor_critic import ActorCritic
 import numpy as np
+from flax import struct
 
 # Type aliases
 PyTree = Any
@@ -88,11 +89,11 @@ class SoftActorCriticTrainer(ac_trainer.ActorCriticTrainer):
             return next_qs
 
         def calc_critic_loss(
-            tuple_critic_params: Tuple[PyTree],
+            tuple_critic_params: Tuple[struct.PyTreeNode],
             critic_apply_fns: Tuple[Callable],
             agent: ActorCritic,
             batch: dict[str, np.ndarray],
-        ):
+        ) -> Tuple[jnp.ndarray, dict[str, jnp.ndarray]]:
             obs, actions, rewards, next_obs, dones = (
                 batch["observations"],
                 batch["actions"],
@@ -148,7 +149,11 @@ class SoftActorCriticTrainer(ac_trainer.ActorCriticTrainer):
                 tuple_critic_params, critic_apply_fns, obs, actions
             )
 
-            crtic_loss = 0.5 * jnp.mean((q_values - target_q_values) ** 2)
+            # Mask out NaN values
+            mask = jnp.isnan(q_values) | jnp.isnan(target_q_values)
+            q_values = jnp.where(mask, 0, q_values)
+            target_q_values = jnp.where(mask, 0, target_q_values)
+            crtic_loss = 0.5 * jnp.mean((q_values - target_q_values) ** 2, where=~mask)
 
             critic_info = {
                 "q_vals": q_values,
@@ -204,8 +209,89 @@ class SoftActorCriticTrainer(ac_trainer.ActorCriticTrainer):
             )
             return agent, {}
 
-        def update_actor():
-            pass
+        def calc_actor_loss(
+            actor_params: struct.PyTreeNode,
+            actor_apply_fn: Callable,
+            agent: ActorCritic,
+            batch: dict[str, np.ndarray],
+        ) -> Tuple[jnp.ndarray, dict[str, jnp.ndarray]]:
+            obs, actions, rewards, next_obs, dones = (
+                batch["observations"],
+                batch["actions"],
+                batch["rewards"],
+                batch["next_observations"],
+                batch["dones"],
+            )
+            # Q-values
+            action_distribution = agent.get_action_distribution(
+                obs, actor_params, actor_apply_fn
+            )
+            actions = action_distribution.sample(
+                seed=agent.actor_state.rng, sample_shape=(self.num_actor_samples,)
+            )
+            obs = jnp.repeat(
+                jnp.expand_dims(obs, axis=0), self.num_actor_samples, axis=0
+            )
+            q_values = agent.get_q_values(
+                tuple([state.params for state in agent.critic_states]),
+                tuple([state.apply_fn for state in agent.critic_states]),
+                obs,
+                actions,
+            )
+            q_values = jnp.mean(q_values)
+
+            # next Q-values
+            with jax.lax.stop_gradient(obs, actions):
+                next_action_distribution: D.Distribution = (
+                    agent.get_action_distribution(
+                        next_obs, agent.actor_state.params, agent.actor_state.apply_fn
+                    )
+                )
+                next_actions = next_action_distribution.sample(
+                    seed=agent.actor_state.rng, sample_shape=(self.num_actor_samples,)
+                )
+                next_obs = jnp.repeat(
+                    jnp.expand_dims(next_obs, axis=0), self.num_actor_samples, axis=0
+                )
+                next_q_values = agent.get_q_values(
+                    tuple([state.params for state in agent.target_critic_states]),
+                    tuple([state.apply_fn for state in agent.target_critic_states]),
+                    next_obs,
+                    next_actions,
+                )
+                next_q_values = jnp.mean(next_q_values)
+                target_q_values = (
+                    rewards + self.discount * (1.0 - dones) * next_q_values
+                )
+
+            # Entropy regularization
+            enntropy = agent.get_entropy(
+                action_distribution,
+                sample_shape=(self.num_actor_samples,),
+                key=agent.actor_state.rng,
+            )
+
+            # Maximize entropy and return with gradient ascent
+            actor_loss = 0.05 * jnp.mean(enntropy) + (q_values - target_q_values)
+            # Equivalent to minimizing -actor_loss with gradient descent
+            actor_loss = -actor_loss
+
+            return actor_loss, {"entropy": enntropy}
+
+        def update_actor(
+            agent: ActorCritic, batch: dict[str, np.ndarray]
+        ) -> Tuple[ActorCritic, dict[str, jnp.ndarray]]:
+            grad_fn = jax.value_and_grad(calc_actor_loss, has_aux=True)
+            (actor_loss, (actor_info)), grads = grad_fn(
+                agent.actor_state.params, agent.actor_state.apply_fn, agent, batch
+            )
+            actor_info.update({"actor_loss": actor_loss})
+
+            new_actor_state = agent.actor_state.apply_gradients(grads=grads)
+            agent = agent.replace(
+                new_actor_state, agent.critic_states, agent.target_critic_states
+            )
+            return agent, actor_info
 
         def update_alpha():
             pass
@@ -217,18 +303,13 @@ class SoftActorCriticTrainer(ac_trainer.ActorCriticTrainer):
         def eval_step(agent, batch):
             return {"loss": 0.0}
 
-        def update_step(agent, batch):
-            obs, actions, rewards, next_obs, dones = (
-                batch["observations"],
-                batch["actions"],
-                batch["rewards"],
-                batch["next_observations"],
-                batch["dones"],
-            )
+        def update_step(agent: ActorCritic, batch: dict[str, np.ndarray]):
             agent, critic_info = update_crtics(agent, batch)
             agent, _ = update_target_crtics(agent)
+            agent, actor_info = update_actor(agent, batch)
             metrics = {}
             metrics.update(critic_info)
+            metrics.update(actor_info)
             return agent, metrics
 
         return train_step, eval_step, update_step

@@ -468,17 +468,14 @@ class ActorCriticTrainer:
         ):
             # accumulate data in replay buffer
             if step < drl_config["random_steps"] * 1 / 2:
-                print(f"location_known")
                 env.unwrapped.location_known = True
                 observation, info = env.reset()
                 action = env.action_space.sample()
             elif step < drl_config["random_steps"]:
-                print(f"random steps")
                 env.unwrapped.location_known = False
                 action = env.action_space.sample()
             else:
                 env.unwrapped.location_known = False
-                print(f"no random steps")
                 actions = self.get_agent().get_actions(observation.reshape(1, -1))
                 actions = np.asarray(actions, dtype=np.float32)
                 action = np.squeeze(actions, axis=0)
