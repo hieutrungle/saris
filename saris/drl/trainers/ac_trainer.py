@@ -1,4 +1,3 @@
-# Standard libraries
 import os
 from typing import Any, Sequence, Optional, Tuple, Iterator, Dict, Callable, Union
 import json
@@ -20,8 +19,8 @@ import argparse
 from saris.utils import utils
 from saris.drl.infrastructure.replay_buffer import ReplayBuffer
 from flax.training import orbax_utils
-import glob
 import re
+import matplotlib.pyplot as plt
 
 
 class ActorCriticTrainer:
@@ -425,16 +424,7 @@ class ActorCriticTrainer:
         print(f"Training {self.actor_class.__name__} and {self.critic_class.__name__}")
 
         self.agent = self.init_agent_optimizer(self.agent, drl_config)
-        # print(f"agent: {self.agent}")
-        # print("number of crtitics", len(self.agent.critic_states))
-        # print("number of target crtitics", len(self.agent.target_critic_states))
-        # print(f"crtics: {jax.tree_map(lambda x: x.shape, self.agent.critic_states)}")
-        # print(
-        #     f"target_crtics: {jax.tree_map(lambda x: x.shape, self.agent.target_critic_states)}"
-        # )
-        # print(f"actor: {jax.tree_map(lambda x: x.shape, self.agent.actor_state)}")
-        # print(f"alpha: {jax.tree_map(lambda x: x.shape, self.agent.alpha_state)}")
-        # exit()
+
         # Create replay buffer
         local_assets_dir = utils.get_dir(args.source_dir, "local_assets")
         buffer_saved_name = os.path.join("replay_buffer", drl_config["log_string"])
@@ -467,7 +457,7 @@ class ActorCriticTrainer:
 
         best_return = -np.inf
         t_range = tqdm(
-            range(start_step, drl_config["total_steps"]),
+            range(start_step, drl_config["total_steps"] + 1),
             total=drl_config["total_steps"],
             dynamic_ncols=True,
             initial=start_step,
@@ -481,6 +471,7 @@ class ActorCriticTrainer:
             elif step == int(drl_config["random_steps"] * 1 / 2):
                 env.unwrapped.location_known = False
                 observation, info = env.reset()
+                action = env.action_space.sample()
             elif step < drl_config["random_steps"]:
                 env.unwrapped.location_known = False
                 action = env.action_space.sample()
@@ -558,11 +549,100 @@ class ActorCriticTrainer:
     def eval_agent(
         self, env: gym.Env, drl_config: Dict[str, Any], args: argparse.Namespace
     ):
+
         print("\n" + f"*" * 80)
         print(
             f"Evaluating {self.actor_class.__name__} and {self.critic_class.__name__}"
         )
-        pass
+        ep_len = drl_config["ep_len"] or env.spec.max_episode_steps
+        ep_len = min(ep_len, 100)
+        env.unwrapped.location_known = False
+        self.load_models()
+
+        eval_sums = np.zeros(ep_len)
+        eval_mins = np.ones(ep_len) * np.inf
+        eval_maxs = np.ones(ep_len) * -np.inf
+        max_step = 0
+        num_evals = 3
+        eval_count = np.zeros(ep_len)
+        eval_traj = np.zeros(ep_len)
+
+        for i in range(num_evals):
+            (obs, info) = env.reset()
+            t_range = tqdm(range(0, 3), dynamic_ncols=True)
+            for step in t_range:
+                actions = self.get_agent().get_actions(obs.reshape(1, -1))
+                actions = np.asarray(actions, dtype=np.float32)
+                action = np.squeeze(actions, axis=0)
+                try:
+                    next_obs, reward, terminated, truncated, info = env.step(action)
+                except Exception as e:
+                    print(f"Error in step {step}: {e}")
+                    time.sleep(2)
+                    continue
+
+                done = terminated or truncated
+
+                eval_traj[step] = reward
+                eval_count[step] += 1
+                eval_sums[step] += reward
+                max_step = max(max_step, step)
+
+                self.logger.log_scalar(reward, f"eval_reward_{i}", step)
+                self.logger.log_scalar(
+                    info["path_gain_dB"], f"eval_path_gain_dB_{i}", step
+                )
+
+                if done:
+                    print(f"current obs: {obs}")
+                    print(f"Done at step {step}")
+                    eval_return = info["episode"]["r"]
+                    self.logger.log_scalar(eval_return, f"eval_return_{i}", step)
+                    self.logger.log_scalar(
+                        info["episode"]["l"], f"eval_ep_len_{i}", step
+                    )
+                    break
+                else:
+                    obs = next_obs
+
+            # the current max step for indexing
+            t = max_step + 1
+            eval_mins[:t] = np.minimum(eval_mins[:t], eval_traj[:t])
+            eval_maxs[:t] = np.maximum(eval_maxs[:t], eval_traj[:t])
+
+        max_step = max_step + 1
+        eval_means = eval_sums[:max_step] / eval_count[:max_step]
+
+        # trim the arrays to the max step
+        eval_mins = eval_mins[:max_step]
+        eval_maxs = eval_maxs[:max_step]
+
+        # log the evaluation results to tensorboard
+        for step in range(max_step):
+            self.logger.log_scalar(eval_means[step], "eval_reward_mean", step)
+            self.logger.log_scalar(eval_mins[step], "eval_reward_min", step)
+            self.logger.log_scalar(eval_maxs[step], "eval_reward_max", step)
+        # plot the evaluation results
+        fig, ax = plt.subplots(figsize=(10, 5), dpi=300)
+        ax.plot(eval_means, label="mean")
+        ax.fill_between(
+            range(max_step),
+            eval_mins,
+            eval_maxs,
+            alpha=0.25,
+            # label="min-max range",
+        )
+        ax.plot(eval_mins, label="min", linestyle="--")
+        ax.plot(eval_maxs, label="max", linestyle="--")
+        ax.grid()
+        ax.legend()
+        ax.set_title("Evaluation Results")
+        ax.set_xlabel("steps")
+        ax.set_ylabel("reward")
+        # save the plot
+        fig_name = f"eval_results_{num_evals}_runs.png"
+        fig_path = os.path.join(self.logger.log_dir, fig_name)
+        plt.savefig(fig_path)
 
     def tracker(self, iterator: Iterator, **kwargs) -> Iterator:
         """
