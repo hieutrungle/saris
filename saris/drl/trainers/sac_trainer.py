@@ -242,7 +242,7 @@ class SoftActorCriticTrainer(ac_trainer.ActorCriticTrainer):
             for i in range(len(agent.critic_states)):
                 new_state = agent.critic_states[i].apply_gradients(grads=grads[i])
                 c_states.append(new_state)
-            
+
             agent = agent.replace(critic_states=c_states)
             return agent, critic_info
 
@@ -425,6 +425,19 @@ class SoftActorCriticTrainer(ac_trainer.ActorCriticTrainer):
             agent, alpha_info = update_alpha(agent, batch)
             info.update(actor_info)
             info.update(alpha_info)
+            info.update(
+                {
+                    "actor_lr": agent.actor_state.opt_state.hyperparams[
+                        "learning_rate"
+                    ],
+                    "critic_lr": agent.critic_states[0].opt_state.hyperparams[
+                        "learning_rate"
+                    ],
+                    "alpha_lr": agent.alpha_state.opt_state.hyperparams[
+                        "learning_rate"
+                    ],
+                }
+            )
             return agent, info
 
         return train_step, eval_step, update_step

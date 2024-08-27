@@ -510,7 +510,13 @@ class ActorCriticTrainer:
                 done=done,
             )
 
-            self.logger.log_metrics({"train_reward": reward}, step)
+            self.logger.log_metrics(
+                {
+                    "train_reward": reward,
+                    "train_path_gain_dB": info["path_gain_dB"],
+                },
+                step,
+            )
             if done:
                 self.logger.log_metrics({"train_return": info["episode"]["r"]}, step)
                 self.logger.log_metrics({"train_ep_len": info["episode"]["l"]}, step)
@@ -524,6 +530,9 @@ class ActorCriticTrainer:
                     batch = replay_buffer.sample(drl_config["batch_size"])
                     self.agent, update_info = self.update_step(self.agent, batch)
                     jax.block_until_ready(self.agent)
+                    jax.block_until_ready(update_info)
+
+                # ` TODO: can add something here instead of waiting for jax GPU to finish
 
                 # logging
                 if step % args.log_interval == 0:
