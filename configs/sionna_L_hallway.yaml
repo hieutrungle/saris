@@ -11,6 +11,9 @@ cam_look_at: [-7.5, -4.0, 0.0]
 frequency: 28e9
 synthetic_array: true
 
+# RIS parameters
+ris_locations: [[5.855, 17.24, 0.9594]]
+
 # Transmitter and receiver parameters
 tx_num_rows: 4
 tx_num_cols: 4
