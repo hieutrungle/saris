@@ -16,7 +16,9 @@ class SoftActorCritic(ActorCritic):
     actor_state: TrainState
     critic_states: Sequence[TrainState]
     target_critic_states: Sequence[TrainState]
-    alpha_state: TrainState
+    alpha_state: TrainState = TrainState(
+        step=0, params=None, apply_fn=None, tx=None, opt_state=None, rng=None
+    )
 
     def __repr__(self):
         return f"{self.__class__.__name__}"
@@ -29,10 +31,10 @@ class SoftActorCritic(ActorCritic):
         # children = (self.actor_state, self.critic_states, self.target_critic_states)
         children = tuple(
             [
-                self.alpha_state,
                 self.actor_state,
                 self.critic_states,
                 self.target_critic_states,
+                self.alpha_state,
             ]
         )
 

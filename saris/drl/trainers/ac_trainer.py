@@ -157,7 +157,7 @@ class ActorCriticTrainer:
 
         # Init trainer parts
         self.logger = self.init_logger(logger_params)
-        self.create_jitted_functions()
+        # self.create_jitted_functions()
         self.checkpoint_manager = self.init_checkpoint_manager(self.logger.log_dir)
 
     def create_model(self, model_class: Callable, model_hparams: Dict[str, Any]):
@@ -426,16 +426,16 @@ class ActorCriticTrainer:
         print(f"Training {self.actor_class.__name__} and {self.critic_class.__name__}")
 
         self.agent = self.init_agent_optimizer(self.agent, drl_config)
-        print(f"agent: {self.agent}")
-        print("number of crtitics", len(self.agent.critic_states))
-        print("number of target crtitics", len(self.agent.target_critic_states))
-        print(f"crtics: {jax.tree_map(lambda x: x.shape, self.agent.critic_states)}")
-        print(
-            f"target_crtics: {jax.tree_map(lambda x: x.shape, self.agent.target_critic_states)}"
-        )
-        print(f"actor: {jax.tree_map(lambda x: x.shape, self.agent.actor_state)}")
-        print(f"alpha: {jax.tree_map(lambda x: x.shape, self.agent.alpha_state)}")
-        exit()
+        # print(f"agent: {self.agent}")
+        # print("number of crtitics", len(self.agent.critic_states))
+        # print("number of target crtitics", len(self.agent.target_critic_states))
+        # print(f"crtics: {jax.tree_map(lambda x: x.shape, self.agent.critic_states)}")
+        # print(
+        #     f"target_crtics: {jax.tree_map(lambda x: x.shape, self.agent.target_critic_states)}"
+        # )
+        # print(f"actor: {jax.tree_map(lambda x: x.shape, self.agent.actor_state)}")
+        # print(f"alpha: {jax.tree_map(lambda x: x.shape, self.agent.alpha_state)}")
+        # exit()
         # Create replay buffer
         local_assets_dir = utils.get_dir(args.source_dir, "local_assets")
         buffer_saved_name = os.path.join("replay_buffer", drl_config["log_string"])

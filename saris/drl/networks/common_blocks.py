@@ -154,11 +154,7 @@ class Fourier(nn.Module):
 
     @nn.compact
     def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
-        weights = self.param(
-            "weights",
-            nn.initializers.normal(),
-            (x.shape[-1], self.num_features),
-        )
-        x = jnp.dot(2 * np.pi * x, weights)
+        x = nn.Dense(self.num_features, use_bias=False)(x)
+        x = 2 * np.pi * x
         x = jnp.concatenate([jnp.sin(x), jnp.cos(x)], axis=-1)
         return x

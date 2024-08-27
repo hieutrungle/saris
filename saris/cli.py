@@ -180,7 +180,7 @@ def parse_agrs():
     parser.add_argument("--drl_config_file", "-dcfg", type=str, required=True)
     parser.add_argument("--sionna_config_file", "-scfg", type=str, required=True)
     parser.add_argument("--command", "-cmd", type=str, required=True)
-    parser.add_argument("--seed", type=int, default=1)
+    parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--log_interval", type=int, default=1)
     parser.add_argument("--verbose", "-v", action="store_true")
     parser.add_argument("--resume", "-r", action="store_true")
