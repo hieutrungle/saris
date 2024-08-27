@@ -95,6 +95,7 @@ class ActorCriticTrainer:
         self.logger_params = logger_params
         self.enable_progress_bar = enable_progress_bar
         self.debug = debug
+        # self.debug = True
         jax.config.update("jax_debug_nans", True)
 
         # Set of hyperparameters to save
@@ -286,7 +287,7 @@ class ActorCriticTrainer:
             # self.train_step = jax.jit(train_step, donate_argnames=("state",))
             self.train_step = jax.jit(train_step)
             self.eval_step = jax.jit(eval_step)
-            self.update_step = jax.jit(update_step)
+            self.update_step = jax.jit(update_step, donate_argnames=("agent"))
 
     @staticmethod
     def create_step_functions(
@@ -474,10 +475,13 @@ class ActorCriticTrainer:
         )
         for step in t_range:
             # accumulate data in replay buffer
-            if step < drl_config["random_steps"] * 1 / 2:
+            if step < int(drl_config["random_steps"] * 1 / 2) - 1:
                 env.unwrapped.location_known = True
                 observation, info = env.reset()
                 action = env.action_space.sample()
+            elif step == int(drl_config["random_steps"] * 1 / 2):
+                env.unwrapped.location_known = False
+                observation, info = env.reset()
             elif step < drl_config["random_steps"]:
                 env.unwrapped.location_known = False
                 action = env.action_space.sample()
@@ -507,6 +511,7 @@ class ActorCriticTrainer:
                 done=done,
             )
 
+            self.logger.log_metrics({"train_reward": reward}, step)
             if done:
                 self.logger.log_metrics({"train_return": info["episode"]["r"]}, step)
                 self.logger.log_metrics({"train_ep_len": info["episode"]["l"]}, step)
@@ -519,9 +524,12 @@ class ActorCriticTrainer:
                 for _ in range(drl_config["num_train_steps_per_env_step"]):
                     batch = replay_buffer.sample(drl_config["batch_size"])
                     self.agent, update_info = self.update_step(self.agent, batch)
+                    jax.block_until_ready(self.agent)
 
                 for k, v in update_info.items():
+                    print(f"{k}: {v}")
                     update_info[k] = float(v)
+                print()
 
                 # logging
                 if step % args.log_interval == 0:

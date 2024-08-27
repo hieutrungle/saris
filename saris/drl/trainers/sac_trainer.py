@@ -17,16 +17,11 @@ class SoftActorCriticTrainer(ac_trainer.ActorCriticTrainer):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self.target_entropy = -np.prod(self.action_shape)
+        self.target_entropy = np.asarray(-np.prod(self.action_shape), dtype=np.float32)
         self.rng_key, alpha_key = jax.random.split(self.rng_key)
         alpha = Alpha(0.05)
         exmp_inputs = jnp.array(1.0).reshape(1, 1)
         alpha_state = self.init_model(alpha, exmp_inputs, alpha_key)
-        # self.agent = ActorCritic(
-        #     actor_state=self.agent.actor_state,
-        #     critic_states=self.agent.critic_states,
-        #     target_critic_states=self.agent.target_critic_states,
-        # )
         self.agent = SoftActorCritic(
             actor_state=self.agent.actor_state,
             critic_states=self.agent.critic_states,
@@ -247,6 +242,7 @@ class SoftActorCriticTrainer(ac_trainer.ActorCriticTrainer):
             for i in range(len(agent.critic_states)):
                 new_state = agent.critic_states[i].apply_gradients(grads=grads[i])
                 c_states.append(new_state)
+            
             agent = agent.replace(critic_states=c_states)
             return agent, critic_info
 
@@ -267,8 +263,8 @@ class SoftActorCriticTrainer(ac_trainer.ActorCriticTrainer):
                     step=agent.target_critic_states[i].step + 1,
                     params=new_target_params,
                 )
-            agent = agent.replace(target_critic_states=target_critic_states)
-            return agent, {}
+            new_agent = agent.replace(target_critic_states=target_critic_states)
+            return new_agent, {}
 
         def update_all_critics(
             carry: Tuple[SoftActorCritic, dict[str, jnp.ndarray]],
@@ -276,13 +272,9 @@ class SoftActorCriticTrainer(ac_trainer.ActorCriticTrainer):
             batch: dict[str, np.ndarray],
         ):
             agent, critic_info = carry
-            jax.block_until_ready(agent)
             agent, critic_info = update_crtics(agent, batch)
-            jax.block_until_ready(agent)
             agent, _ = update_target_crtics(agent)
-            jax.block_until_ready(agent)
             carry = (agent, critic_info)
-            jax.block_until_ready(carry)
 
             return carry, None
 
@@ -324,7 +316,7 @@ class SoftActorCriticTrainer(ac_trainer.ActorCriticTrainer):
                 sample_shape=(self.num_actor_samples,),
                 key=agent.actor_state.rng,
             )
-            entropy = jax.lax.stop_gradient(jnp.mean(entropy))
+            entropy = jnp.mean(entropy)
 
             # next Q-values
             next_action_distribution: D.Distribution = agent.get_action_distribution(
@@ -369,8 +361,8 @@ class SoftActorCriticTrainer(ac_trainer.ActorCriticTrainer):
             actor_info.update({"actor_loss": actor_loss})
 
             new_actor_state = agent.actor_state.apply_gradients(grads=grads)
-            agent = agent.replace(actor_state=new_actor_state)
-            return agent, actor_info
+            new_agent = agent.replace(actor_state=new_actor_state)
+            return new_agent, actor_info
 
         def calc_alpha_loss(
             alpha_params: struct.PyTreeNode,
@@ -392,20 +384,21 @@ class SoftActorCriticTrainer(ac_trainer.ActorCriticTrainer):
                 key=agent.actor_state.rng,
             )
             entropy = jnp.mean(entropy)
-            loss = jnp.mean(alpha * (entropy - self.target_entropy))
+            alpha_loss = jnp.mean(alpha * (entropy - self.target_entropy))
 
-            return loss, {"alpha": alpha}
+            return alpha_loss, {"alpha": alpha}
 
         def update_alpha(agent: SoftActorCritic, batch: dict[str, np.ndarray]):
             grad_fn = jax.value_and_grad(calc_alpha_loss, has_aux=True)
-            (alpha_loss, info), alpha_grad = grad_fn(
+            (alpha_loss, info), alpha_grads = grad_fn(
                 agent.alpha_state.params, agent.alpha_state.apply_fn, agent, batch
             )
+
+            new_alpha_state = agent.alpha_state.apply_gradients(grads=alpha_grads)
+            new_agent = agent.replace(alpha_state=new_alpha_state)
             info.update({"alpha_loss": alpha_loss})
 
-            new_alpha_state = agent.alpha_state.apply_gradients(grads=alpha_grad)
-            agent = agent.replace(alpha_state=new_alpha_state)
-            return agent, info
+            return new_agent, info
 
         def train_step(agent, batch):
             metrics = {"loss": 0.0}
@@ -419,7 +412,6 @@ class SoftActorCriticTrainer(ac_trainer.ActorCriticTrainer):
             # Update critics
             (_, info) = jax.eval_shape(update_crtics, agent, batch)
             info = jax.tree_map(lambda x: jnp.zeros(x.shape, x.dtype), info)
-            jax.block_until_ready(info)
             critic_update_fn = functools.partial(update_all_critics, batch=batch)
             (agent, info), _ = jax.lax.scan(
                 critic_update_fn,
@@ -427,17 +419,12 @@ class SoftActorCriticTrainer(ac_trainer.ActorCriticTrainer):
                 xs=jnp.arange(self.num_critic_updates),
                 length=self.num_critic_updates,
             )
-            jax.block_until_ready(agent)
 
             agent, actor_info = update_actor(agent, batch)
-            jax.block_until_ready(agent)
 
             agent, alpha_info = update_alpha(agent, batch)
-            jax.block_until_ready(agent)
             info.update(actor_info)
-            jax.block_until_ready(info)
             info.update(alpha_info)
-            jax.block_until_ready(info)
             return agent, info
 
         return train_step, eval_step, update_step
