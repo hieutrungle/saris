@@ -76,7 +76,7 @@ class SoftActorCriticTrainer(ac_trainer.ActorCriticTrainer):
             agent.alpha_state,
             alpha_optimizer_hparams,
             drl_config["total_steps"],
-            drl_config["num_train_steps_per_env_step"] * 1.2,
+            drl_config["num_train_steps_per_env_step"],
         )
         agent = agent.replace(
             alpha_state=alpha_state,
@@ -206,8 +206,11 @@ class SoftActorCriticTrainer(ac_trainer.ActorCriticTrainer):
                 sample_shape=(self.num_actor_samples,),
                 key=agent.actor_state.rng,
             )
+            alpha = agent.alpha_state.apply_fn(
+                {"params": agent.alpha_state.params}, jnp.array(1.0).reshape(1, 1)
+            )
+            next_q_values = next_q_values + alpha * next_action_entropy
 
-            next_q_values = next_q_values + 0.05 * next_action_entropy
             target_q_values = rewards + self.discount * (1.0 - dones) * next_q_values
             target_q_values = jnp.expand_dims(target_q_values, axis=0)
             target_q_values = jnp.repeat(target_q_values, self.num_critics, axis=0)
@@ -347,7 +350,10 @@ class SoftActorCriticTrainer(ac_trainer.ActorCriticTrainer):
             target_q_values = jnp.mean(target_q_values)
 
             # Maximize entropy and return with gradient ascent
-            actor_loss = (q_values - target_q_values) + 0.05 * entropy
+            alpha = agent.alpha_state.apply_fn(
+                {"params": agent.alpha_state.params}, jnp.array(1.0).reshape(1, 1)
+            )
+            actor_loss = (q_values - target_q_values) + alpha * entropy
             # Equivalent to minimizing -actor_loss with gradient descent
             actor_loss = -actor_loss
 
@@ -413,6 +419,7 @@ class SoftActorCriticTrainer(ac_trainer.ActorCriticTrainer):
             # Update critics
             (_, info) = jax.eval_shape(update_crtics, agent, batch)
             info = jax.tree_map(lambda x: jnp.zeros(x.shape, x.dtype), info)
+            jax.block_until_ready(info)
             critic_update_fn = functools.partial(update_all_critics, batch=batch)
             (agent, info), _ = jax.lax.scan(
                 critic_update_fn,
@@ -424,9 +431,13 @@ class SoftActorCriticTrainer(ac_trainer.ActorCriticTrainer):
 
             agent, actor_info = update_actor(agent, batch)
             jax.block_until_ready(agent)
-            # agent, alpha_info = update_alpha(agent, batch)
+
+            agent, alpha_info = update_alpha(agent, batch)
+            jax.block_until_ready(agent)
             info.update(actor_info)
-            # info.update(alpha_info)
+            jax.block_until_ready(info)
+            info.update(alpha_info)
+            jax.block_until_ready(info)
             return agent, info
 
         return train_step, eval_step, update_step

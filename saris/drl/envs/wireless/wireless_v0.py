@@ -72,9 +72,10 @@ class WirelessEnvV0(Env):
         focal_shape = self._focal_points.shape
         if self.location_known:
             delta_focal_points = self.np_rng.uniform(-2, 2, focal_shape)
+            self._focal_points = pos + delta_focal_points
         else:
-            delta_focal_points = self.np_rng.uniform(-12, 12, focal_shape)
-        self._focal_points = pos + delta_focal_points
+            delta_focal_points = self.np_rng.uniform(-1, 1, focal_shape)
+            self._focal_points = np.zeros(focal_shape) + delta_focal_points
         self._focal_points = np.asarray(self._focal_points, dtype=np.float32)
 
         return self._get_observation(), self.info

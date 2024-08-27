@@ -466,12 +466,13 @@ class ActorCriticTrainer:
         (observation, info) = env.reset()
 
         best_return = -np.inf
-        for step in tqdm(
+        t_range = tqdm(
             range(start_step, drl_config["total_steps"]),
             total=drl_config["total_steps"],
             dynamic_ncols=True,
             initial=start_step,
-        ):
+        )
+        for step in t_range:
             # accumulate data in replay buffer
             if step < drl_config["random_steps"] * 1 / 2:
                 env.unwrapped.location_known = True
@@ -518,6 +519,10 @@ class ActorCriticTrainer:
                 for _ in range(drl_config["num_train_steps_per_env_step"]):
                     batch = replay_buffer.sample(drl_config["batch_size"])
                     self.agent, update_info = self.update_step(self.agent, batch)
+
+                for k, v in update_info.items():
+                    update_info[k] = float(v)
+
                 # logging
                 if step % args.log_interval == 0:
                     self.logger.log_metrics(update_info, step)
@@ -526,6 +531,15 @@ class ActorCriticTrainer:
                 if reward > best_return:
                     best_return = reward
                     self.save_models(step)
+
+                t_range.set_postfix(
+                    {
+                        "actor_loss": f"{update_info['actor_loss']:.4e}",
+                        "critic_loss": f"{update_info['critic_loss']:.4e}",
+                        "alpha": f"{update_info['alpha']:.4e}",
+                    },
+                    refresh=True,
+                )
 
         self.wait_for_checkpoint()
         print(f"Training complete!\n")
