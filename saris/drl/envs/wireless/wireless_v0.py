@@ -71,11 +71,16 @@ class WirelessEnvV0(Env):
         # TODO: get random uniform number from a sphere with radius that is half the distance between RIS and RX; RIS and tx
         focal_shape = self._focal_points.shape
         if self.location_known:
-            delta_focal_points = self.np_rng.uniform(-2, 2, focal_shape)
+            delta_focal_points = self.np_rng.uniform(-3, 3, focal_shape)
             self._focal_points = pos + delta_focal_points
         else:
+            ris_locations = utils.load_yaml_file(self.sionna_config_file)[
+                "ris_locations"
+            ]
+            ris_locations = np.array(ris_locations)
+            ris_locations = np.tile(ris_locations, (focal_shape[0], 2))
             delta_focal_points = self.np_rng.uniform(-1, 1, focal_shape)
-            self._focal_points = np.zeros(focal_shape) + delta_focal_points
+            self._focal_points = ris_locations + delta_focal_points
         self._focal_points = np.asarray(self._focal_points, dtype=np.float32)
 
         return self._get_observation(), self.info
