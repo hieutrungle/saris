@@ -98,6 +98,9 @@ class WirelessEnvV0(Env):
         self.info.update(sim_info)
 
         terminated = False
+        if np.any(np.abs(self._focal_points) > 120):
+            terminated = True
+
         return next_observation, reward, terminated, truncated, self.info
 
     def _calculate_reward(self, use_cmap: bool) -> float:
