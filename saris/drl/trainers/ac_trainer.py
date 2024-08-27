@@ -95,7 +95,6 @@ class ActorCriticTrainer:
         self.logger_params = logger_params
         self.enable_progress_bar = enable_progress_bar
         self.debug = debug
-        # self.debug = True
         jax.config.update("jax_debug_nans", True)
 
         # Set of hyperparameters to save
@@ -460,7 +459,7 @@ class ActorCriticTrainer:
             start_step = self.checkpoint_manager.latest_step()
         else:
             print(f"Training from scratch")
-            start_step = 0
+            start_step = 1
         start_step = int(start_step)
 
         # Training loop
@@ -499,13 +498,6 @@ class ActorCriticTrainer:
             done = np.asarray(done, dtype=np.float16)
             action = np.asarray(action, dtype=np.float32)
 
-            print(f"step={step}, info={info}")
-            print(f"observation={observation}")
-            print(f"action={action}")
-            print(f"next_observation={next_observation}")
-            print(f"reward={reward}")
-            print(f"done={done}\n")
-
             replay_buffer.insert(
                 observation=observation,
                 action=action,
@@ -525,12 +517,7 @@ class ActorCriticTrainer:
             if step >= drl_config["training_starts"]:
                 for _ in range(drl_config["num_train_steps_per_env_step"]):
                     batch = replay_buffer.sample(drl_config["batch_size"])
-                    start_time = time.time()
                     self.agent, update_info = self.update_step(self.agent, batch)
-                    print(f"update_time={time.time()-start_time}")
-                    for k, v in update_info.items():
-                        print(f"{k}: {v}")
-                    print()
                 # logging
                 if step % args.log_interval == 0:
                     self.logger.log_metrics(update_info, step)
@@ -539,8 +526,6 @@ class ActorCriticTrainer:
                 if reward > best_return:
                     best_return = reward
                     self.save_models(step)
-
-                exit()
 
         self.wait_for_checkpoint()
         print(f"Training complete!\n")
