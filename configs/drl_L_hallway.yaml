@@ -3,9 +3,6 @@ exp_name: sac_beamforming_hallway_L
 
 replay_buffer_capacity: 25000
 total_steps: 7500
-# random_steps: 800
-# training_starts: 850
-# ep_len: 250
 random_steps: 600
 training_starts: 650
 ep_len: 200
