@@ -33,6 +33,7 @@ class WirelessEnvV0(Env):
 
         self.action_space = self._get_action_space()
         self.observation_space = self._get_observation_space()
+        self.taken_steps = 0.0
 
         self.info = {}
         self.use_cmap = False
@@ -83,6 +84,9 @@ class WirelessEnvV0(Env):
             self._focal_points = ris_locations + delta_focal_points
         self._focal_points = np.asarray(self._focal_points, dtype=np.float32)
 
+        self.info = {}
+        self.taken_steps = 0.0
+
         return self._get_observation(), self.info
 
     def step(
@@ -94,7 +98,9 @@ class WirelessEnvV0(Env):
         next_observation = self._get_observation()
 
         truncated = False
+        self.taken_steps += 1.0
         reward, sim_info = self._calculate_reward(use_cmap=self.use_cmap)
+        reward = reward - 0.75 * self.taken_steps
         self.info.update(sim_info)
 
         terminated = False
