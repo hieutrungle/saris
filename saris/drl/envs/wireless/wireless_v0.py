@@ -100,7 +100,7 @@ class WirelessEnvV0(Env):
         truncated = False
         self.taken_steps += 1.0
         reward, sim_info = self._calculate_reward(use_cmap=self.use_cmap)
-        reward = reward - 0.75 * self.taken_steps
+        reward = reward - 0.1 * self.taken_steps
         self.info.update(sim_info)
 
         terminated = False
