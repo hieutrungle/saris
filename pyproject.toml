@@ -24,8 +24,8 @@ tensorboardx = ">=2.6"
 swig = ">=4.2"
 gymnasium = ">=0.29"
 orbax-checkpoint = ">0.4,<0.7"
-jax = { version = ">=0.4.28", extras = ["cuda12"] }
-flax = ">=0.8"
+jax = { version = "^0.4.28", extras = ["cuda12"] }
+flax = "^0.8"
 sionna = ">=0.15,<0.19"
 tensorflow = { version = ">=2.13,<2.16", extras = ["and-cuda"] }
 
@@ -43,7 +43,7 @@ scipy = "^1.14.0"
 matplotlib = "^3.9.0"
 ipykernel = "^6.29.5"
 numpy = "<2.0.0"
-tqdm = "^4.66.5"
+tqdm = "^4.0"
 
 
 [build-system]
