@@ -326,10 +326,13 @@ class ActorCriticTrainer:
           checkpoint_path: Path to the directory where the checkpoints are stored.
         """
         checkpoint_path = os.path.abspath(checkpoint_path)
+        async_checkpointer = ocp.AsyncCheckpointer(
+            ocp.PyTreeCheckpointHandler(), timeout_secs=50
+        )
         options = ocp.CheckpointManagerOptions(max_to_keep=5, create=True)
         return ocp.CheckpointManager(
             checkpoint_path,
-            checkpointers=ocp.AsyncCheckpointer(ocp.PyTreeCheckpointHandler()),
+            checkpointers=async_checkpointer,
             options=options,
         )
 
