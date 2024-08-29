@@ -28,6 +28,7 @@ tensorflow = { version = ">=2.13,<2.16", extras = ["and-cuda"] }
 torch = { version = "^2.4.0+cu124", source = "pytorch-gpu-src" }
 torchvision = { version = "^0.19.0+cu124", source = "pytorch-gpu-src" }
 torchaudio = { version = "^2.4.0+cu124", source = "pytorch-gpu-src" }
+pyyaml = "^6.0.2"
 
 [tool.poetry.dev-dependencies]
 bumpversion = "*"
