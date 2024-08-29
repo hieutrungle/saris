@@ -42,43 +42,42 @@ class ActorCritic(nn.Module):
         actions = action_dist.sample()
         return actions
 
+    def get_target_q_values(
+        self,
+        observations: torch.Tensor,
+        actions: torch.Tensor,
+    ) -> torch.Tensor:
+        """
+        Compute target Q-values for a given observation-action pair.
+        Output shape: (num_critics, batch_size)
+        """
+        target_q_values = []
+        for i, target_critic in enumerate(self.target_critics):
+            target_q_values.append(target_critic(observations, actions))
+        target_q_values = torch.stack(target_q_values)
+        return target_q_values.squeeze()
+
     def get_q_values(
         self,
-        tuple_critic_params: Tuple[struct.PyTreeNode],
-        critic_apply_fns: Tuple[Callable],
-        observations: np.ndarray,
-        actions: np.ndarray,
-    ) -> jnp.ndarray:
+        observations: torch.Tensor,
+        actions: torch.Tensor,
+    ) -> torch.Tensor:
         """
         Compute Q-values for a given observation-action pair.
         Output shape: (num_critics, batch_size)
         """
 
-        def _get_q_values_loop():
-            q_values = []
-            for i, critic_params in enumerate(tuple_critic_params):
-                q_values.append(
-                    critic_apply_fns[i](
-                        {"params": critic_params}, observations, actions
-                    )
-                )
-            return jnp.stack(q_values, axis=0)
-
-        q_values = _get_q_values_loop()
-
+        q_values = []
+        for i, critic in enumerate(self.critics):
+            q_values.append(critic(observations, actions))
+        q_values = torch.stack(q_values)
         return q_values.squeeze()
 
     def get_entropy(
         self,
         action_distribution: D.Distribution,
-        sample_shape: Sequence[int] = (32,),
-        key: jax.random.PRNGKey = jax.random.PRNGKey(0),
-    ) -> jnp.ndarray:
-        _, log_probs = action_distribution.sample_and_log_prob(
-            seed=key, sample_shape=sample_shape
-        )
-
-        entropy_est = -jnp.mean(log_probs, axis=0)
+    ) -> torch.Tensor:
+        entropy_est = action_distribution.entropy()
         return entropy_est
 
     def __repr__(self):

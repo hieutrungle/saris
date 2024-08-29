@@ -149,7 +149,7 @@ class SoftActorCriticTrainer(ac_trainer.ActorCriticTrainer):
         def calc_critic_loss(
             batch: dict[str, np.ndarray],
         ) -> dict[str, torch.Tensor]:
-            obs, actions, rewards, next_obs, dones = (
+            obs, acts, rews, next_obs, dones = (
                 batch["observations"],
                 batch["actions"],
                 batch["rewards"],
@@ -157,116 +157,81 @@ class SoftActorCriticTrainer(ac_trainer.ActorCriticTrainer):
                 batch["dones"],
             )
 
-            # next_actions shape: (num_actor_samples, batch_size, action_dim)
-            next_action_distribution: D.Distribution = (
-                self.agent.get_action_distribution(
-                    next_obs, agent.actor_state.params, agent.actor_state.apply_fn
+            with torch.no_grad():
+                # next_actions shape: (num_actor_samples, batch_size, action_dim)
+                next_act_dist: D.Distribution = self.agent.get_action_distribution(
+                    next_obs
                 )
-            )
-            next_actions = next_action_distribution.sample(
-                seed=agent.actor_state.rng, sample_shape=(self.num_actor_samples,)
-            )
-            next_obs = jnp.repeat(
-                jnp.expand_dims(next_obs, axis=0), self.num_actor_samples, axis=0
-            )
 
-            # next_q_values shape: (num_critics, num_actor_samples, batch_size)
-            tuple_target_critic_params = tuple(
-                [critic_state.params for critic_state in agent.target_critic_states]
-            )
-            target_critic_apply_fns = tuple(
-                [critic_state.apply_fn for critic_state in agent.target_critic_states]
-            )
-            next_q_values = agent.get_q_values(
-                tuple_target_critic_params,
-                target_critic_apply_fns,
-                next_obs,
-                next_actions,
-            )
+                next_actions = next_act_dist.sample(
+                    sample_shape=(self.num_actor_samples,)
+                )
+                next_obs = torch.unsqueeze(next_obs, dim=0)
+                next_obs = torch.repeat_interleave(
+                    next_obs, self.num_actor_samples, dim=0
+                )
 
-            # next_q_values shape: (num_actor_samples, batch_size)
-            next_q_values = do_q_backup(next_q_values)
-            # next_q_values shape: (batch_size)
-            next_q_values = jnp.mean(next_q_values, axis=0)
+                # next_q_values shape: (num_critics, num_actor_samples, batch_size)
+                next_q_values = self.agent.get_target_q_values(next_obs, next_actions)
 
-            # Entropy regularization
-            # next_action_entropy shape: (batch_size)
-            next_action_entropy = agent.get_entropy(
-                next_action_distribution,
-                sample_shape=(self.num_actor_samples,),
-                key=agent.actor_state.rng,
-            )
-            alpha = agent.alpha_state.apply_fn(
-                {"params": agent.alpha_state.params}, jnp.array(1.0).reshape(1, 1)
-            )
-            next_q_values = next_q_values + alpha * next_action_entropy
+                # next_q_values shape: (num_actor_samples, batch_size)
+                next_q_values = do_q_backup(next_q_values)
+                # next_q_values shape: (batch_size)
+                next_q_values = torch.mean(next_q_values, axis=0)
 
-            target_q_values = rewards + self.discount * (1.0 - dones) * next_q_values
-            target_q_values = jnp.expand_dims(target_q_values, axis=0)
-            target_q_values = jnp.repeat(target_q_values, self.num_critics, axis=0)
+                # Entropy regularization
+                # next_action_entropy shape: (batch_size)
+                next_action_entropy = self.agent.get_entropy(next_act_dist)
+                alpha = self.agent.alpha(
+                    torch.tensor(1.0, device=next_action_entropy.device).reshape(1, 1)
+                )
+                next_q_values = next_q_values + alpha * next_action_entropy
 
-            q_values = agent.get_q_values(
-                tuple_critic_params, critic_apply_fns, obs, actions
-            )
+                target_q_values = rews + self.discount * (1.0 - dones) * next_q_values
+                target_q_values = torch.unsqueeze(target_q_values, dim=0)
+                target_q_values = torch.repeat_interleave(
+                    target_q_values, self.num_critics, dim=0
+                )
 
-            # Mask out NaN values
-            mask = jnp.isnan(q_values) | jnp.isnan(target_q_values)
-            q_values = jnp.where(mask, 0, q_values)
-            target_q_values = jnp.where(mask, 0, target_q_values)
-            crtic_loss = 0.5 * jnp.mean((q_values - target_q_values) ** 2, where=~mask)
+            q_values = self.agent.get_q_values(obs, acts)
+
+            # # Mask out NaN values
+            # mask = jnp.isnan(q_values) | jnp.isnan(target_q_values)
+            # q_values = jnp.where(mask, 0, q_values)
+            # target_q_values = jnp.where(mask, 0, target_q_values)
+            crtic_loss = 0.5 * torch.mean((q_values - target_q_values) ** 2)
 
             critic_info = {
-                "q_values": jnp.mean(q_values),
-                "next_q_values": jnp.mean(next_q_values),
-                "target_q_values": jnp.mean(target_q_values),
+                "q_values": torch.mean(q_values),
+                "next_q_values": torch.mean(next_q_values),
+                "target_q_values": torch.mean(target_q_values),
+                "critic_loss": crtic_loss,
             }
             return crtic_loss, critic_info
 
         def update_crtics(batch: dict[str, np.ndarray]) -> dict[str, torch.Tensor]:
-            tuple_critic_params = tuple([state.params for state in agent.critic_states])
-            critic_apply_fns = tuple([state.apply_fn for state in agent.critic_states])
-            grad_fn = jax.value_and_grad(calc_critic_loss, has_aux=True)
-            (crtic_loss, (critic_info)), grads = grad_fn(
-                tuple_critic_params, critic_apply_fns, agent, batch
-            )
-            critic_info.update({"critic_loss": crtic_loss})
 
-            c_states = []
-            for i in range(len(agent.critic_states)):
-                new_state = agent.critic_states[i].apply_gradients(grads=grads[i])
-                c_states.append(new_state)
+            loss, info = calc_critic_loss(batch)
+            # TODO: optimizer
+            return info
 
-            agent = agent.replace(critic_states=c_states)
-
-            return agent, critic_info
-
-        def update_target_crtics(
-            agent: SoftActorCritic,
-        ) -> Tuple[SoftActorCritic, dict[str, jnp.ndarray]]:
+        def update_target_crtics() -> None:
             """
             Update target critics with moving average of current critics.
             """
-            target_critic_states = list(agent.target_critic_states)
             for i in range(self.num_critics):
-                old = agent.target_critic_states[i].params
-                new = agent.critic_states[i].params
-                new_target_params = jax.tree.map(
-                    lambda x, y: (1 - self.ema_decay) * x + y * self.ema_decay, new, old
-                )
-                target_critic_states[i] = agent.target_critic_states[i].replace(
-                    step=agent.target_critic_states[i].step + 1,
-                    params=new_target_params,
-                )
-            new_agent = agent.replace(target_critic_states=target_critic_states)
-            return new_agent
+                target_state_dict = self.agent.target_critic_states[i].state_dict()
+                critic_state_dict = self.agent.critic_states[i].state_dict()
+                for key in critic_state_dict:
+                    target_state_dict[key] = critic_state_dict[
+                        key
+                    ] * self.tau + target_state_dict[key] * (1 - self.tau)
+                self.agent.target_critic_states[i].load_state_dict(target_state_dict)
 
         def calc_actor_loss(
-            actor_params: struct.PyTreeNode,
-            actor_apply_fn: Callable,
-            agent: SoftActorCritic,
-            batch: dict[str, np.ndarray],
-        ) -> Tuple[jnp.ndarray, dict[str, jnp.ndarray]]:
-            obs, actions, rewards, next_obs, dones = (
+            batch: dict[str, torch.Tensor],
+        ) -> dict[str, torch.Tensor]:
+            obs, acts, rews, next_obs, dones = (
                 batch["observations"],
                 batch["actions"],
                 batch["rewards"],
@@ -275,112 +240,56 @@ class SoftActorCriticTrainer(ac_trainer.ActorCriticTrainer):
             )
 
             # Q-values
-            action_distribution = agent.get_action_distribution(
-                obs, actor_params, actor_apply_fn
-            )
-            actions = action_distribution.sample(
-                seed=agent.actor_state.rng, sample_shape=(self.num_actor_samples,)
-            )
-            obs = jnp.repeat(
-                jnp.expand_dims(obs, axis=0), self.num_actor_samples, axis=0
-            )
-            q_values = agent.get_q_values(
-                tuple([state.params for state in agent.critic_states]),
-                tuple([state.apply_fn for state in agent.critic_states]),
-                obs,
-                actions,
-            )
-            q_values = jnp.mean(q_values)
+            action_distribution = self.agent.get_action_distribution(obs)
+            actions = action_distribution.sample()
+            q_values = self.agent.get_q_values(obs, actions)
+            q_values = torch.mean(q_values)
 
             # Entropy regularization
-            entropy = agent.get_entropy(
-                action_distribution,
-                sample_shape=(self.num_actor_samples,),
-                key=agent.actor_state.rng,
-            )
-            entropy = jnp.mean(entropy)
+            entropy = self.agent.get_entropy(action_distribution)
+            entropy = torch.mean(entropy)
 
-            # next Q-values
-            next_action_distribution: D.Distribution = agent.get_action_distribution(
-                next_obs,
-                jax.lax.stop_gradient(agent.actor_state.params),
-                agent.actor_state.apply_fn,
+            alpha = self.agent.alpha(
+                torch.tensor(1.0, device=q_values.device).reshape(1, 1)
             )
-            next_actions = next_action_distribution.sample(
-                seed=agent.actor_state.rng, sample_shape=(self.num_actor_samples,)
-            )
-            next_obs = jnp.repeat(
-                jnp.expand_dims(next_obs, axis=0), self.num_actor_samples, axis=0
-            )
-            next_q_values = agent.get_q_values(
-                tuple([state.params for state in agent.target_critic_states]),
-                tuple([state.apply_fn for state in agent.target_critic_states]),
-                next_obs,
-                next_actions,
-            )
-            next_q_values = do_q_backup(next_q_values)
-            next_q_values = jnp.mean(next_q_values, axis=0)
-            target_q_values = rewards + self.discount * (1.0 - dones) * next_q_values
-            target_q_values = jnp.mean(target_q_values)
 
-            # Maximize entropy and return with gradient ascent
-            alpha = agent.alpha_state.apply_fn(
-                {"params": agent.alpha_state.params}, jnp.array(1.0).reshape(1, 1)
-            )
-            actor_loss = (q_values - target_q_values) + alpha * entropy
-            # Equivalent to minimizing -actor_loss with gradient descent
-            actor_loss = -actor_loss
+            # Maximize loss
+            loss = q_values + alpha * entropy
+            # Equivalent to minimizing -loss with gradient descent
+            loss = -loss
 
-            return actor_loss, {"entropy": entropy}
+            info = {
+                "entropy": entropy,
+                "actor_loss": loss,
+            }
+            return loss, info
 
-        def update_actor(
-            agent: SoftActorCritic, batch: dict[str, np.ndarray]
-        ) -> Tuple[SoftActorCritic, dict[str, jnp.ndarray]]:
-            grad_fn = jax.value_and_grad(calc_actor_loss, has_aux=True)
-            (actor_loss, (actor_info)), grads = grad_fn(
-                agent.actor_state.params, agent.actor_state.apply_fn, agent, batch
-            )
-            actor_info.update({"actor_loss": actor_loss})
-
-            new_actor_state = agent.actor_state.apply_gradients(grads=grads)
-            new_agent = agent.replace(actor_state=new_actor_state)
-            return new_agent, actor_info
+        def update_actor(batch: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+            loss, info = calc_actor_loss(batch)
+            # TODO: optimizer
+            return info
 
         def calc_alpha_loss(
-            alpha_params: struct.PyTreeNode,
-            alpha_apply_fn: Callable,
-            agent: SoftActorCritic,
-            batch: dict[str, np.ndarray],
-        ) -> Tuple[jnp.ndarray, dict[str, jnp.ndarray]]:
+            batch: dict[str, torch.Tensor],
+        ) -> dict[str, torch.Tensor]:
             obs = batch["observations"]
 
-            action_distribution: D.Distribution = agent.get_action_distribution(
-                obs, agent.actor_state.params, agent.actor_state.apply_fn
-            )
-            alpha = alpha_apply_fn(
-                {"params": alpha_params}, jnp.array(1.0).reshape(1, 1)
-            )
-            entropy = agent.get_entropy(
-                action_distribution,
-                sample_shape=(self.num_actor_samples,),
-                key=agent.actor_state.rng,
-            )
-            entropy = jnp.mean(entropy)
-            alpha_loss = jnp.mean(alpha * (entropy - self.target_entropy))
+            action_dist: D.Distribution = self.agent.get_action_distribution(obs)
+            entropy = self.agent.get_entropy(action_dist)
+            entropy = torch.mean(entropy)
 
-            return alpha_loss, {"alpha": alpha}
+            alpha = self.agent.alpha(
+                torch.tensor(1.0, device=entropy.device).reshape(1, 1)
+            )
+            loss = torch.mean(alpha * (entropy - self.target_entropy))
+
+            return loss, {"alpha": alpha, "alpha_loss": loss}
 
         def update_alpha(agent: SoftActorCritic, batch: dict[str, np.ndarray]):
-            grad_fn = jax.value_and_grad(calc_alpha_loss, has_aux=True)
-            (alpha_loss, info), alpha_grads = grad_fn(
-                agent.alpha_state.params, agent.alpha_state.apply_fn, agent, batch
-            )
+            loss, info = calc_alpha_loss(batch)
 
-            new_alpha_state = agent.alpha_state.apply_gradients(grads=alpha_grads)
-            new_agent = agent.replace(alpha_state=new_alpha_state)
-            info.update({"alpha_loss": alpha_loss})
-
-            return new_agent, info
+            # TODO: optimizer
+            return info
 
         def train_step(agent, batch):
             metrics = {"loss": 0.0}
