@@ -2,28 +2,14 @@ import os
 
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
 os.environ["TF_GPU_ALLOCATOR"] = "cuda_malloc_async"  # to avoid memory fragmentation
-# os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
-os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = ".20"
-
-# Jax acceleration flags
-os.environ["XLA_FLAGS"] = (
-    "--xla_gpu_enable_triton_softmax_fusion=true "
-    "--xla_gpu_triton_gemm_any=True "
-    # "--xla_gpu_enable_async_collectives=true "
-    # "--xla_gpu_enable_latency_hiding_scheduler=true "
-    # "--xla_gpu_enable_highest_priority_async_stream=true "
-)
-
 from typing import Optional
 import argparse
-from saris.utils import utils
+from saris.utils import utils, torch_utils
 import numpy as np
 import gymnasium as gym
 from saris.drl.envs import register_envs
-
 from saris.drl.networks import actor, critic
-
-# from saris.drl.trainers import sac_trainer
+from saris.drl.trainers import sac_trainer
 import importlib.resources
 import saris
 
@@ -145,7 +131,7 @@ def main():
     sionna_config = utils.load_config(args.sionna_config_file)
 
     # set random seeds
-    np.random.seed(args.seed)
+    torch_utils.init_seed(args.seed)
     if args.verbose:
         utils.log_args(args)
         utils.log_config(drl_config)
@@ -166,17 +152,17 @@ def main():
         not discrete
     ), "Our wireless DRL implementation only supports continuous action spaces."
 
-    # # Trainer
-    # trainer_config = get_trainer_config(env, drl_config, args)
-    # trainer = sac_trainer.SoftActorCriticTrainer(**trainer_config)
-    # trainer.print_class_variables()
+    # Trainer
+    trainer_config = get_trainer_config(env, drl_config, args)
+    trainer = sac_trainer.SoftActorCriticTrainer(**trainer_config)
+    trainer.print_class_variables()
 
-    # if args.command == "train":
-    #     trainer.train_agent(env, drl_config, args)
+    if args.command == "train":
+        trainer.train_agent(env, drl_config, args)
     # elif args.command == "eval":
     #     trainer.eval_agent(env, drl_config, args)
-    # else:
-    #     raise ValueError(f"Invalid command: {args.command}")
+    else:
+        raise ValueError(f"Invalid command: {args.command}")
 
 
 def parse_agrs():

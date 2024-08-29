@@ -9,30 +9,9 @@ import numpy as np
 from copy import copy
 from glob import glob
 from collections import defaultdict
-
-# JAX/Flax
-# If you run this code on Colab, remember to install flax and optax
-# !pip install --quiet --upgrade flax optax
-import jax
-import jax.numpy as jnp
-from jax import random
-from flax import linen as nn
-from flax.training import train_state
-import optax
-
-import orbax.checkpoint as ocp
-
-# Logging
-from tensorboardX import SummaryWriter
-
-
-class TrainState(train_state.TrainState):
-    # A simple extension of TrainState to also include batch statistics
-    # If a model has no batch statistics, it is None
-    batch_stats: Any = None
-    # You can further extend the TrainState by any additional part here
-    # For example, rng to keep for init, dropout, etc.
-    rng: Any = None
+import torch
+import torch.nn as nn
+from torch.utils.tensorboard import SummaryWriter
 
 
 class TrainerModule:
@@ -105,27 +84,11 @@ class TrainerModule:
         exmp_input = (
             [exmp_input] if not isinstance(exmp_input, (list, tuple)) else exmp_input
         )
-        self.print_tabulate(exmp_input)
+        self.summarize_models(exmp_input)
 
         # Init trainer parts
         self.logger = self.init_logger(logger_params)
-        self.create_jitted_functions()
         self.state = self.init_model(exmp_input)
-        self.checkpoint_manager = self.init_checkpoint_manager(self.logger.logdir)
-
-    def init_checkpoint_manager(self, checkpoint_path: str):
-        """
-        Initializes a checkpoint manager for saving and loading model states.
-
-        Args:
-          checkpoint_path: Path to the directory where the checkpoints are stored.
-        """
-        checkpoint_path = os.path.abspath(checkpoint_path)
-        options = ocp.CheckpointManagerOptions(max_to_keep=5, create=True)
-        return ocp.CheckpointManager(
-            checkpoint_path,
-            options=options,
-        )
 
     def init_logger(self, logger_params: Optional[Dict] = None):
         """
@@ -209,7 +172,7 @@ class TrainerModule:
         """
         return self.model.init(init_rng, *exmp_input, train=True)
 
-    def print_tabulate(self, exmp_input: Any):
+    def summarize_models(self, exmp_input: Any):
         """
         Prints a summary of the Module represented as table.
 

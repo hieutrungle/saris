@@ -1,16 +1,14 @@
 from typing import Any, Tuple, Callable, Dict
-import jax
-from jax import numpy as jnp
 from saris.drl.trainers import ac_trainer
-from saris.drl.infrastructure.train_state import TrainState
-from saris import distributions as D
 from saris.drl.agents.actor_critic import ActorCritic
 from saris.drl.agents.sac import SoftActorCritic
 from saris.drl.networks.alpha import Alpha
 import numpy as np
-from flax import struct
 import functools
 import copy
+import torch
+import torch.nn as nn
+import torch.distributions as D
 
 
 class SoftActorCriticTrainer(ac_trainer.ActorCriticTrainer):
@@ -18,65 +16,63 @@ class SoftActorCriticTrainer(ac_trainer.ActorCriticTrainer):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.target_entropy = np.asarray(-np.prod(self.action_shape), dtype=np.float32)
-        self.rng_key, alpha_key = jax.random.split(self.rng_key)
         alpha = Alpha(0.05)
-        exmp_inputs = jnp.array(1.0).reshape(1, 1)
-        alpha_state = self.init_model(alpha, exmp_inputs, alpha_key)
+        self.summarize_model(alpha, [[1, 1]])
+
         self.agent = SoftActorCritic(
-            actor_state=self.agent.actor_state,
-            critic_states=self.agent.critic_states,
-            target_critic_states=self.agent.target_critic_states,
-            alpha_state=alpha_state,
-        )
-        self.create_jitted_functions()
-
-    def init_agent_optimizer(
-        self,
-        agent: SoftActorCritic,
-        drl_config: Dict[str, Any],
-    ) -> SoftActorCritic:
-        """
-        Initializes the optimizer for the agent's components:
-        - actor
-        - critics
-        - target critics
-        - other components
-        """
-        # Initialize optimizer for actor and critic
-        actor_state = self.init_optimizer(
-            agent.actor_state,
-            self.actor_optimizer_hparams,
-            drl_config["total_steps"],
-            drl_config["num_train_steps_per_env_step"],
+            actor=self.agent.actor,
+            critics=self.agent.critics,
+            target_critics=self.agent.target_critics,
+            alpha=alpha,
         )
 
-        critic_states = []
-        for i in range(self.num_critics):
-            state = self.init_optimizer(
-                agent.critic_states[i],
-                self.critic_optimizer_hparams,
-                drl_config["total_steps"],
-                drl_config["num_train_steps_per_env_step"]
-                * drl_config["num_critic_updates"],
-            )
-            critic_states.append(state)
+    # def init_agent_optimizer(
+    #     self,
+    #     agent: SoftActorCritic,
+    #     drl_config: Dict[str, Any],
+    # ) -> SoftActorCritic:
+    #     """
+    #     Initializes the optimizer for the agent's components:
+    #     - actor
+    #     - critics
+    #     - target critics
+    #     - other components
+    #     """
+    #     # Initialize optimizer for actor and critic
+    #     actor_state = self.init_optimizer(
+    #         agent.actor_state,
+    #         self.actor_optimizer_hparams,
+    #         drl_config["total_steps"],
+    #         drl_config["num_train_steps_per_env_step"],
+    #     )
 
-        agent = agent.replace(
-            actor_state=actor_state,
-            critic_states=critic_states,
-        )
+    #     critic_states = []
+    #     for i in range(self.num_critics):
+    #         state = self.init_optimizer(
+    #             agent.critic_states[i],
+    #             self.critic_optimizer_hparams,
+    #             drl_config["total_steps"],
+    #             drl_config["num_train_steps_per_env_step"]
+    #             * drl_config["num_critic_updates"],
+    #         )
+    #         critic_states.append(state)
 
-        alpha_optimizer_hparams = copy.deepcopy(self.actor_optimizer_hparams)
-        alpha_state = self.init_optimizer(
-            agent.alpha_state,
-            alpha_optimizer_hparams,
-            drl_config["total_steps"],
-            drl_config["num_train_steps_per_env_step"],
-        )
-        agent = agent.replace(
-            alpha_state=alpha_state,
-        )
-        return agent
+    #     agent = agent.replace(
+    #         actor_state=actor_state,
+    #         critic_states=critic_states,
+    #     )
+
+    #     alpha_optimizer_hparams = copy.deepcopy(self.actor_optimizer_hparams)
+    #     alpha_state = self.init_optimizer(
+    #         agent.alpha_state,
+    #         alpha_optimizer_hparams,
+    #         drl_config["total_steps"],
+    #         drl_config["num_train_steps_per_env_step"],
+    #     )
+    #     agent = agent.replace(
+    #         alpha_state=alpha_state,
+    #     )
+    #     return agent
 
     def create_step_functions(self):
 
@@ -134,7 +130,7 @@ class SoftActorCriticTrainer(ac_trainer.ActorCriticTrainer):
             grads = jax.tree_map(lambda g: g / num_minibatches, grads)
             return loss, grads
 
-        def do_q_backup(next_qs: jnp.ndarray):
+        def do_q_backup(next_qs: torch.Tensor) -> torch.Tensor:
             """
             Handle Q-values from multiple different target critic networks to produce target values.
 
@@ -147,15 +143,12 @@ class SoftActorCriticTrainer(ac_trainer.ActorCriticTrainer):
                 jnp.ndarray: Target values of shape (num_critics, batch_size).
                     Leading dimension corresponds to target values FOR the different critics.
             """
-            next_qs = jnp.min(next_qs, axis=0)
+            next_qs, _ = torch.min(next_qs, dim=0)
             return next_qs
 
         def calc_critic_loss(
-            tuple_critic_params: Tuple[struct.PyTreeNode],
-            critic_apply_fns: Tuple[Callable],
-            agent: SoftActorCritic,
             batch: dict[str, np.ndarray],
-        ) -> Tuple[jnp.ndarray, dict[str, jnp.ndarray]]:
+        ) -> dict[str, torch.Tensor]:
             obs, actions, rewards, next_obs, dones = (
                 batch["observations"],
                 batch["actions"],
@@ -165,8 +158,10 @@ class SoftActorCriticTrainer(ac_trainer.ActorCriticTrainer):
             )
 
             # next_actions shape: (num_actor_samples, batch_size, action_dim)
-            next_action_distribution: D.Distribution = agent.get_action_distribution(
-                next_obs, agent.actor_state.params, agent.actor_state.apply_fn
+            next_action_distribution: D.Distribution = (
+                self.agent.get_action_distribution(
+                    next_obs, agent.actor_state.params, agent.actor_state.apply_fn
+                )
             )
             next_actions = next_action_distribution.sample(
                 seed=agent.actor_state.rng, sample_shape=(self.num_actor_samples,)
@@ -227,9 +222,7 @@ class SoftActorCriticTrainer(ac_trainer.ActorCriticTrainer):
             }
             return crtic_loss, critic_info
 
-        def update_crtics(
-            agent: SoftActorCritic, batch: dict[str, np.ndarray]
-        ) -> Tuple[SoftActorCritic, dict[str, jnp.ndarray]]:
+        def update_crtics(batch: dict[str, np.ndarray]) -> dict[str, torch.Tensor]:
             tuple_critic_params = tuple([state.params for state in agent.critic_states])
             critic_apply_fns = tuple([state.apply_fn for state in agent.critic_states])
             grad_fn = jax.value_and_grad(calc_critic_loss, has_aux=True)
@@ -266,20 +259,6 @@ class SoftActorCriticTrainer(ac_trainer.ActorCriticTrainer):
                 )
             new_agent = agent.replace(target_critic_states=target_critic_states)
             return new_agent
-
-        def update_all_critics(
-            carry: Tuple[SoftActorCritic, dict[str, jnp.ndarray]],
-            idx: int,
-            batch: dict[str, np.ndarray],
-        ):
-            agent, critic_info = carry
-            agent, critic_info = update_crtics(agent, batch)
-            jax.block_until_ready(agent)
-            agent = update_target_crtics(agent)
-            jax.block_until_ready(agent)
-            carry = (agent, critic_info)
-
-            return carry, None
 
         def calc_actor_loss(
             actor_params: struct.PyTreeNode,
@@ -410,49 +389,29 @@ class SoftActorCriticTrainer(ac_trainer.ActorCriticTrainer):
         def eval_step(agent, batch):
             return {"loss": 0.0}
 
-        def update_step(agent: SoftActorCritic, batch: dict[str, np.ndarray]):
-
-            # Update critics
-            (_, info) = jax.eval_shape(update_crtics, agent, batch)
-            jax.block_until_ready(agent)
-            info = jax.tree_map(lambda x: jnp.zeros(x.shape, x.dtype), info)
-            critic_update_fn = functools.partial(update_all_critics, batch=batch)
-
-            # val = (agent, info)
-            # (agent, info) = jax.lax.fori_loop(
-            #     0, self.num_critic_updates, critic_update_fn, val
-            # )
-            (agent, info), _ = jax.lax.scan(
-                critic_update_fn,
-                init=(agent, info),
-                xs=None,
-                length=self.num_critic_updates,
-            )
-
+        def update_step(batch: dict[str, np.ndarray]):
             # for loop
-            # for _ in range(self.num_critic_updates):
-            #     agent, info = critic_update_fn(0, (agent, info))
+            for _ in range(self.num_critic_updates):
+                info = update_crtics(batch)
+                update_target_crtics()
+            actor_info = update_actor(batch)
+            alpha_info = update_alpha(batch)
 
-            jax.block_until_ready(agent)
-            agent, actor_info = update_actor(agent, batch)
             info.update(actor_info)
-
-            jax.block_until_ready(agent)
-            agent, alpha_info = update_alpha(agent, batch)
             info.update(alpha_info)
-            info.update(
-                {
-                    "actor_lr": agent.actor_state.opt_state.hyperparams[
-                        "learning_rate"
-                    ],
-                    "critic_lr": agent.critic_states[0].opt_state.hyperparams[
-                        "learning_rate"
-                    ],
-                    "alpha_lr": agent.alpha_state.opt_state.hyperparams[
-                        "learning_rate"
-                    ],
-                }
-            )
-            return agent, info
+            # info.update(
+            #     {
+            #         "actor_lr": self.agent.actor_state.opt_state.hyperparams[
+            #             "learning_rate"
+            #         ],
+            #         "critic_lr": self.agent.critic_states[0].opt_state.hyperparams[
+            #             "learning_rate"
+            #         ],
+            #         "alpha_lr": self.agent.alpha_state.opt_state.hyperparams[
+            #             "learning_rate"
+            #         ],
+            #     }
+            # )
+            return info
 
         return train_step, eval_step, update_step

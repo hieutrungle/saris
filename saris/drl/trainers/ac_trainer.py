@@ -4,23 +4,18 @@ import json
 import time
 from tqdm.auto import tqdm
 import numpy as np
-from copy import copy
-import jax
-import jax.numpy as jnp
-from jax import random
-from flax import linen as nn
-import optax
-import orbax.checkpoint as ocp
+import copy
 from saris.utils.logger import TensorboardLogger
-from saris.drl.infrastructure.train_state import TrainState
 from saris.drl.agents.actor_critic import ActorCritic
 import gymnasium as gym
 import argparse
 from saris.utils import utils
 from saris.drl.infrastructure.replay_buffer import ReplayBuffer
-from flax.training import orbax_utils
 import re
 import matplotlib.pyplot as plt
+import torch
+import torch.nn as nn
+from torchinfo import summary
 
 
 class ActorCriticTrainer:
@@ -94,7 +89,6 @@ class ActorCriticTrainer:
         self.logger_params = logger_params
         self.enable_progress_bar = enable_progress_bar
         self.debug = debug
-        jax.config.update("jax_debug_nans", True)
 
         # Set of hyperparameters to save
         self.config = {
@@ -115,48 +109,35 @@ class ActorCriticTrainer:
         }
         self.config.update(kwargs)
 
-        self.rng_key = random.PRNGKey(self.seed)
-
         # Create empty actor. Note: no parameters yet
         actor = self.create_model(self.actor_class, self.actor_hparams)
-        exmp_inputs = np.zeros(self.observation_shape, dtype=np.float32)
-        exmp_inputs = self.add_batch_dimension(exmp_inputs)
-        exmp_inputs = (
-            [exmp_inputs] if not isinstance(exmp_inputs, (list, tuple)) else exmp_inputs
-        )
-        # self.print_tabulate(actor, exmp_inputs)
-        self.rng_key, actor_rng = random.split(self.rng_key)
-        actor_state = self.init_model(actor, exmp_inputs, actor_rng)
+        batch_ob_shape = [1, *self.observation_shape]
+        self.summarize_model(actor, [batch_ob_shape])
 
         # Create empty critic. Note: no parameters yet
-        critic = self.create_model(self.critic_class, self.critic_hparams)
-        exmp_inputs = [
-            np.zeros(self.observation_shape, dtype=np.float32),
-            np.zeros(self.action_shape, dtype=np.float32),
-        ]
-        exmp_inputs = self.add_batch_dimension(exmp_inputs)
-        exmp_inputs = (
-            [exmp_inputs] if not isinstance(exmp_inputs, (list, tuple)) else exmp_inputs
-        )
-        # self.print_tabulate(critic, exmp_inputs)
-        critic_states = []
-        target_critic_states = []
-        for i in range(self.num_critics):
-            self.rng_key, critic_rng = random.split(self.rng_key)
-            critic_states.append(self.init_model(critic, exmp_inputs, critic_rng))
-            target_critic_states.append(copy(critic_states[i]))
+        critics = nn.ModuleList()
+        target_critics = nn.ModuleList()
+        for _ in range(self.num_critics):
+            critic = self.create_model(self.critic_class, self.critic_hparams)
+            critics.append(critic)
+
+            target_critic = copy.deepcopy(critic)
+            target_critic.eval()
+            target_critics.append(target_critic)
+
+        batch_act_shape = [1, *self.action_shape]
+        self.summarize_model(critics[0], [batch_ob_shape, batch_act_shape])
 
         # Create actor critic agent
         self.agent = ActorCritic(
-            actor_state=actor_state,
-            critic_states=critic_states,
-            target_critic_states=target_critic_states,
+            actor=actor,
+            critics=critics,
+            target_critics=target_critics,
         )
 
         # Init trainer parts
         self.logger = self.init_logger(logger_params)
-        # self.create_jitted_functions()
-        self.checkpoint_manager = self.init_checkpoint_manager(self.logger.log_dir)
+        self.train, self.eval, self.update = self.create_step_functions()
 
     def create_model(self, model_class: Callable, model_hparams: Dict[str, Any]):
         """
@@ -173,57 +154,21 @@ class ActorCriticTrainer:
         create_fn = getattr(model_class, "create", None)
         model: nn.Module = None
         if callable(create_fn):
-            print("Creating model with create method")
             model = create_fn(**model_hparams)
         else:
-            print("Creating model with init method")
             model = model_class(**model_hparams)
         return model
 
-    def print_tabulate(self, model: nn.Module, exmp_input: Any):
+    def summarize_model(self, model: nn.Module, input_shapes: Sequence[Sequence[int]]):
         """
         Prints a summary of the Module represented as table.
 
         Args:
-          exmp_input: An input to the model with which the shapes are inferred.
+          input_shapes: A list of input shapes to the model.
         """
-        print(model.tabulate(random.PRNGKey(self.seed), *exmp_input, train=True))
-
-    def init_model(self, model: nn.Module, exmp_input: Any, rng: jax.random.PRNGKey):
-        """
-        Creates an initial training state with newly generated network parameters.
-
-        Args:
-          exmp_input: An input to the model with which the shapes are inferred.
-        """
-        # Prepare PRNG and input
-        model_rng, init_rng = random.split(rng)
-
-        # Run model initialization
-        variables = self.run_model_init(model, exmp_input, init_rng)
-        # Create default state. Optimizer is initialized later
-        return TrainState(
-            step=0,
-            apply_fn=model.apply,
-            params=variables["params"],
-            batch_stats=variables.get("batch_stats"),
-            rng=model_rng,
-            tx=None,
-            opt_state=None,
-        )
-
-    def run_model_init(self, model: nn.Module, exmp_input: Any, init_rng: Any) -> Dict:
-        """
-        The model initialization call
-
-        Args:
-          exmp_input: An input to the model with which the shapes are inferred.
-          init_rng: A jax.random.PRNGKey.
-
-        Returns:
-          The initialized variable dictionary.
-        """
-        return model.init(init_rng, *exmp_input, train=True)
+        print(f"Model: {model.__class__.__name__}")
+        summary(model, input_size=[*input_shapes])
+        print()
 
     def init_logger(self, logger_params: Optional[Dict] = None):
         """
@@ -269,30 +214,13 @@ class ActorCriticTrainer:
 
         return logger
 
-    def create_jitted_functions(self):
-        """
-        Creates jitted versions of the training and evaluation functions.
-        If self.debug is True, not jitting is applied.
-        """
-        train_step, eval_step, update_step = self.create_step_functions()
-        if self.debug:  # Skip jitting
-            print("Skipping jitting due to debug=True")
-            self.train_step = train_step
-            self.eval_step = eval_step
-            self.update_step = update_step
-        else:
-            # self.train_step = jax.jit(train_step, donate_argnames=("state",))
-            self.train_step = jax.jit(train_step)
-            self.eval_step = jax.jit(eval_step)
-            self.update_step = jax.jit(update_step, donate_argnames=("agent"))
-
     @staticmethod
     def create_step_functions(
         self,
     ) -> Tuple[
-        Callable[[TrainState, Any], Tuple[TrainState, Dict]],
-        Callable[[TrainState, Any], Tuple[TrainState, Dict]],
-        Callable[[TrainState, Any], Tuple[TrainState, Dict]],
+        Callable[[nn.Module, Dict[str, torch.Tensor]], Dict[str, Any]],
+        Callable[[nn.Module, Dict[str, torch.Tensor]], Dict[str, Any]],
+        Callable[[nn.Module, Dict[str, torch.Tensor]], Dict[str, Any]],
     ]:
         """
         Creates and returns functions for the training and evaluation step. The
@@ -303,41 +231,23 @@ class ActorCriticTrainer:
         eval_step functions here are examples for the signature of the functions.
         """
 
-        def train_step(state: TrainState, batch: Any):
-            metrics = {}
-            return state, metrics
-
-        def eval_step(state: TrainState, batch: Any):
+        def train_step(agent: nn.Module, batch: Any):
             metrics = {}
             return metrics
 
-        def update_step(state: TrainState, batch: Any):
+        def eval_step(agent: nn.Module, batch: Any):
             metrics = {}
-            return state, metrics
+            return metrics
+
+        def update_step(agent: nn.Module, batch: Any):
+            metrics = {}
+            return metrics
 
         raise NotImplementedError
 
-    def init_checkpoint_manager(self, checkpoint_path: str):
-        """
-        Initializes a checkpoint manager for saving and loading model states.
-
-        Args:
-          checkpoint_path: Path to the directory where the checkpoints are stored.
-        """
-        checkpoint_path = os.path.abspath(checkpoint_path)
-        async_checkpointer = ocp.AsyncCheckpointer(
-            ocp.PyTreeCheckpointHandler(), timeout_secs=50
-        )
-        options = ocp.CheckpointManagerOptions(max_to_keep=5, create=True)
-        return ocp.CheckpointManager(
-            checkpoint_path,
-            checkpointers=async_checkpointer,
-            options=options,
-        )
-
     def init_optimizer(
         self,
-        state: TrainState,
+        state,
         optimizer_hparams: Dict[str, Any],
         num_epochs: int,
         num_steps_per_epoch: int,
@@ -480,7 +390,6 @@ class ActorCriticTrainer:
             else:
                 env.unwrapped.location_known = False
                 actions = self.get_agent().get_actions(observation.reshape(1, -1))
-                jax.block_until_ready(actions)
                 actions = np.asarray(actions, dtype=np.float32)
                 action = np.squeeze(actions, axis=0)
 
@@ -516,13 +425,10 @@ class ActorCriticTrainer:
 
             # Update agent
             if step >= drl_config["training_starts"]:
-                jax.block_until_ready(self.agent)
                 for jj in range(drl_config["num_train_steps_per_env_step"]):
                     # print(f"sub_step: {jj}")
                     batch = replay_buffer.sample(drl_config["batch_size"])
                     self.agent, update_info = self.update_step(self.agent, batch)
-                    jax.block_until_ready(self.agent)
-                    jax.block_until_ready(update_info)
 
                 info.update(update_info)
 
@@ -551,7 +457,7 @@ class ActorCriticTrainer:
                         best_metrics.update({"step": step})
                         best_metrics.update(info)
                         for k, v in best_metrics.items():
-                            if isinstance(v, jnp.ndarray) or isinstance(v, np.ndarray):
+                            if isinstance(v, torch.Tensor) or isinstance(v, np.ndarray):
                                 best_metrics[k] = float(np.mean(v))
                         self.save_metrics("best_metrics", best_metrics)
 
@@ -588,7 +494,6 @@ class ActorCriticTrainer:
         path_gains = []
         for step in range(drl_config["eval_ep_len"]):
             actions = self.get_agent().get_actions(ob.reshape(1, -1))
-            jax.block_until_ready(actions)
             action = np.squeeze(np.asarray(actions, dtype=np.float32))
             try:
                 next_ob, reward, terminated, truncated, info = env.step(action)
@@ -807,8 +712,8 @@ class ActorCriticTrainer:
         print()
 
     def add_batch_dimension(
-        self, data: Union[np.ndarray, jnp.ndarray, list, dict, tuple]
-    ) -> Union[jnp.ndarray, list, dict, tuple]:
+        self, data: Union[np.ndarray, list, dict, tuple]
+    ) -> np.ndarray:
         """
         Adds a batch dimension to the data.
 
@@ -820,12 +725,10 @@ class ActorCriticTrainer:
         """
         if isinstance(data, dict):
             return {k: self.add_batch_dimension(v) for k, v in data.items()}
-        elif isinstance(data, list) or isinstance(data, tuple):
-            return [self.add_batch_dimension(v) for v in data]
-        elif isinstance(data, (np.ndarray, jnp.ndarray)):
-            return jnp.expand_dims(data, axis=0)
+        elif isinstance(data, (list, tuple)):
+            return self.add_batch_dimension(np.asarray(data))
         else:
-            raise ValueError(f"Unsupported data type: {type(data)}")
+            return np.expand_dims(data, axis=0)
 
     def save_metrics(self, filename: str, metrics: Dict[str, Any]):
         """
@@ -846,40 +749,15 @@ class ActorCriticTrainer:
         Save the agent's parameters to a file.
         """
         ckpt = {
-            "agent": self.agent,
+            "step": step,
+            "agent": self.agent.state_dict(),
             "config": self.config,
         }
-        save_args = orbax_utils.save_args_from_target(ckpt)
-        self.checkpoint_manager.save(
-            step,
-            ckpt,
-            save_kwargs={"save_args": save_args},
-        )
-
-    def wait_for_checkpoint(self):
-        """
-        Wait for the checkpoint manager to finish writing checkpoints.
-        """
-        self.checkpoint_manager.wait_until_finished()
+        torch.save(ckpt, os.path.join(self.logger.log_dir, f"checkpoints.pt"))
 
     def load_models(self, step: Optional[int] = None):
         """
         Load the agent's parameters from a file.
         """
-        if step == None:
-            step = self.checkpoint_manager.best_step()
-        target = {
-            "agent": self.agent,
-            "config": self.config,
-        }
-        state_dict = self.checkpoint_manager.restore(
-            step,
-            items=target,
-        )
-        self.agent = state_dict["agent"]
-
-    def linear2dB(self, x):
-        return 10 * jnp.log10(x)
-
-    def dB2linear(self, x):
-        return jnp.power(10, x / 10)
+        ckpt = torch.load(os.path.join(self.logger.log_dir, f"checkpoints.pt"))
+        self.agent.load_state_dict(ckpt["agent"])

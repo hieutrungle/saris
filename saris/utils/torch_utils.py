@@ -1,6 +1,15 @@
 from typing import Union
 import torch
 import numpy as np
+import random
+
+
+def init_seed(seed: int) -> None:
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+    random.seed(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.use_deterministic_algorithms(True)
 
 
 def init_gpu(use_gpu=True, gpu_id=0) -> torch.device:

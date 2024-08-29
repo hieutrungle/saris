@@ -1,58 +1,45 @@
 from typing import Sequence, Callable, Tuple, Optional
-import jax
-import jax.numpy as jnp
-from saris.drl.infrastructure.train_state import TrainState
-from saris import distributions as D
-from flax import struct
 import numpy as np
-import dataclasses
-from dataclasses import dataclass
+import torch.nn as nn
+import torch
+import torch.distributions as D
 
 
-@jax.tree_util.register_pytree_node_class
-@dataclass
-class ActorCritic:
+class ActorCritic(nn.Module):
 
-    actor_state: TrainState
-    critic_states: Sequence[TrainState]
-    target_critic_states: Sequence[TrainState]
-
-    def get_action_distribution(
+    def __init__(
         self,
-        observations: np.ndarray,
-        actor_params: struct.PyTreeNode,
-        actor_apply_fn: Callable,
-    ) -> D.Distribution:
+        actor: nn.Module,
+        critics: nn.ModuleList,
+        target_critics: nn.ModuleList,
+    ):
+        super().__init__()
+        self.actor = actor
+        self.critics = critics
+        self.target_critics = target_critics
+
+    def forward(self, x):
+        raise NotImplementedError
+
+    def get_action_distribution(self, observations: torch.Tensor) -> D.Distribution:
         """
         Compute an action distribution for a given observation.
         """
-        means, log_stds = actor_apply_fn({"params": actor_params}, observations)
-        action_dist = D.Normal(means, jnp.exp(log_stds))
-        action_dist = D.Transformed(action_dist, D.Tanh())
+        means, log_stds = self.actor(observations)
+        action_dist = D.Normal(means, torch.exp(log_stds))
+        action_dist = D.TransformedDistribution(
+            action_dist, D.TanhTransform(cache_size=1)
+        )
         action_dist = D.Independent(action_dist, reinterpreted_batch_ndims=1)
         return action_dist
 
-    @jax.jit
-    def _get_actions(
-        self,
-        observations: np.ndarray,
-        actor_state: TrainState,
-        key: jax.random.PRNGKey,
-    ) -> np.ndarray:
-        action_dist = self.get_action_distribution(
-            observations, actor_state.params, actor_state.apply_fn
-        )
-        actions = action_dist.sample(seed=key)
-        return actions
-
-    def get_actions(self, observations: np.ndarray) -> jnp.ndarray:
+    def get_actions(self, observations: torch.Tensor) -> torch.Tensor:
         """
         Compute an action for a given observation.
         Output shape: (batch_size, action_dim)
         """
-        actions = self._get_actions(
-            observations, self.actor_state, self.actor_state.rng
-        )
+        action_dist = self.get_action_distribution(observations)
+        actions = action_dist.sample()
         return actions
 
     def get_q_values(
@@ -94,31 +81,5 @@ class ActorCritic:
         entropy_est = -jnp.mean(log_probs, axis=0)
         return entropy_est
 
-    def replace(self, **updates):
-        """Returns a new object replacing the specified fields with new values."""
-        return dataclasses.replace(self, **updates)
-
     def __repr__(self):
         return f"{self.__class__.__name__}"
-
-    def tree_flatten(self):
-        # first group (if it's non-hashable/dynamic)
-        # or the second group (if it's hashable/static)
-
-        # arrays / dynamic values
-        # children = (self.actor_state, self.critic_states, self.target_critic_states)
-        children = tuple(
-            [
-                self.actor_state,
-                self.critic_states,
-                self.target_critic_states,
-            ]
-        )
-
-        # static values
-        aux_data = tuple([])
-        return children, aux_data
-
-    @classmethod
-    def tree_unflatten(cls, aux_data, children):
-        return cls(*children, *aux_data)
