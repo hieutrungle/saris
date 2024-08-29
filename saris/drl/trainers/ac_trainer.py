@@ -266,7 +266,6 @@ class ActorCriticTrainer:
             os.makedirs(os.path.join(log_dir, "metrics/"), exist_ok=True)
             with open(os.path.join(log_dir, "hparams.json"), "w") as f:
                 json.dump(self.config, f, indent=4)
-        self.log_dir = log_dir
 
         return logger
 
@@ -452,7 +451,7 @@ class ActorCriticTrainer:
             start_step = self.checkpoint_manager.latest_step()
         else:
             print(f"Training from scratch")
-            start_step = 1
+            start_step = 0
         start_step = int(start_step)
 
         # Training loop
@@ -460,7 +459,7 @@ class ActorCriticTrainer:
 
         best_return = -np.inf
         t_range = tqdm(
-            range(start_step, drl_config["total_steps"] + 1),
+            range(start_step, drl_config["total_steps"]),
             total=drl_config["total_steps"],
             dynamic_ncols=True,
             initial=start_step,
@@ -481,6 +480,7 @@ class ActorCriticTrainer:
             else:
                 env.unwrapped.location_known = False
                 actions = self.get_agent().get_actions(observation.reshape(1, -1))
+                jax.block_until_ready(actions)
                 actions = np.asarray(actions, dtype=np.float32)
                 action = np.squeeze(actions, axis=0)
 
@@ -492,8 +492,8 @@ class ActorCriticTrainer:
                 continue
 
             done = terminated or truncated
+            done = np.asarray(done, dtype=np.float32)
             reward = np.asarray(reward, dtype=np.float32)
-            done = np.asarray(done, dtype=np.float16)
             action = np.asarray(action, dtype=np.float32)
 
             replay_buffer.insert(
@@ -504,50 +504,136 @@ class ActorCriticTrainer:
                 done=done,
             )
 
-            self.logger.log_metrics(
-                {
-                    "train_reward": reward,
-                    "train_path_gain_dB": info["path_gain_dB"],
-                },
-                step,
-            )
+            self.logger.log_metrics({"train_reward": reward}, step)
+            self.logger.log_metrics({"train_path_gain_dB": info["path_gain_dB"]}, step)
             if done:
-                self.logger.log_metrics({"train_return": info["episode"]["r"]}, step)
+                train_return = float(np.mean(info["episode"]["r"]))
+                self.logger.log_metrics({"train_return": train_return}, step)
                 self.logger.log_metrics({"train_ep_len": info["episode"]["l"]}, step)
                 observation, info = env.reset()
             else:
                 observation = next_observation
 
-            # update agent
+            # Update agent
             if step >= drl_config["training_starts"]:
-                for _ in range(drl_config["num_train_steps_per_env_step"]):
+                jax.block_until_ready(self.agent)
+                for jj in range(drl_config["num_train_steps_per_env_step"]):
+                    # print(f"sub_step: {jj}")
                     batch = replay_buffer.sample(drl_config["batch_size"])
                     self.agent, update_info = self.update_step(self.agent, batch)
                     jax.block_until_ready(self.agent)
                     jax.block_until_ready(update_info)
 
-                # ` TODO: can add something here instead of waiting for jax GPU to finish
+                info.update(update_info)
 
-                # logging
+                # Logging
                 if step % args.log_interval == 0:
-                    self.logger.log_metrics(update_info, step)
+                    self.logger.log_metrics(info, step)
                     self.logger.flush()
+                print(f"Replay Buffer size: {len(replay_buffer)}")
 
-                if reward > best_return:
-                    best_return = reward
-                    self.save_models(step)
+                # Evaluation
+                if step % drl_config["eval_interval"] == 0:
+                    print(f"Step: {step} - Evaluating agent")
+                    eval_trajectories = self.eval_trajectories(env, drl_config)
+                    return_mean = np.mean([t["return"] for t in eval_trajectories])
+                    return_std = np.std([t["return"] for t in eval_trajectories])
+                    eval_metrics = {
+                        "eval_return_mean": return_mean,
+                        "eval_return_std": return_std,
+                    }
+                    self.save_metrics(f"eval_metrics_{step}", eval_metrics)
+                    self.logger.log_metrics(eval_metrics, step)
+                    if return_mean > best_return:
+                        best_return = return_mean
+                        self.save_models(step)
+                        best_metrics = eval_metrics
+                        best_metrics.update({"step": step})
+                        best_metrics.update(info)
+                        for k, v in best_metrics.items():
+                            if isinstance(v, jnp.ndarray) or isinstance(v, np.ndarray):
+                                best_metrics[k] = float(np.mean(v))
+                        self.save_metrics("best_metrics", best_metrics)
 
+                    # Add traj to replay buffer
+                    for traj in eval_trajectories:
+                        replay_buffer.insert_batch(
+                            observations=traj["obs"],
+                            actions=traj["acts"],
+                            rewards=traj["rews"],
+                            next_observations=traj["next_obs"],
+                            dones=traj["dones"],
+                        )
+                    print(f"After Eval - Replay Buffer size: {len(replay_buffer)}")
                 t_range.set_postfix(
                     {
-                        "actor_loss": f"{update_info['actor_loss']:.4e}",
-                        "critic_loss": f"{update_info['critic_loss']:.4e}",
-                        "alpha": f"{update_info['alpha']:.4e}",
+                        "actor_loss": f"{info['actor_loss']:.4e}",
+                        "critic_loss": f"{info['critic_loss']:.4e}",
+                        "alpha": f"{info['alpha']:.4e}",
                     },
                     refresh=True,
                 )
+        print(f"Replay Buffer")
+        print(f" - Size: {len(replay_buffer)}")
+        print(f" - Capacity: {replay_buffer.max_size}")
+        print(f" - Rewards: {replay_buffer.rewards}")
+        print(f" - Dones: {replay_buffer.dones}")
 
         self.wait_for_checkpoint()
         print(f"Training complete!\n")
+
+    def eval_trajectory(self, env: gym.Env, drl_config: Dict[str, Any]):
+        (ob, info) = env.reset()
+        obs, acts, rews, next_obs, dones = [], [], [], [], []
+        path_gains = []
+        for step in range(drl_config["eval_ep_len"]):
+            actions = self.get_agent().get_actions(ob.reshape(1, -1))
+            jax.block_until_ready(actions)
+            action = np.squeeze(np.asarray(actions, dtype=np.float32))
+            try:
+                next_ob, reward, terminated, truncated, info = env.step(action)
+            except Exception as e:
+                print(f"Error in step {step}: {e}")
+                time.sleep(2)
+                continue
+
+            done = terminated or truncated
+            done = np.asarray(done, dtype=np.float32)
+            reward = np.asarray(reward, dtype=np.float32)
+            obs.append(ob)
+            acts.append(action)
+            rews.append(reward)
+            next_obs.append(next_ob)
+            dones.append(done)
+            path_gains.append(info["path_gain_dB"])
+
+            if done:
+                (ob, info) = env.reset()
+                break
+            else:
+                ob = next_ob
+
+        obs = np.asarray(obs)
+        acts = np.asarray(acts)
+        rews = np.asarray(rews)
+        next_obs = np.asarray(next_obs)
+        dones = np.asarray(dones)
+        return {
+            "obs": obs,
+            "acts": acts,
+            "rews": rews,
+            "next_obs": next_obs,
+            "dones": dones,
+            "path_gains": path_gains,
+            "return": np.sum(rews),
+        }
+
+    def eval_trajectories(self, env: gym.Env, drl_config: Dict[str, Any]):
+        trajectories = []
+        for i in range(drl_config["num_eval_trials"]):
+            trajectory = self.eval_trajectory(env, drl_config)
+            trajectories.append(trajectory)
+        return trajectories
 
     def eval_agent(
         self, env: gym.Env, drl_config: Dict[str, Any], args: argparse.Namespace
@@ -557,24 +643,20 @@ class ActorCriticTrainer:
         print(
             f"Evaluating {self.actor_class.__name__} and {self.critic_class.__name__}"
         )
-        ep_len = drl_config["ep_len"] or env.spec.max_episode_steps
-        ep_len = min(ep_len, 100)
+        ep_len = drl_config["eval_ep_len"]
         env.unwrapped.location_known = False
         self.load_models()
 
-        eval_sums = np.zeros(ep_len)
-        eval_mins = np.ones(ep_len) * np.inf
-        eval_maxs = np.ones(ep_len) * -np.inf
         max_step = 0
         num_evals = 3
-        eval_count = np.zeros(ep_len)
-        eval_traj = np.zeros(ep_len)
-
+        gains = np.zeros((num_evals, ep_len))
+        rewards = np.zeros((num_evals, ep_len))
+        saved_metrics = {}
         for i in range(num_evals):
-            (obs, info) = env.reset()
-            t_range = tqdm(range(0, 3), dynamic_ncols=True)
-            for step in t_range:
-                actions = self.get_agent().get_actions(obs.reshape(1, -1))
+            (ob, info) = env.reset()
+            t_range = tqdm(range(0, ep_len), dynamic_ncols=True)
+            for step_ in t_range:
+                actions = self.get_agent().get_actions(ob.reshape(1, -1))
                 actions = np.asarray(actions, dtype=np.float32)
                 action = np.squeeze(actions, axis=0)
                 try:
@@ -586,66 +668,104 @@ class ActorCriticTrainer:
 
                 done = terminated or truncated
 
-                eval_traj[step] = reward
-                eval_count[step] += 1
-                eval_sums[step] += reward
-                max_step = max(max_step, step)
+                max_step = max(max_step, step_)
 
-                self.logger.log_scalar(reward, f"eval_reward_{i}", step)
+                self.logger.log_scalar(reward, f"eval_reward_{i}", step_)
                 self.logger.log_scalar(
-                    info["path_gain_dB"], f"eval_path_gain_dB_{i}", step
+                    info["path_gain_dB"], f"eval_path_gain_dB_{i}", step_
                 )
+                gains[i, step_] = info["path_gain_dB"]
+                rewards[i, step_] = reward
 
                 if done:
-                    print(f"current obs: {obs}")
-                    print(f"Done at step {step}")
-                    eval_return = info["episode"]["r"]
-                    self.logger.log_scalar(eval_return, f"eval_return_{i}", step)
-                    self.logger.log_scalar(
-                        info["episode"]["l"], f"eval_ep_len_{i}", step
+
+                    eval_return = float(np.mean(info["episode"]["r"]))
+                    eval_ep_len = info["episode"]["l"][0]
+                    saved_metrics.update(
+                        {
+                            f"eval_return_{i}": eval_return,
+                            f"eval_ep_len_{i}": eval_ep_len,
+                        }
+                    )
+                    self.logger.log_scalar(eval_return, f"eval_return_{i}", step_)
+                    self.logger.log_scalar(eval_ep_len, f"eval_ep_len_{i}", step_)
+                    t_range.set_postfix(
+                        {
+                            "eval_ep_len": eval_ep_len,
+                            "eval_return": f"{eval_return:.4e}",
+                        },
+                        refresh=True,
                     )
                     break
                 else:
                     obs = next_obs
+        self.save_metrics("eval_metrics", saved_metrics)
 
-            # the current max step for indexing
-            t = max_step + 1
-            eval_mins[:t] = np.minimum(eval_mins[:t], eval_traj[:t])
-            eval_maxs[:t] = np.maximum(eval_maxs[:t], eval_traj[:t])
-
-        max_step = max_step + 1
-        eval_means = eval_sums[:max_step] / eval_count[:max_step]
-
-        # trim the arrays to the max step
-        eval_mins = eval_mins[:max_step]
-        eval_maxs = eval_maxs[:max_step]
-
-        # log the evaluation results to tensorboard
-        for step in range(max_step):
-            self.logger.log_scalar(eval_means[step], "eval_reward_mean", step)
-            self.logger.log_scalar(eval_mins[step], "eval_reward_min", step)
-            self.logger.log_scalar(eval_maxs[step], "eval_reward_max", step)
         # plot the evaluation results
+        max_step = max_step + 1
+
+        # plot the evaluation rewards
+        rewards = rewards[:, :max_step]
+        rewards_means = np.mean(rewards, axis=0)
+        rewards_stds = np.std(rewards, axis=0)
         fig, ax = plt.subplots(figsize=(10, 5), dpi=300)
-        ax.plot(eval_means, label="mean")
+        ax.plot(rewards_means, label="mean")
         ax.fill_between(
             range(max_step),
-            eval_mins,
-            eval_maxs,
+            rewards_means - rewards_stds,
+            rewards_means + rewards_stds,
             alpha=0.25,
             # label="min-max range",
         )
-        ax.plot(eval_mins, label="min", linestyle="--")
-        ax.plot(eval_maxs, label="max", linestyle="--")
+        ax.plot(rewards_means - rewards_stds, label="min", linestyle="--")
+        ax.plot(rewards_means + rewards_stds, label="max", linestyle="--")
         ax.grid()
         ax.legend()
-        ax.set_title("Evaluation Results")
+        ax.set_title("Evaluation Rewards")
         ax.set_xlabel("steps")
         ax.set_ylabel("reward")
         # save the plot
-        fig_name = f"eval_results_{num_evals}_runs.png"
+        fig_name = f"eval_rewards_{num_evals}_runs.png"
         fig_path = os.path.join(self.logger.log_dir, fig_name)
         plt.savefig(fig_path)
+
+        # plot the evaluation rewards
+        gains = gains[:, :max_step]
+        gains_means = np.mean(gains, axis=0)
+        gains_stds = np.std(gains, axis=0)
+        fig, ax = plt.subplots(figsize=(10, 5), dpi=300)
+        ax.plot(gains_means, label="mean")
+        ax.fill_between(
+            range(max_step),
+            gains_means - gains_stds,
+            gains_means + gains_stds,
+            alpha=0.25,
+            # label="min-max range",
+        )
+        ax.plot(gains_means - gains_stds, label="min", linestyle="--")
+        ax.plot(gains_means + gains_stds, label="max", linestyle="--")
+        ax.grid()
+        ax.legend()
+        ax.set_title("Evaluation Gains")
+        ax.set_xlabel("steps")
+        ax.set_ylabel("gains")
+        # save the plot
+        fig_name = f"eval_gain_{num_evals}_runs.png"
+        fig_path = os.path.join(self.logger.log_dir, fig_name)
+        plt.savefig(fig_path)
+
+        # log the evaluation results to tensorboard
+        for step in range(max_step):
+            metrics = {
+                "eval_rewards_means": rewards_means[step],
+                "eval_rewards_stds": rewards_stds[step],
+                "eval_path_gain_dB_mean": gains_means[step],
+                "eval_path_gain_dB_std": gains_stds[step],
+            }
+            for i in range(num_evals):
+                metrics[f"eval_reward_{i}"] = rewards[i, step]
+                metrics[f"eval_path_gain_dB_{i}"] = gains[i, step]
+            self.logger.log_metrics(metrics, step)
 
     def tracker(self, iterator: Iterator, **kwargs) -> Iterator:
         """
@@ -706,6 +826,20 @@ class ActorCriticTrainer:
             return jnp.expand_dims(data, axis=0)
         else:
             raise ValueError(f"Unsupported data type: {type(data)}")
+
+    def save_metrics(self, filename: str, metrics: Dict[str, Any]):
+        """
+        Saves a dictionary of metrics to file. Can be used as a textual
+        representation of the validation performance for checking in the terminal.
+
+        Args:
+        filename: Name of the metrics file without folders and postfix.
+        metrics: A dictionary of metrics to save in the file.
+        """
+        with open(
+            os.path.join(self.logger.log_dir, f"metrics/{filename}.json"), "w"
+        ) as f:
+            json.dump(metrics, f, indent=4, cls=utils.NpEncoder)
 
     def save_models(self, step: int):
         """

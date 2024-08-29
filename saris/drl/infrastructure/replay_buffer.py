@@ -148,6 +148,61 @@ class ReplayBuffer:
                 self.saved_path, observation, action, reward, next_observation, done
             )
 
+    def insert_batch(
+        self,
+        /,
+        observations: np.ndarray,
+        actions: np.ndarray,
+        rewards: np.ndarray,
+        next_observations: np.ndarray,
+        dones: np.ndarray,
+        is_saved: bool = True,
+    ):
+        """
+        Insert a batch of transitions into the replay buffer.
+
+        Use like:
+            replay_buffer.insert_batch(
+                observation=observation,
+                action=action,
+                reward=reward,
+                next_observation=next_observation,
+                done=done,
+            )
+        """
+        if self.observations is None:
+            self.observations = np.empty((self.max_size, *observations[0].shape))
+            self.actions = np.empty((self.max_size, *actions[0].shape))
+            self.rewards = np.empty((self.max_size, *rewards[0].shape))
+            self.next_observations = np.empty(
+                (self.max_size, *next_observations[0].shape)
+            )
+            self.dones = np.empty((self.max_size, *dones[0].shape))
+
+        idxes = (
+            np.arange(self.size_counter, self.size_counter + observations.shape[0])
+            % self.max_size
+        )
+        self.size_counter += observations.shape[0]
+        self.size_counter = self.size_counter % self.max_size
+
+        self.observations[idxes] = observations
+        self.actions[idxes] = actions
+        self.rewards[idxes] = rewards
+        self.next_observations[idxes] = next_observations
+        self.dones[idxes] = dones
+
+        if is_saved:
+            for i in range(observations.shape[0]):
+                self.save_data_to_file(
+                    self.saved_path,
+                    observations[i],
+                    actions[i],
+                    rewards[i],
+                    next_observations[i],
+                    dones[i],
+                )
+
     def save_data_to_file(
         self,
         saved_path: str,

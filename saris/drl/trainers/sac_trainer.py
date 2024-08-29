@@ -244,6 +244,7 @@ class SoftActorCriticTrainer(ac_trainer.ActorCriticTrainer):
                 c_states.append(new_state)
 
             agent = agent.replace(critic_states=c_states)
+
             return agent, critic_info
 
         def update_target_crtics(
@@ -264,7 +265,7 @@ class SoftActorCriticTrainer(ac_trainer.ActorCriticTrainer):
                     params=new_target_params,
                 )
             new_agent = agent.replace(target_critic_states=target_critic_states)
-            return new_agent, {}
+            return new_agent
 
         def update_all_critics(
             carry: Tuple[SoftActorCritic, dict[str, jnp.ndarray]],
@@ -273,7 +274,9 @@ class SoftActorCriticTrainer(ac_trainer.ActorCriticTrainer):
         ):
             agent, critic_info = carry
             agent, critic_info = update_crtics(agent, batch)
-            agent, _ = update_target_crtics(agent)
+            jax.block_until_ready(agent)
+            agent = update_target_crtics(agent)
+            jax.block_until_ready(agent)
             carry = (agent, critic_info)
 
             return carry, None
@@ -411,19 +414,31 @@ class SoftActorCriticTrainer(ac_trainer.ActorCriticTrainer):
 
             # Update critics
             (_, info) = jax.eval_shape(update_crtics, agent, batch)
+            jax.block_until_ready(agent)
             info = jax.tree_map(lambda x: jnp.zeros(x.shape, x.dtype), info)
             critic_update_fn = functools.partial(update_all_critics, batch=batch)
+
+            # val = (agent, info)
+            # (agent, info) = jax.lax.fori_loop(
+            #     0, self.num_critic_updates, critic_update_fn, val
+            # )
             (agent, info), _ = jax.lax.scan(
                 critic_update_fn,
                 init=(agent, info),
-                xs=jnp.arange(self.num_critic_updates),
+                xs=None,
                 length=self.num_critic_updates,
             )
 
-            agent, actor_info = update_actor(agent, batch)
+            # for loop
+            # for _ in range(self.num_critic_updates):
+            #     agent, info = critic_update_fn(0, (agent, info))
 
-            agent, alpha_info = update_alpha(agent, batch)
+            jax.block_until_ready(agent)
+            agent, actor_info = update_actor(agent, batch)
             info.update(actor_info)
+
+            jax.block_until_ready(agent)
+            agent, alpha_info = update_alpha(agent, batch)
             info.update(alpha_info)
             info.update(
                 {
