@@ -27,5 +27,5 @@ _str_to_activation = {
     "silu": nn.SiLU(),
     "gelu": nn.GELU(),
     "elu": nn.ELU(),
-    "identity": Identity(),
+    "identity": nn.Identity(),
 }

@@ -21,7 +21,8 @@ import numpy as np
 import gymnasium as gym
 from saris.drl.envs import register_envs
 
-# from saris.drl.networks import actor, critic
+from saris.drl.networks import actor, critic
+
 # from saris.drl.trainers import sac_trainer
 import importlib.resources
 import saris
@@ -89,6 +90,8 @@ def get_trainer_config(env: gym.Env, drl_config: dict, args: argparse.Namespace)
     ac_space = env.action_space
     print(f"Observation space: {ob_space}")
     print(f"Action space: {ac_space}")
+    num_obs = env.observation_space.shape[0]
+    num_acts = env.action_space.shape[0]
 
     # Trainer
     trainer_config = {
@@ -96,13 +99,16 @@ def get_trainer_config(env: gym.Env, drl_config: dict, args: argparse.Namespace)
         "action_shape": ac_space.shape,
         "actor_class": actor.Actor,
         "actor_hparams": {
-            "num_actions": ac_space.shape[0],
+            "num_observations": num_obs,
+            "num_actions": num_acts,
             "features": drl_config["hidden_sizes"],
             "activation": "tanh",
             "dtype": "bfloat16",
         },
         "critic_class": critic.Crtic,
         "critic_hparams": {
+            "num_observations": num_obs,
+            "num_actions": num_acts,
             "features": drl_config["hidden_sizes"],
             "activation": "relu",
             "dtype": "bfloat16",

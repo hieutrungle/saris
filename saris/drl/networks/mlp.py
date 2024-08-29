@@ -1,4 +1,4 @@
-from typing import Tuple
+from typing import Tuple, Sequence
 import torch
 import torch.nn as nn
 
@@ -10,49 +10,81 @@ class MLP(nn.Module):
         self,
         in_features: int,
         out_features: int,
-        features: Tuple[int],
-        activation: nn.Module = nn.GELU,
-        dtype: torch.dtype = torch.float32,
+        features: Sequence[int],
+        activation: nn.Module = nn.GELU(),
+        output_activation: nn.Module = nn.Identity(),
+        dtype: torch.dtype = torch.bfloat16,
     ):
         super().__init__()
-        self.features = features
-        self.activation = getattr(nn, activation)
-        self.dtype = getattr(torch, dtype)
 
+        features = [in_features] + list(features)
         mlp = nn.ModuleList()
-        mlp.append(nn.Linear(in_features=in_features, out_features=features[0]))
         for i in range(len(features) - 1):
-            mlp.append(self.activation())
-            mlp.append(nn.Linear(in_features=features[i], out_features=features[i]))
+            mlp.append(nn.Linear(in_features=features[i], out_features=features[i + 1]))
+            mlp.append(activation)
         mlp.append(nn.Linear(in_features=features[-1], out_features=out_features))
-        for i, feat in enumerate(self.features):
-            mlp.append(nn.Linear(in_features=feat, out_features=feat))
-            mlp.append(self.activation())
+        mlp.append(output_activation)
+        self.mlp = mlp
 
-    features: Tuple[int]
-    activation: nn.activation = nn.activation.gelu
-    dtype: jnp.dtype = jnp.float32
-
-    @nn.compact
-    def __call__(self, x: jnp.ndarray, train: bool = True) -> jnp.ndarray:
-        for feat in self.features:
-            x = nn.Dense(feat, dtype=self.dtype)(x)
-            x = self.activation(x)
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        for layer in self.mlp:
+            x = layer(x)
         return x
 
 
 class ResidualDense(nn.Module):
     """ResidualMLP module for Flax."""
 
-    feature: int
-    activation: nn.activation = nn.activation.gelu
-    dtype: jnp.dtype = jnp.float32
+    def __init__(
+        self,
+        in_features: int,
+        out_features: int,
+        activation: nn.Module = nn.GELU(),
+        output_activation: nn.Module = nn.Identity(),
+    ):
+        super().__init__()
 
-    @nn.compact
-    def __call__(self, x: jnp.ndarray, train: bool = True) -> jnp.ndarray:
-        residual = nn.Dense(self.feature, dtype=self.dtype)(x)
-        x = nn.Dense(self.feature * 2, dtype=self.dtype)(x)
+        self.residual = nn.Linear(in_features=in_features, out_features=out_features)
+        self.linear1 = nn.Linear(in_features=in_features, out_features=in_features * 2)
+        self.linear2 = nn.Linear(in_features=in_features * 2, out_features=out_features)
+        self.activation = activation
+        self.output_activation = output_activation
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        residual = self.residual(x)
+        x = self.linear1(x)
         x = self.activation(x)
-        x = nn.Dense(self.feature, dtype=self.dtype)(x)
+        x = self.linear2(x)
         x = x + residual
+        x = self.output_activation(x)
+        return x
+
+
+class ResidualMLP(nn.Module):
+    """ResidualMLP module for Flax."""
+
+    def __init__(
+        self,
+        in_features: int,
+        out_features: int,
+        features: Sequence[int],
+        activation: nn.Module = nn.GELU(),
+        output_activation: nn.Module = nn.Identity(),
+    ):
+        super().__init__()
+
+        features = [in_features] + list(features)
+        mlp = nn.ModuleList()
+        for i in range(len(features) - 1):
+            print(f"i: {i}")
+            mlp.append(
+                ResidualDense(features[i], features[i + 1], activation, activation)
+            )
+        mlp.append(nn.Linear(in_features=features[-1], out_features=out_features))
+        mlp.append(output_activation)
+        self.mlp = mlp
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        for layer in self.mlp:
+            x = layer(x)
         return x

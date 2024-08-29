@@ -20,7 +20,7 @@ batch_size: 4
 num_train_steps_per_env_step: 10
 
 # Actor-critic configuration
-hidden_sizes: [256, 256, 256]
+hidden_sizes: [256, 256, 256, 256]
 discount: 0.90
 ema_decay: 0.95 # soft_target_update_rate
 num_critics: 2

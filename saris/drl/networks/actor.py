@@ -1,4 +1,4 @@
-from typing import Sequence, Union
+from typing import Sequence
 import torch
 import torch.nn as nn
 from saris.drl.networks.network_utils import (
@@ -7,12 +7,12 @@ from saris.drl.networks.network_utils import (
     DType,
     _str_to_dtype,
 )
-from saris.drl.networks.mlp import MLP
+from saris.drl.networks.mlp import MLP, ResidualMLP
 from saris.drl.networks.common_blocks import Fourier
 
 
 class Actor(nn.Module):
-    """Actor module for Flax."""
+    """Actor module for Pytorch."""
 
     def __init__(
         self,
@@ -22,21 +22,23 @@ class Actor(nn.Module):
         activation: Activation,
         dtype: DType,
     ):
-        self.num_observations = num_observations
-        self.num_actions = num_actions
-        self.features = features
-        self.activation = activation
-        self.dtype = dtype
+        super().__init__()
         if isinstance(dtype, str):
-            self.dtype = _str_to_dtype[dtype]
+            dtype = _str_to_dtype[dtype]
         if isinstance(activation, str):
-            self.activation = _str_to_activation[activation]
+            activation = _str_to_activation[activation]
 
-        self.fourier = Fourier(self.num_observations, self.features[0] // 2, self.dtype)
+        self.fourier = Fourier(num_observations, features[0] // 2)
+        self.mlp = MLP(features[0], features[-1], features[1:-1], activation, nn.Tanh())
+        # self.mlp = ResidualMLP(
+        #     features[0], features[-1], features[1:-1], activation, nn.Tanh()
+        # )
+        self.ac_means = nn.Linear(features[-1], num_actions)
+        self.ac_log_stds = nn.Linear(features[-1], num_actions)
 
-    def forward(self, observations: torch.Tensor) -> torch.Tensor:
-        mapped = Fourier(self.features[0] // 2)(observations)
-        actions = MLP(self.features, self.activation, self.dtype)(mapped)
-        ac_means = nn.Dense(self.num_actions, name="means")(actions)
-        ac_log_stds = nn.Dense(self.num_actions, name="log_stds")(actions)
-        return ac_means.astype(jnp.float32), ac_log_stds.astype(jnp.float32)
+    def forward(self, observations: torch.Tensor, train: bool = False) -> torch.Tensor:
+        mapped = self.fourier(observations)
+        actions = self.mlp(mapped)
+        ac_means: torch.Tensor = self.ac_means(actions)
+        ac_log_stds: torch.Tensor = self.ac_log_stds(actions)
+        return ac_means, ac_log_stds

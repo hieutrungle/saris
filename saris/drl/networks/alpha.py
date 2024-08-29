@@ -7,8 +7,9 @@ class Alpha(nn.Module):
     Temperature parameter for entropy.
     """
 
-    def __init__(self, temperature: float = 0.05):
+    def __init__(self, temperature: float = 0.05, dtype: torch.dtype = torch.bfloat16):
         super().__init__()
+
         self.alpha = nn.Linear(in_features=1, out_features=1, bias=False)
         with torch.no_grad():
             weights = torch.tensor([temperature])
