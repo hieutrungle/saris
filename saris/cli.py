@@ -20,13 +20,11 @@ from saris.utils import utils
 import numpy as np
 import gymnasium as gym
 from saris.drl.envs import register_envs
-from saris.drl.networks import actor, critic
-from saris.drl.trainers import sac_trainer
-from saris.drl.infrastructure.replay_buffer import ReplayBuffer
+
+# from saris.drl.networks import actor, critic
+# from saris.drl.trainers import sac_trainer
 import importlib.resources
 import saris
-import time
-import tqdm
 
 
 def make_env(
@@ -162,17 +160,17 @@ def main():
         not discrete
     ), "Our wireless DRL implementation only supports continuous action spaces."
 
-    # Trainer
-    trainer_config = get_trainer_config(env, drl_config, args)
-    trainer = sac_trainer.SoftActorCriticTrainer(**trainer_config)
-    trainer.print_class_variables()
+    # # Trainer
+    # trainer_config = get_trainer_config(env, drl_config, args)
+    # trainer = sac_trainer.SoftActorCriticTrainer(**trainer_config)
+    # trainer.print_class_variables()
 
-    if args.command == "train":
-        trainer.train_agent(env, drl_config, args)
-    elif args.command == "eval":
-        trainer.eval_agent(env, drl_config, args)
-    else:
-        raise ValueError(f"Invalid command: {args.command}")
+    # if args.command == "train":
+    #     trainer.train_agent(env, drl_config, args)
+    # elif args.command == "eval":
+    #     trainer.eval_agent(env, drl_config, args)
+    # else:
+    #     raise ValueError(f"Invalid command: {args.command}")
 
 
 def parse_agrs():

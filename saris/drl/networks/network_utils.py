@@ -1,30 +1,31 @@
 from typing import Callable, Union
-import jax.numpy as jnp
-from flax import linen as nn
+
+import torch
+import torch.nn as nn
 
 Activation = Union[str, Callable]
-DType = Union[str, jnp.dtype]
+DType = Union[str, torch.dtype]
 
 
 class Identity(nn.Module):
     """Identity module for Flax."""
 
-    def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
+    def __call__(self, x: torch.Tensor) -> torch.Tensor:
         return x
 
 
 _str_to_dtype = {
-    "float32": jnp.float32,
-    "float64": jnp.float64,
-    "bfloat16": jnp.bfloat16,
+    "float32": torch.float32,
+    "float64": torch.float64,
+    "bfloat16": torch.bfloat16,
 }
 
 _str_to_activation = {
-    "relu": nn.activation.relu,
-    "tanh": nn.activation.tanh,
-    "sigmoid": nn.activation.sigmoid,
-    "swish": nn.activation.hard_swish,
-    "gelu": nn.activation.gelu,
-    "elu": nn.activation.elu,
+    "relu": nn.ReLU(),
+    "tanh": nn.Tanh(),
+    "sigmoid": nn.Sigmoid(),
+    "silu": nn.SiLU(),
+    "gelu": nn.GELU(),
+    "elu": nn.ELU(),
     "identity": Identity(),
 }

@@ -13,7 +13,14 @@ from collections import defaultdict
 # JAX/Flax
 # If you run this code on Colab, remember to install flax and optax
 # !pip install --quiet --upgrade flax optax
-import torch
+import jax
+import jax.numpy as jnp
+from jax import random
+from flax import linen as nn
+from flax.training import train_state
+import optax
+
+import orbax.checkpoint as ocp
 
 # Logging
 from tensorboardX import SummaryWriter
