@@ -24,12 +24,12 @@ tensorboardx = ">=2.6"
 swig = ">=4.2"
 gymnasium = ">=0.29"
 sionna = ">=0.15,<0.19"
-tensorflow = { version = ">=2.13,<2.14", extras = ["and-cuda"] }
+tensorflow = { version = ">=2.13,<2.16", extras = ["and-cuda"] }
 pyyaml = "^6.0.2"
 torchinfo = "^1.8.0"
-torch = ">=2.0"
+torch = ">=2.0,<2.2"
 torchvision = ">=0.10"
-torchaudio = ">=2.0"
+torchaudio = ">=2.0,<2.2"
 
 [tool.poetry.dev-dependencies]
 bumpversion = "*"
