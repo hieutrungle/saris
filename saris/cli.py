@@ -161,8 +161,8 @@ def main():
 
     if args.command == "train":
         trainer.train_agent(env, drl_config, args)
-    # elif args.command == "eval":
-    #     trainer.eval_agent(env, drl_config, args)
+    elif args.command == "eval":
+        trainer.eval_agent(env, drl_config, args)
     else:
         raise ValueError(f"Invalid command: {args.command}")
 

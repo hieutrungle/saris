@@ -473,7 +473,7 @@ class ActorCriticTrainer:
         obs, acts, rews, next_obs, dones = [], [], [], [], []
         path_gains = []
         eval_ep_len = drl_config["eval_ep_len"]
-        eval_ep_len = 30
+        eval_ep_len = 35
         for step in range(eval_ep_len):
             env.unwrapped.location_known = False
             observations = np.expand_dims(ob, axis=0)
