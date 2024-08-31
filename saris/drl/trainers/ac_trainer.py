@@ -400,6 +400,7 @@ class ActorCriticTrainer:
                 next_observation=next_observation,
                 done=done,
             )
+            print(f"Replay buffer size: {len(replay_buffer)}")
 
             self.logger.log_metrics({"train_reward": reward}, step)
             self.logger.log_metrics({"train_path_gain_dB": info["path_gain_dB"]}, step)

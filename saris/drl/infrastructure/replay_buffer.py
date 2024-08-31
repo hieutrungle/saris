@@ -134,14 +134,14 @@ class ReplayBuffer:
             self.next_observations = np.empty((self.max_size, *next_observation.shape))
             self.dones = np.empty((self.max_size, *done.shape))
 
-        self.size_counter += 1
-        self.size_counter = self.size_counter % self.max_size
+        idx = self.size_counter % self.max_size
+        self.observations[idx] = observation
+        self.actions[idx] = action
+        self.rewards[idx] = reward
+        self.next_observations[idx] = next_observation
+        self.dones[idx] = done
 
-        self.observations[self.size_counter] = observation
-        self.actions[self.size_counter] = action
-        self.rewards[self.size_counter] = reward
-        self.next_observations[self.size_counter] = next_observation
-        self.dones[self.size_counter] = done
+        self.size_counter += 1
 
         if is_saved:
             self.save_data_to_file(
@@ -179,18 +179,15 @@ class ReplayBuffer:
             )
             self.dones = np.empty((self.max_size, *dones[0].shape))
 
-        idxes = (
-            np.arange(self.size_counter, self.size_counter + observations.shape[0])
-            % self.max_size
-        )
-        self.size_counter += observations.shape[0]
-        self.size_counter = self.size_counter % self.max_size
-
+        idxes = np.arange(self.size_counter, self.size_counter + observations.shape[0])
+        idxes = idxes % self.max_size
         self.observations[idxes] = observations
         self.actions[idxes] = actions
         self.rewards[idxes] = rewards
         self.next_observations[idxes] = next_observations
         self.dones[idxes] = dones
+
+        self.size_counter += observations.shape[0]
 
         if is_saved:
             for i in range(observations.shape[0]):
