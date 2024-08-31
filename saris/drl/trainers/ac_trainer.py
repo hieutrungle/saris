@@ -17,6 +17,7 @@ import torch
 import torch.nn as nn
 from torchinfo import summary
 from torch import optim
+import glob
 
 
 class ActorCriticTrainer:
@@ -334,17 +335,20 @@ class ActorCriticTrainer:
         # Load model if exists
         is_ckpt_available = False
         if args.resume and self.logger.log_dir is not None:
-            subdirs = [
-                name
-                for name in os.listdir(self.logger.log_dir)
-                if re.match(r"^\d+$", name)
-            ]
-            if subdirs:
+            # subdirs = [
+            #     name
+            #     for name in os.listdir(self.logger.log_dir)
+            #     if re.match(r"^\d+$", name)
+            # ]
+            ckpt_file = glob.glob(os.path.join(self.logger.log_dir, "*.pt"))
+            if ckpt_file:
                 is_ckpt_available = True
+            # if subdirs:
+            #     is_ckpt_available = True
         if is_ckpt_available:
             print(f"Loading model from {self.logger.log_dir}")
-            self.load_models()
-            start_step = self.checkpoint_manager.latest_step()
+            start_step = self.load_models()
+            start_step += 1
         else:
             print(f"Training from scratch")
             start_step = 0
@@ -741,9 +745,11 @@ class ActorCriticTrainer:
         }
         torch.save(ckpt, os.path.join(self.logger.log_dir, f"checkpoints.pt"))
 
-    def load_models(self, step: Optional[int] = None):
+    def load_models(self) -> int:
         """
         Load the agent's parameters from a file.
         """
         ckpt = torch.load(os.path.join(self.logger.log_dir, f"checkpoints.pt"))
         self.agent.load_state_dict(ckpt["agent"])
+        step = ckpt.get("step", 0)
+        return step
