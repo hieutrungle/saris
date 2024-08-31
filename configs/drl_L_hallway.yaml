@@ -2,30 +2,30 @@ env_id: wireless-sigmap-v0
 exp_name: sac_beamforming_hallway_L
 
 replay_buffer_capacity: 100
-total_steps: 9
-random_steps: 5
-training_starts: 5
-ep_len: 4
+total_steps: 300
+random_steps: 100
+training_starts: 100
+ep_len: 100
 
 # Evaluation settings
-eval_interval: 2
+eval_interval: 20
 num_eval_trials: 3
-eval_ep_len: 5
+eval_ep_len: 30
 
 # Training settings
 actor_learning_rate: 0.0001
 critic_learning_rate: 0.0003
 alpha_learning_rate: 0.0002
-batch_size: 4
+batch_size: 32
 num_train_steps_per_env_step: 10
 
 # Actor-critic configuration
 hidden_sizes: [256, 256, 256, 256]
 discount: 0.90
 # ema_decay: 0.95
-tau: 0.005 # soft_target_update_rate
+tau: 0.05 # soft_target_update_rate
 num_critics: 2
 num_critic_updates: 5
 temperature: 0.05
-num_actor_samples: 4
+num_actor_samples: 32
 saved_path: "./saved_models/"

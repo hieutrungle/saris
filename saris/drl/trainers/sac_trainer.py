@@ -15,7 +15,10 @@ class SoftActorCriticTrainer(ac_trainer.ActorCriticTrainer):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
+
         self.target_entropy = np.asarray(-np.prod(self.action_shape), dtype=np.float32)
+        self.target_entropy = torch.tensor(self.target_entropy, device=self.device)
+
         alpha = Alpha(0.05)
         self.summarize_model(alpha, [[1, 1]])
 
@@ -25,54 +28,36 @@ class SoftActorCriticTrainer(ac_trainer.ActorCriticTrainer):
             target_critics=self.agent.target_critics,
             alpha=alpha,
         )
+        self.agent = self.agent.to(self.device)
 
-    # def init_agent_optimizer(
-    #     self,
-    #     agent: SoftActorCritic,
-    #     drl_config: Dict[str, Any],
-    # ) -> SoftActorCritic:
-    #     """
-    #     Initializes the optimizer for the agent's components:
-    #     - actor
-    #     - critics
-    #     - target critics
-    #     - other components
-    #     """
-    #     # Initialize optimizer for actor and critic
-    #     actor_state = self.init_optimizer(
-    #         agent.actor_state,
-    #         self.actor_optimizer_hparams,
-    #         drl_config["total_steps"],
-    #         drl_config["num_train_steps_per_env_step"],
-    #     )
-
-    #     critic_states = []
-    #     for i in range(self.num_critics):
-    #         state = self.init_optimizer(
-    #             agent.critic_states[i],
-    #             self.critic_optimizer_hparams,
-    #             drl_config["total_steps"],
-    #             drl_config["num_train_steps_per_env_step"]
-    #             * drl_config["num_critic_updates"],
-    #         )
-    #         critic_states.append(state)
-
-    #     agent = agent.replace(
-    #         actor_state=actor_state,
-    #         critic_states=critic_states,
-    #     )
-
-    #     alpha_optimizer_hparams = copy.deepcopy(self.actor_optimizer_hparams)
-    #     alpha_state = self.init_optimizer(
-    #         agent.alpha_state,
-    #         alpha_optimizer_hparams,
-    #         drl_config["total_steps"],
-    #         drl_config["num_train_steps_per_env_step"],
-    #     )
-    #     agent = agent.replace(
-    #         alpha_state=alpha_state,
-    #     )
-    #     return agent
+    def init_agent_optimizer(self, drl_config: Dict[str, Any]) -> None:
+        """
+        Initializes the optimizer for the agent's components:
+        - actor
+        - critics
+        - target critics
+        - other components
+        """
+        # Initialize optimizer for actor and critic
+        (self.actor_optimizer, self.actor_scheduler) = self.init_optimizer(
+            self.agent.actor,
+            self.actor_optimizer_hparams,
+            drl_config["total_steps"],
+            drl_config["num_train_steps_per_env_step"],
+        )
+        (self.critic_optimizer, self.critic_scheduler) = self.init_optimizer(
+            self.agent.critics,
+            self.critic_optimizer_hparams,
+            drl_config["total_steps"],
+            drl_config["num_train_steps_per_env_step"]
+            * drl_config["num_critic_updates"],
+        )
+        (self.alpha_optimizer, self.alpha_scheduler) = self.init_optimizer(
+            self.agent.alpha,
+            self.actor_optimizer_hparams,
+            drl_config["total_steps"],
+            drl_config["num_train_steps_per_env_step"],
+        )
 
     def create_step_functions(self):
 
@@ -85,7 +70,7 @@ class SoftActorCriticTrainer(ac_trainer.ActorCriticTrainer):
 
             def _minibatch_step(
                 minibatch_idx: jax.Array | int,
-            ) -> Tuple[struct.PyTreeNode, jnp.ndarray]:
+            ) -> Tuple[struct.PyTreeNode, jtorch.Tensor]:
                 """Determine gradients and metrics for a single minibatch."""
                 minibatch = jax.tree_map(
                     lambda x: jax.lax.dynamic_slice_in_dim(  # Slicing with variable index (jax.Array).
@@ -105,9 +90,9 @@ class SoftActorCriticTrainer(ac_trainer.ActorCriticTrainer):
                 return step_loss, step_grads
 
             def _scan_step(
-                carry: Tuple[struct.PyTreeNode, jnp.ndarray],
+                carry: Tuple[struct.PyTreeNode, jtorch.Tensor],
                 minibatch_idx: jax.Array | int,
-            ) -> Tuple[Tuple[struct.PyTreeNode, jnp.ndarray], None]:
+            ) -> Tuple[Tuple[struct.PyTreeNode, jtorch.Tensor], None]:
                 """Scan step function for looping over minibatches."""
                 step_loss, step_grads = _minibatch_step(minibatch_idx)
                 carry = jax.tree_map(jnp.add, carry, (step_loss, step_grads))
@@ -134,20 +119,28 @@ class SoftActorCriticTrainer(ac_trainer.ActorCriticTrainer):
             """
             Handle Q-values from multiple different target critic networks to produce target values.
 
-            Clip-Q, clip to the minimum of the two critics' predictions.
+            # Clip-Q, clip to the minimum of the two critics' predictions.
+            Double Q-learning: Use the critic that would have been selected by the current policy.
 
             Parameters:
-                next_qs (jnp.ndarray): Q-values of shape (num_critics, batch_size).
+                next_qs (torch.Tensor): Q-values of shape (num_critics, batch_size).
                     Leading dimension corresponds to target values FROM the different critics.
             Returns:
-                jnp.ndarray: Target values of shape (num_critics, batch_size).
+                torch.Tensor: Target values of shape (num_critics, batch_size).
                     Leading dimension corresponds to target values FOR the different critics.
             """
-            next_qs, _ = torch.min(next_qs, dim=0)
+
+            # Clip Q-values
+            next_qs, _ = torch.min(next_qs, dim=0, keepdim=True)
+            next_qs = torch.repeat_interleave(next_qs, self.num_critics, dim=0)
+
+            # Double Q-learning: swap q_values of 2nd critic with q_values of 1st critic
+            # next_qs = torch.stack((next_qs[1], next_qs[0]), dim=0)
+
             return next_qs
 
         def calc_critic_loss(
-            batch: dict[str, np.ndarray],
+            batch: dict[str, torch.Tensor],
         ) -> dict[str, torch.Tensor]:
             obs, acts, rews, next_obs, dones = (
                 batch["observations"],
@@ -156,49 +149,53 @@ class SoftActorCriticTrainer(ac_trainer.ActorCriticTrainer):
                 batch["next_observations"],
                 batch["dones"],
             )
+            batch_size = obs.shape[0]
 
             with torch.no_grad():
-                # next_actions shape: (num_actor_samples, batch_size, action_dim)
+
                 next_act_dist: D.Distribution = self.agent.get_action_distribution(
                     next_obs
                 )
-
-                next_actions = next_act_dist.sample(
-                    sample_shape=(self.num_actor_samples,)
-                )
-                next_obs = torch.unsqueeze(next_obs, dim=0)
+                # next_actions shape: (num_actor_samples, batch_size, action_dim)
+                next_actions = next_act_dist.sample((self.num_actor_samples,))
                 next_obs = torch.repeat_interleave(
-                    next_obs, self.num_actor_samples, dim=0
+                    next_obs.unsqueeze(0), self.num_actor_samples, dim=0
                 )
 
                 # next_q_values shape: (num_critics, num_actor_samples, batch_size)
                 next_q_values = self.agent.get_target_q_values(next_obs, next_actions)
 
-                # next_q_values shape: (num_actor_samples, batch_size)
+                # next_q_values shape: (num_critics, num_actor_samples, batch_size)
                 next_q_values = do_q_backup(next_q_values)
-                # next_q_values shape: (batch_size)
-                next_q_values = torch.mean(next_q_values, axis=0)
 
                 # Entropy regularization
-                # next_action_entropy shape: (batch_size)
-                next_action_entropy = self.agent.get_entropy(next_act_dist)
+                # next_action_entropy shape: (num_actor_samples, batch_size)
+                next_action_entropy = self.agent.get_entropy(
+                    next_act_dist, sample_shape=(self.num_actor_samples,)
+                )
+                # next_action_entropy shape: (num_critics, num_actor_samples, batch_size)
+                next_action_entropy = torch.repeat_interleave(
+                    next_action_entropy.unsqueeze(0), self.num_critics, dim=0
+                )
+
                 alpha = self.agent.alpha(
                     torch.tensor(1.0, device=next_action_entropy.device).reshape(1, 1)
                 )
+                # next_q_values shape: (num_critics, num_actor_samples, batch_size)
                 next_q_values = next_q_values + alpha * next_action_entropy
 
-                target_q_values = rews + self.discount * (1.0 - dones) * next_q_values
-                target_q_values = torch.unsqueeze(target_q_values, dim=0)
-                target_q_values = torch.repeat_interleave(
-                    target_q_values, self.num_critics, dim=0
+                # shape: (num_critics, batch_size)
+                next_q_values = torch.mean(next_q_values, dim=1)
+                rews = torch.repeat_interleave(
+                    rews.unsqueeze(0), self.num_critics, dim=0
                 )
+                dones = torch.repeat_interleave(
+                    dones.unsqueeze(0), self.num_critics, dim=0
+                )
+                target_q_values = rews + self.discount * (1.0 - dones) * next_q_values
 
             q_values = self.agent.get_q_values(obs, acts)
 
-            # # Mask out NaN values
-            # mask = jnp.isnan(q_values) | jnp.isnan(target_q_values)
-            # q_values = jnp.where(mask, 0, q_values)
-            # target_q_values = jnp.where(mask, 0, target_q_values)
             crtic_loss = 0.5 * torch.mean((q_values - target_q_values) ** 2)
 
             critic_info = {
@@ -209,35 +206,35 @@ class SoftActorCriticTrainer(ac_trainer.ActorCriticTrainer):
             }
             return crtic_loss, critic_info
 
-        def update_crtics(batch: dict[str, np.ndarray]) -> dict[str, torch.Tensor]:
+        def update_crtics(batch: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
 
             loss, info = calc_critic_loss(batch)
-            # TODO: optimizer
+            info.update({"critic_lr": self.critic_scheduler.get_last_lr()[0]})
+
+            self.critic_optimizer.zero_grad()
+            loss.backward()
+            self.critic_optimizer.step()
+            self.critic_scheduler.step()
             return info
 
         def update_target_crtics() -> None:
             """
             Update target critics with moving average of current critics.
             """
+
             for i in range(self.num_critics):
-                target_state_dict = self.agent.target_critic_states[i].state_dict()
-                critic_state_dict = self.agent.critic_states[i].state_dict()
-                for key in critic_state_dict:
-                    target_state_dict[key] = critic_state_dict[
+                target_critic_dict = self.agent.target_critics[i].state_dict()
+                critic_dict = self.agent.critics[i].state_dict()
+                for key in critic_dict:
+                    target_critic_dict[key] = critic_dict[
                         key
-                    ] * self.tau + target_state_dict[key] * (1 - self.tau)
-                self.agent.target_critic_states[i].load_state_dict(target_state_dict)
+                    ] * self.tau + target_critic_dict[key] * (1 - self.tau)
+                self.agent.target_critics[i].load_state_dict(target_critic_dict)
 
         def calc_actor_loss(
             batch: dict[str, torch.Tensor],
         ) -> dict[str, torch.Tensor]:
-            obs, acts, rews, next_obs, dones = (
-                batch["observations"],
-                batch["actions"],
-                batch["rewards"],
-                batch["next_observations"],
-                batch["dones"],
-            )
+            obs = batch["observations"]
 
             # Q-values
             action_distribution = self.agent.get_action_distribution(obs)
@@ -246,7 +243,9 @@ class SoftActorCriticTrainer(ac_trainer.ActorCriticTrainer):
             q_values = torch.mean(q_values)
 
             # Entropy regularization
-            entropy = self.agent.get_entropy(action_distribution)
+            entropy = self.agent.get_entropy(
+                action_distribution, sample_shape=(self.num_actor_samples,)
+            )
             entropy = torch.mean(entropy)
 
             alpha = self.agent.alpha(
@@ -265,8 +264,15 @@ class SoftActorCriticTrainer(ac_trainer.ActorCriticTrainer):
             return loss, info
 
         def update_actor(batch: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+
             loss, info = calc_actor_loss(batch)
-            # TODO: optimizer
+            info.update({"actor_lr": self.actor_scheduler.get_last_lr()[0]})
+
+            self.actor_optimizer.zero_grad()
+            loss.backward()
+            self.actor_optimizer.step()
+            self.actor_scheduler.step()
+
             return info
 
         def calc_alpha_loss(
@@ -285,10 +291,16 @@ class SoftActorCriticTrainer(ac_trainer.ActorCriticTrainer):
 
             return loss, {"alpha": alpha, "alpha_loss": loss}
 
-        def update_alpha(agent: SoftActorCritic, batch: dict[str, np.ndarray]):
-            loss, info = calc_alpha_loss(batch)
+        def update_alpha(batch: dict[str, torch.Tensor]):
 
-            # TODO: optimizer
+            loss, info = calc_alpha_loss(batch)
+            info.update({"alpha_lr": self.alpha_scheduler.get_last_lr()[0]})
+
+            self.alpha_optimizer.zero_grad()
+            loss.backward()
+            self.alpha_optimizer.step()
+            self.alpha_scheduler.step()
+
             return info
 
         def train_step(agent, batch):
@@ -298,7 +310,7 @@ class SoftActorCriticTrainer(ac_trainer.ActorCriticTrainer):
         def eval_step(agent, batch):
             return {"loss": 0.0}
 
-        def update_step(batch: dict[str, np.ndarray]):
+        def update_step(batch: dict[str, torch.Tensor]):
             # for loop
             for _ in range(self.num_critic_updates):
                 info = update_crtics(batch)
@@ -308,19 +320,6 @@ class SoftActorCriticTrainer(ac_trainer.ActorCriticTrainer):
 
             info.update(actor_info)
             info.update(alpha_info)
-            # info.update(
-            #     {
-            #         "actor_lr": self.agent.actor_state.opt_state.hyperparams[
-            #             "learning_rate"
-            #         ],
-            #         "critic_lr": self.agent.critic_states[0].opt_state.hyperparams[
-            #             "learning_rate"
-            #         ],
-            #         "alpha_lr": self.agent.alpha_state.opt_state.hyperparams[
-            #             "learning_rate"
-            #         ],
-            #     }
-            # )
             return info
 
         return train_step, eval_step, update_step

@@ -76,8 +76,10 @@ class ActorCritic(nn.Module):
     def get_entropy(
         self,
         action_distribution: D.Distribution,
+        sample_shape: Optional[torch.Size] = torch.Size([]),
     ) -> torch.Tensor:
-        entropy_est = action_distribution.entropy()
+        samples = action_distribution.rsample(sample_shape)
+        entropy_est = -action_distribution.log_prob(samples)
         return entropy_est
 
     def __repr__(self):

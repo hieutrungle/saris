@@ -30,7 +30,7 @@ def from_numpy(
     data: Union[np.ndarray, dict], device: torch.device, **kwargs
 ) -> Union[torch.Tensor, dict]:
     if isinstance(data, dict):
-        return {k: from_numpy(v) for k, v in data.items()}
+        return {k: from_numpy(v, device) for k, v in data.items()}
     else:
         data = torch.from_numpy(data, **kwargs)
         if data.dtype == torch.float64:
@@ -41,5 +41,7 @@ def from_numpy(
 def to_numpy(tensor: Union[torch.Tensor, dict]) -> Union[np.ndarray, dict]:
     if isinstance(tensor, dict):
         return {k: to_numpy(v) for k, v in tensor.items()}
+    elif isinstance(tensor, np.ndarray) or isinstance(tensor, float):
+        return tensor
     else:
         return tensor.to("cpu").detach().numpy()

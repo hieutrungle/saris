@@ -80,5 +80,5 @@ mkdir -p ${OPTIX_CACHE_PATH}
 ##############################
 poetry run main --command train -dcfg ${DRL_CONFIG_FILE} -scfg ${SIONNA_CONFIG_FILE} -v
 
-# export OPTIX_CACHE_PATH=${SOURCE_DIR}/tmp/optix_cache_1
-# poetry run main --command eval -dcfg ${DRL_CONFIG_FILE} -scfg ${SIONNA_CONFIG_FILE} -v
+export OPTIX_CACHE_PATH=${SOURCE_DIR}/tmp/optix_cache_1
+poetry run main --command eval -dcfg ${DRL_CONFIG_FILE} -scfg ${SIONNA_CONFIG_FILE} -v

@@ -9,13 +9,14 @@ from saris.utils.logger import TensorboardLogger
 from saris.drl.agents.actor_critic import ActorCritic
 import gymnasium as gym
 import argparse
-from saris.utils import utils
+from saris.utils import utils, pytorch_utils
 from saris.drl.infrastructure.replay_buffer import ReplayBuffer
 import re
 import matplotlib.pyplot as plt
 import torch
 import torch.nn as nn
 from torchinfo import summary
+from torch import optim
 
 
 class ActorCriticTrainer:
@@ -42,6 +43,7 @@ class ActorCriticTrainer:
         seed: int = 42,
         logger_params: Dict[str, Any] = None,
         enable_progress_bar: bool = True,
+        device: torch.device = torch.device("cpu"),
         debug: bool = False,
         **kwargs,
     ) -> None:
@@ -88,6 +90,7 @@ class ActorCriticTrainer:
         self.seed = seed
         self.logger_params = logger_params
         self.enable_progress_bar = enable_progress_bar
+        self.device = device
         self.debug = debug
 
         # Set of hyperparameters to save
@@ -137,7 +140,9 @@ class ActorCriticTrainer:
 
         # Init trainer parts
         self.logger = self.init_logger(logger_params)
-        self.train, self.eval, self.update = self.create_step_functions()
+        (self.train_step, self.eval_step, self.update_step) = (
+            self.create_step_functions()
+        )
 
     def create_model(self, model_class: Callable, model_hparams: Dict[str, Any]):
         """
@@ -247,28 +252,30 @@ class ActorCriticTrainer:
 
     def init_optimizer(
         self,
-        state,
+        module: nn.Module,
         optimizer_hparams: Dict[str, Any],
         num_epochs: int,
         num_steps_per_epoch: int,
-    ):
+    ) -> Tuple[optim.Optimizer, optim.lr_scheduler._LRScheduler]:
         """
         Initializes the optimizer and learning rate scheduler.
 
         Args:
-          num_epochs: Number of epochs the model will be trained for.
-          num_steps_per_epoch: Number of training steps per epoch.
+            module: The module for which the optimizer should be initialized.
+            optimizer_hparams: A dictionary of all hyperparameters of the optimizer.
+            num_epochs: Number of epochs the model will be trained for.
+            num_steps_per_epoch: Number of training steps per epoch.
         """
-        hparams = copy(optimizer_hparams)
+        hparams = copy.copy(optimizer_hparams)
 
         # Initialize optimizer
         optimizer_name = hparams.pop("optimizer", "adamw")
         if optimizer_name.lower() == "adam":
-            opt_class = optax.adam
+            opt_class = optim.Adam
         elif optimizer_name.lower() == "adamw":
-            opt_class = optax.adamw
+            opt_class = optim.AdamW
         elif optimizer_name.lower() == "sgd":
-            opt_class = optax.sgd
+            opt_class = optim.SGD
         else:
             assert False, f'Unknown optimizer "{opt_class}"'
 
@@ -277,46 +284,25 @@ class ActorCriticTrainer:
         lr = hparams.pop("lr", 1e-3)
         num_train_steps = int(num_epochs * num_steps_per_epoch)
         warmup_steps = hparams.pop("warmup_steps", num_train_steps // 5)
-        lr_schedule = optax.warmup_cosine_decay_schedule(
-            init_value=lr / 50,
-            peak_value=lr,
-            warmup_steps=warmup_steps,
-            decay_steps=num_train_steps,
-            end_value=lr / 5,
+
+        optimizer = opt_class(module.parameters(), lr=lr, **hparams)
+        warmup_scheduler = optim.lr_scheduler.LinearLR(
+            optimizer, start_factor=1 / 20, total_iters=warmup_steps
+        )
+        cosine_scheduler = optim.lr_scheduler.CosineAnnealingLR(
+            optimizer, num_train_steps - warmup_steps, eta_min=lr / 10
+        )
+        scheduler = optim.lr_scheduler.SequentialLR(
+            optimizer, [warmup_scheduler, cosine_scheduler], [warmup_steps]
         )
 
-        @optax.inject_hyperparams
-        def chain_optimizer(learning_rate: float):
-            # Clip gradients at max value, and evt. apply weight decay
-            transf = [optax.clip_by_global_norm(hparams.pop("gradient_clip", 1.0))]
-            # wd is integrated in adamw
-            if opt_class == optax.sgd and "weight_decay" in hparams:
-                transf.append(
-                    optax.add_decayed_weights(hparams.pop("weight_decay", 0.0))
-                )
-
-            return optax.chain(*transf, opt_class(learning_rate, **hparams))
-
-        optimizer = chain_optimizer(learning_rate=lr_schedule)
-
-        # Initialize training state
-        state = TrainState.create(
-            apply_fn=state.apply_fn,
-            params=state.params,
-            batch_stats=state.batch_stats,
-            tx=optimizer,
-            rng=state.rng,
-        )
-        return state
+        return optimizer, scheduler
 
     def get_agent(self):
         return self.agent
 
-    def init_agent_optimizer(
-        self,
-        agent: ActorCritic,
-        drl_config: Dict[str, Any],
-    ) -> ActorCritic:
+    @staticmethod
+    def init_agent_optimizer(self, drl_config: Dict[str, Any]) -> None:
         """
         Initializes the optimizer for the agent's components:
         - actor
@@ -335,7 +321,7 @@ class ActorCriticTrainer:
         print("\n" + f"*" * 80)
         print(f"Training {self.actor_class.__name__} and {self.critic_class.__name__}")
 
-        self.agent = self.init_agent_optimizer(self.agent, drl_config)
+        self.init_agent_optimizer(drl_config)
 
         # Create replay buffer
         local_assets_dir = utils.get_dir(args.source_dir, "local_assets")
@@ -376,11 +362,11 @@ class ActorCriticTrainer:
         )
         for step in t_range:
             # accumulate data in replay buffer
-            if step < int(drl_config["random_steps"] * 1 / 2):
+            if step < int(drl_config["random_steps"] * 2 / 3):
                 env.unwrapped.location_known = True
                 observation, info = env.reset()
                 action = env.action_space.sample()
-            elif step == int(drl_config["random_steps"] * 1 / 2):
+            elif step == int(drl_config["random_steps"] * 2 / 3):
                 env.unwrapped.location_known = False
                 observation, info = env.reset()
                 action = env.action_space.sample()
@@ -389,8 +375,10 @@ class ActorCriticTrainer:
                 action = env.action_space.sample()
             else:
                 env.unwrapped.location_known = False
-                actions = self.get_agent().get_actions(observation.reshape(1, -1))
-                actions = np.asarray(actions, dtype=np.float32)
+                observations = np.expand_dims(observation, axis=0)
+                observations = pytorch_utils.from_numpy(observations, self.device)
+                actions = self.agent.get_actions(observations)
+                actions = pytorch_utils.to_numpy(actions)
                 action = np.squeeze(actions, axis=0)
 
             try:
@@ -425,18 +413,18 @@ class ActorCriticTrainer:
 
             # Update agent
             if step >= drl_config["training_starts"]:
-                for jj in range(drl_config["num_train_steps_per_env_step"]):
-                    # print(f"sub_step: {jj}")
+                for _ in range(drl_config["num_train_steps_per_env_step"]):
                     batch = replay_buffer.sample(drl_config["batch_size"])
-                    self.agent, update_info = self.update_step(self.agent, batch)
-
+                    update_info = self.update_step(
+                        pytorch_utils.from_numpy(batch, self.device)
+                    )
+                update_info = pytorch_utils.to_numpy(update_info)
                 info.update(update_info)
 
                 # Logging
                 if step % args.log_interval == 0:
                     self.logger.log_metrics(info, step)
                     self.logger.flush()
-                print(f"Replay Buffer size: {len(replay_buffer)}")
 
                 # Evaluation
                 if step % drl_config["eval_interval"] == 0:
@@ -470,7 +458,6 @@ class ActorCriticTrainer:
                             next_observations=traj["next_obs"],
                             dones=traj["dones"],
                         )
-                    print(f"After Eval - Replay Buffer size: {len(replay_buffer)}")
                 t_range.set_postfix(
                     {
                         "actor_loss": f"{info['actor_loss']:.4e}",
@@ -479,22 +466,21 @@ class ActorCriticTrainer:
                     },
                     refresh=True,
                 )
-        print(f"Replay Buffer")
-        print(f" - Size: {len(replay_buffer)}")
-        print(f" - Capacity: {replay_buffer.max_size}")
-        print(f" - Rewards: {replay_buffer.rewards}")
-        print(f" - Dones: {replay_buffer.dones}")
-
-        self.wait_for_checkpoint()
         print(f"Training complete!\n")
 
     def eval_trajectory(self, env: gym.Env, drl_config: Dict[str, Any]):
         (ob, info) = env.reset()
         obs, acts, rews, next_obs, dones = [], [], [], [], []
         path_gains = []
-        for step in range(drl_config["eval_ep_len"]):
-            actions = self.get_agent().get_actions(ob.reshape(1, -1))
-            action = np.squeeze(np.asarray(actions, dtype=np.float32))
+        eval_ep_len = drl_config["eval_ep_len"]
+        eval_ep_len = 50
+        for step in range(eval_ep_len):
+            env.unwrapped.location_known = False
+            observations = np.expand_dims(ob, axis=0)
+            observations = pytorch_utils.from_numpy(observations, self.device)
+            actions = self.agent.get_actions(observations)
+            actions = pytorch_utils.to_numpy(actions)
+            action = np.squeeze(actions, axis=0)
             try:
                 next_ob, reward, terminated, truncated, info = env.step(action)
             except Exception as e:

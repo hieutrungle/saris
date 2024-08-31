@@ -2,9 +2,10 @@ import os
 
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
 os.environ["TF_GPU_ALLOCATOR"] = "cuda_malloc_async"  # to avoid memory fragmentation
+os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
 from typing import Optional
 import argparse
-from saris.utils import utils, torch_utils
+from saris.utils import pytorch_utils, utils
 import numpy as np
 import gymnasium as gym
 from saris.drl.envs import register_envs
@@ -119,6 +120,7 @@ def get_trainer_config(env: gym.Env, drl_config: dict, args: argparse.Namespace)
             "log_name": os.path.join("SARIS_SAC_" + drl_config["log_string"]),
         },
         "enable_progress_bar": True,
+        "device": args.device,
         "debug": False,
     }
     return trainer_config
@@ -131,7 +133,7 @@ def main():
     sionna_config = utils.load_config(args.sionna_config_file)
 
     # set random seeds
-    torch_utils.init_seed(args.seed)
+    pytorch_utils.init_seed(args.seed)
     if args.verbose:
         utils.log_args(args)
         utils.log_config(drl_config)
@@ -179,6 +181,9 @@ def parse_agrs():
     lib_dir = importlib.resources.files(saris)
     source_dir = os.path.dirname(lib_dir)
     args.source_dir = source_dir
+
+    device = pytorch_utils.init_gpu()
+    args.device = device
     return args
 
 
