@@ -316,6 +316,13 @@ class ActorCriticTrainer:
         """
         raise NotImplementedError
 
+    @staticmethod
+    def init_gradient_scaler(self):
+        """
+        Initializes the gradient scaler for mixed precision training.
+        """
+        raise NotImplementedError
+
     def train_agent(
         self, env: gym.Env, drl_config: Dict[str, Any], args: argparse.Namespace
     ):
@@ -365,7 +372,7 @@ class ActorCriticTrainer:
             initial=start_step,
         )
 
-        scaler = torch.cuda.amp.GradScaler()
+        self.init_gradient_scaler()
 
         for step in t_range:
             # accumulate data in replay buffer
@@ -432,6 +439,7 @@ class ActorCriticTrainer:
                 if step % args.log_interval == 0:
                     self.logger.log_metrics(info, step)
                     self.logger.flush()
+                exit()
 
                 # Evaluation
                 if step % drl_config["eval_interval"] == 0:
@@ -465,6 +473,7 @@ class ActorCriticTrainer:
                             next_observations=traj["next_obs"],
                             dones=traj["dones"],
                         )
+
                 t_range.set_postfix(
                     {
                         "actor_loss": f"{info['actor_loss']:.4e}",

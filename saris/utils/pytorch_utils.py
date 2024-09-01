@@ -44,4 +44,4 @@ def to_numpy(tensor: Union[torch.Tensor, dict]) -> Union[np.ndarray, dict]:
     elif isinstance(tensor, np.ndarray) or isinstance(tensor, float):
         return tensor
     else:
-        return tensor.to("cpu").detach().numpy()
+        return tensor.to("cpu").detach().float().numpy()

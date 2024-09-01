@@ -59,6 +59,14 @@ class SoftActorCriticTrainer(ac_trainer.ActorCriticTrainer):
             drl_config["num_train_steps_per_env_step"],
         )
 
+    def init_gradient_scaler(self):
+        if "cuda" in self.device.type:
+            self.actor_scaler = torch.cuda.amp.GradScaler()
+            self.critic_scaler = torch.cuda.amp.GradScaler()
+            self.alpha_scaler = torch.cuda.amp.GradScaler()
+        else:
+            raise f"Device {self.device.type} not supported."
+
     def create_step_functions(self):
 
         def accumulate_gradients(agent, batch, rng_key):
@@ -196,24 +204,30 @@ class SoftActorCriticTrainer(ac_trainer.ActorCriticTrainer):
 
             q_values = self.agent.get_q_values(obs, acts)
 
-            crtic_loss = 0.5 * torch.mean((q_values - target_q_values) ** 2)
+            critic_loss = 0.5 * nn.functional.mse_loss(q_values, target_q_values)
 
             critic_info = {
                 "q_values": torch.mean(q_values),
                 "next_q_values": torch.mean(next_q_values),
                 "target_q_values": torch.mean(target_q_values),
-                "critic_loss": crtic_loss,
+                "critic_loss": critic_loss,
             }
-            return crtic_loss, critic_info
+            return critic_loss, critic_info
 
         def update_crtics(batch: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
 
-            loss, info = calc_critic_loss(batch)
+            with torch.autocast(device_type=self.device.type, dtype=torch.bfloat16):
+                loss, info = calc_critic_loss(batch)
             info.update({"critic_lr": self.critic_scheduler.get_last_lr()[0]})
 
-            self.critic_optimizer.zero_grad()
-            loss.backward()
-            self.critic_optimizer.step()
+            self.critic_optimizer.zero_grad(set_to_none=True)
+            self.critic_scaler.scale(loss).backward()
+            self.critic_scaler.unscale_(self.critic_optimizer)
+            torch.nn.utils.clip_grad_norm_(
+                self.agent.critics.parameters(), max_norm=1.0
+            )
+            self.critic_scaler.step(self.critic_optimizer)
+            self.critic_scaler.update()
             self.critic_scheduler.step()
             return info
 
@@ -240,37 +254,39 @@ class SoftActorCriticTrainer(ac_trainer.ActorCriticTrainer):
             action_distribution = self.agent.get_action_distribution(obs)
             actions = action_distribution.sample()
             q_values = self.agent.get_q_values(obs, actions)
-            q_values = torch.mean(q_values)
 
             # Entropy regularization
             entropy = self.agent.get_entropy(
                 action_distribution, sample_shape=(self.num_actor_samples,)
             )
-            entropy = torch.mean(entropy)
 
             alpha = self.agent.alpha(
                 torch.tensor(1.0, device=q_values.device).reshape(1, 1)
             )
 
-            # Maximize loss
-            loss = q_values + alpha * entropy
-            # Equivalent to minimizing -loss with gradient descent
-            loss = -loss
+            loss = -(
+                torch.mean(q_values, dtype=torch.float32)
+                + alpha.float() * torch.mean(entropy, dtype=torch.float32)
+            )
 
             info = {
-                "entropy": entropy,
+                "entropy": torch.mean(entropy),
                 "actor_loss": loss,
             }
             return loss, info
 
         def update_actor(batch: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
 
-            loss, info = calc_actor_loss(batch)
+            with torch.autocast(device_type=self.device.type, dtype=torch.bfloat16):
+                loss, info = calc_actor_loss(batch)
             info.update({"actor_lr": self.actor_scheduler.get_last_lr()[0]})
 
-            self.actor_optimizer.zero_grad()
-            loss.backward()
-            self.actor_optimizer.step()
+            self.actor_optimizer.zero_grad(set_to_none=True)
+            self.actor_scaler.scale(loss).backward()
+            self.actor_scaler.unscale_(self.actor_optimizer)
+            torch.nn.utils.clip_grad_norm_(self.agent.actor.parameters(), max_norm=1.0)
+            self.actor_scaler.step(self.actor_optimizer)
+            self.actor_scaler.update()
             self.actor_scheduler.step()
 
             return info
@@ -287,18 +303,24 @@ class SoftActorCriticTrainer(ac_trainer.ActorCriticTrainer):
             alpha = self.agent.alpha(
                 torch.tensor(1.0, device=entropy.device).reshape(1, 1)
             )
-            loss = torch.mean(alpha * (entropy - self.target_entropy))
+            loss = torch.mean(
+                alpha * (entropy - self.target_entropy), dtype=torch.float32
+            )
 
             return loss, {"alpha": alpha, "alpha_loss": loss}
 
-        def update_alpha(batch: dict[str, torch.Tensor]):
+        def update_alpha(batch: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
 
-            loss, info = calc_alpha_loss(batch)
+            with torch.autocast(device_type=self.device.type, dtype=torch.bfloat16):
+                loss, info = calc_alpha_loss(batch)
             info.update({"alpha_lr": self.alpha_scheduler.get_last_lr()[0]})
 
-            self.alpha_optimizer.zero_grad()
-            loss.backward()
-            self.alpha_optimizer.step()
+            self.alpha_optimizer.zero_grad(set_to_none=True)
+            self.alpha_scaler.scale(loss).backward()
+            self.alpha_scaler.unscale_(self.alpha_optimizer)
+            torch.nn.utils.clip_grad_norm_(self.agent.alpha.parameters(), max_norm=1.0)
+            self.alpha_scaler.step(self.alpha_optimizer)
+            self.alpha_scaler.update()
             self.alpha_scheduler.step()
 
             return info
