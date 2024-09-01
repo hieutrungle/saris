@@ -24,11 +24,12 @@ tensorboardx = ">=2.6"
 swig = ">=4.2"
 gymnasium = ">=0.29"
 torchinfo = "^1.8.0"
-torch = ">=2.0,<2.2"
-torchvision = ">=0.10"
-torchaudio = ">=2.0,<2.2"
-sionna = ">=0.15,<0.19"
-tensorflow = { version = ">=2.13,<2.16", extras = ["and-cuda"] }
+torch = "=2.1.2"
+torchvision = "=0.16.2"
+torchaudio = "=2.1.2"
+sionna = "=0.18.0"
+tensorflow = { version = "=2.14.1", extras = ["and-cuda"] }
+tensorrt = "=8.5.3.1"
 pyyaml = "^6.0.2"
 
 
