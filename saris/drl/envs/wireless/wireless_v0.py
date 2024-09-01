@@ -72,7 +72,7 @@ class WirelessEnvV0(Env):
         # TODO: get random uniform number from a sphere with radius that is half the distance between RIS and RX; RIS and tx
         focal_shape = self._focal_points.shape
         if self.location_known:
-            delta_focal_points = self.np_rng.uniform(-3, 3, focal_shape)
+            delta_focal_points = self.np_rng.uniform(-1, 1, focal_shape)
             self._focal_points = pos + delta_focal_points
         else:
             ris_locations = utils.load_yaml_file(self.sionna_config_file)[
@@ -80,7 +80,7 @@ class WirelessEnvV0(Env):
             ]
             ris_locations = np.array(ris_locations)
             ris_locations = np.tile(ris_locations, (focal_shape[0], 2))
-            delta_focal_points = self.np_rng.uniform(-1, 1, focal_shape)
+            delta_focal_points = self.np_rng.uniform(-3, 3, focal_shape)
             self._focal_points = ris_locations + delta_focal_points
         self._focal_points = np.asarray(self._focal_points, dtype=np.float32)
 
@@ -94,18 +94,19 @@ class WirelessEnvV0(Env):
     ) -> Tuple[dict, float, bool, bool, dict]:
 
         action = np.reshape(action, self._focal_points.shape)
-        self._focal_points = self._focal_points + action
-        next_observation = self._get_observation()
 
-        truncated = False
         self.taken_steps += 1.0
         reward, sim_info = self._calculate_reward(use_cmap=self.use_cmap)
-        reward = reward - 0.1 * self.taken_steps
+        reward = reward - 0.025 * self.taken_steps
         self.info.update(sim_info)
 
+        truncated = False
         terminated = False
         if np.any(np.abs(self._focal_points) > 120):
             terminated = True
+
+        self._focal_points = self._focal_points + action
+        next_observation = self._get_observation()
 
         return next_observation, reward, terminated, truncated, self.info
 
