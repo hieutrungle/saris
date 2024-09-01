@@ -439,7 +439,6 @@ class ActorCriticTrainer:
                 if step % args.log_interval == 0:
                     self.logger.log_metrics(info, step)
                     self.logger.flush()
-                exit()
 
                 # Evaluation
                 if step % drl_config["eval_interval"] == 0:
