@@ -364,6 +364,9 @@ class ActorCriticTrainer:
             dynamic_ncols=True,
             initial=start_step,
         )
+
+        scaler = torch.cuda.amp.GradScaler()
+
         for step in t_range:
             # accumulate data in replay buffer
             if step < int(drl_config["random_steps"] * 2 / 3):
@@ -551,7 +554,9 @@ class ActorCriticTrainer:
             (ob, info) = env.reset()
             t_range = tqdm(range(0, ep_len), dynamic_ncols=True)
             for step_ in t_range:
-                actions = self.get_agent().get_actions(ob.reshape(1, -1))
+                obs = np.expand_dims(ob, axis=0)
+                obs = pytorch_utils.from_numpy(obs, self.device)
+                actions = self.agent.get_actions(obs)
                 actions = np.asarray(actions, dtype=np.float32)
                 action = np.squeeze(actions, axis=0)
                 try:

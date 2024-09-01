@@ -2,9 +2,9 @@ env_id: wireless-sigmap-v0
 exp_name: sac_beamforming_hallway_L
 
 replay_buffer_capacity: 25000
-total_steps: 1005
-random_steps: 150
-training_starts: 150
+total_steps: 10005
+random_steps: 1000
+training_starts: 1001
 ep_len: 200
 
 # Evaluation settings
