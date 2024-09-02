@@ -342,16 +342,9 @@ class ActorCriticTrainer:
         # Load model if exists
         is_ckpt_available = False
         if args.resume and self.logger.log_dir is not None:
-            # subdirs = [
-            #     name
-            #     for name in os.listdir(self.logger.log_dir)
-            #     if re.match(r"^\d+$", name)
-            # ]
             ckpt_file = glob.glob(os.path.join(self.logger.log_dir, "*.pt"))
             if ckpt_file:
                 is_ckpt_available = True
-            # if subdirs:
-            #     is_ckpt_available = True
         if is_ckpt_available:
             print(f"Loading model from {self.logger.log_dir}")
             start_step = self.load_models()
@@ -443,7 +436,7 @@ class ActorCriticTrainer:
                 # Evaluation
                 if step % drl_config["eval_interval"] == 0:
                     print(f"Step: {step} - Evaluating agent")
-                    eval_trajectories = self.eval_trajectories(env, drl_config)
+                    eval_trajectories = self.eval_trajectories(env)
                     return_mean = np.mean([t["return"] for t in eval_trajectories])
                     return_std = np.std([t["return"] for t in eval_trajectories])
                     eval_metrics = {
@@ -483,12 +476,17 @@ class ActorCriticTrainer:
                 )
         print(f"Training complete!\n")
 
-    def eval_trajectory(self, env: gym.Env, drl_config: Dict[str, Any]):
+    def eval_trajectory(self, env: gym.Env, eval_ep_len=30):
         (ob, info) = env.reset()
-        obs, acts, rews, next_obs, dones = [], [], [], [], []
-        path_gains = []
-        eval_ep_len = drl_config["eval_ep_len"]
-        eval_ep_len = 35
+        ob_shaoe = env.observation_space.shape
+        action_shape = env.action_space.shape
+        obs = np.full((eval_ep_len, *ob_shaoe), np.nan)
+        acts = np.full((eval_ep_len, *action_shape), np.nan)
+        rews = np.full(eval_ep_len, np.nan)
+        next_obs = np.full((eval_ep_len, *ob_shaoe), np.nan)
+        dones = np.full(eval_ep_len, np.nan)
+        path_gains = np.full(eval_ep_len, np.nan)
+
         for step in range(eval_ep_len):
             env.unwrapped.location_known = False
             observations = np.expand_dims(ob, axis=0)
@@ -506,12 +504,12 @@ class ActorCriticTrainer:
             done = terminated or truncated
             done = np.asarray(done, dtype=np.float32)
             reward = np.asarray(reward, dtype=np.float32)
-            obs.append(ob)
-            acts.append(action)
-            rews.append(reward)
-            next_obs.append(next_ob)
-            dones.append(done)
-            path_gains.append(info["path_gain_dB"])
+            obs[step] = ob
+            acts[step] = action
+            rews[step] = reward
+            next_obs[step] = next_ob
+            dones[step] = done
+            path_gains[step] = info["path_gain_dB"]
 
             if done:
                 (ob, info) = env.reset()
@@ -519,11 +517,6 @@ class ActorCriticTrainer:
             else:
                 ob = next_ob
 
-        obs = np.asarray(obs)
-        acts = np.asarray(acts)
-        rews = np.asarray(rews)
-        next_obs = np.asarray(next_obs)
-        dones = np.asarray(dones)
         return {
             "obs": obs,
             "acts": acts,
@@ -531,13 +524,15 @@ class ActorCriticTrainer:
             "next_obs": next_obs,
             "dones": dones,
             "path_gains": path_gains,
-            "return": np.sum(rews),
+            "return": np.nansum(rews),
         }
 
-    def eval_trajectories(self, env: gym.Env, drl_config: Dict[str, Any]):
+    def eval_trajectories(
+        self, env: gym.Env, num_evals: int = 3, eval_ep_len: int = 30
+    ) -> Sequence[Dict[str, np.ndarray]]:
         trajectories = []
-        for i in range(drl_config["num_eval_trials"]):
-            trajectory = self.eval_trajectory(env, drl_config)
+        for i in range(num_evals):
+            trajectory = self.eval_trajectory(env, eval_ep_len)
             trajectories.append(trajectory)
         return trajectories
 
@@ -549,131 +544,78 @@ class ActorCriticTrainer:
         print(
             f"Evaluating {self.actor_class.__name__} and {self.critic_class.__name__}"
         )
-        ep_len = drl_config["eval_ep_len"]
+
+        eval_ep_len = drl_config["eval_ep_len"]
+        num_evals = drl_config["num_eval_trials"]
         env.unwrapped.location_known = False
+        env.unwrapped.use_cmap = True
         self.load_models()
 
-        max_step = 0
         num_evals = 3
-        gains = np.zeros((num_evals, ep_len))
-        rewards = np.zeros((num_evals, ep_len))
+        gains = np.full((num_evals, eval_ep_len), np.nan)
+        rewards = np.full((num_evals, eval_ep_len), np.nan)
         saved_metrics = {}
-        for i in range(num_evals):
-            (ob, info) = env.reset()
-            t_range = tqdm(range(0, ep_len), dynamic_ncols=True)
-            for step_ in t_range:
-                obs = np.expand_dims(ob, axis=0)
-                obs = pytorch_utils.from_numpy(obs, self.device)
-                actions = self.agent.get_actions(obs)
-                actions = np.asarray(actions, dtype=np.float32)
-                action = np.squeeze(actions, axis=0)
-                try:
-                    next_obs, reward, terminated, truncated, info = env.step(action)
-                except Exception as e:
-                    print(f"Error in step {step}: {e}")
-                    time.sleep(2)
-                    continue
 
-                done = terminated or truncated
+        trajectories = self.eval_trajectories(env, num_evals, eval_ep_len)
+        for i, traj in enumerate(trajectories):
+            eval_return = traj["return"]
+            saved_metrics.update(
+                {
+                    f"eval_return_{i}": eval_return,
+                    f"eval_ep_len_{i}": eval_ep_len,
+                }
+            )
+            self.logger.log_scalar(eval_return, f"eval_return_{i}", 0)
+            self.logger.log_scalar(eval_ep_len, f"eval_ep_len_{i}", 0)
 
-                max_step = max(max_step, step_)
+            for step in range(eval_ep_len):
+                gains[i, step] = traj["path_gains"][step]
+                rewards[i, step] = traj["rews"][step]
+                self.logger.log_scalar(rewards[i, step], f"eval_reward_{i}", step)
+                self.logger.log_scalar(gains[i, step], f"eval_path_gain_dB_{i}", step)
 
-                self.logger.log_scalar(reward, f"eval_reward_{i}", step_)
-                self.logger.log_scalar(
-                    info["path_gain_dB"], f"eval_path_gain_dB_{i}", step_
-                )
-                gains[i, step_] = info["path_gain_dB"]
-                rewards[i, step_] = reward
+        self.save_metrics("final_eval_metrics", saved_metrics)
 
-                if done:
+        rewards_means = np.nanmean(rewards, axis=0)
+        rewards_stds = np.nanstd(rewards, axis=0)
+        gains_means = np.nanmean(gains, axis=0)
+        gains_stds = np.nanstd(gains, axis=0)
 
-                    eval_return = float(np.mean(info["episode"]["r"]))
-                    eval_ep_len = info["episode"]["l"][0]
-                    saved_metrics.update(
-                        {
-                            f"eval_return_{i}": eval_return,
-                            f"eval_ep_len_{i}": eval_ep_len,
-                        }
-                    )
-                    self.logger.log_scalar(eval_return, f"eval_return_{i}", step_)
-                    self.logger.log_scalar(eval_ep_len, f"eval_ep_len_{i}", step_)
-                    t_range.set_postfix(
-                        {
-                            "eval_ep_len": eval_ep_len,
-                            "eval_return": f"{eval_return:.4e}",
-                        },
-                        refresh=True,
-                    )
-                    break
-                else:
-                    obs = next_obs
-        self.save_metrics("eval_metrics", saved_metrics)
-
-        # plot the evaluation results
-        max_step = max_step + 1
-
-        # plot the evaluation rewards
-        rewards = rewards[:, :max_step]
-        rewards_means = np.mean(rewards, axis=0)
-        rewards_stds = np.std(rewards, axis=0)
-        fig, ax = plt.subplots(figsize=(10, 5), dpi=300)
-        ax.plot(rewards_means, label="mean")
-        ax.fill_between(
-            range(max_step),
-            rewards_means - rewards_stds,
-            rewards_means + rewards_stds,
-            alpha=0.25,
-            # label="min-max range",
-        )
-        ax.plot(rewards_means - rewards_stds, label="min", linestyle="--")
-        ax.plot(rewards_means + rewards_stds, label="max", linestyle="--")
-        ax.grid()
-        ax.legend()
-        ax.set_title("Evaluation Rewards")
-        ax.set_xlabel("steps")
-        ax.set_ylabel("reward")
-        # save the plot
-        fig_name = f"eval_rewards_{num_evals}_runs.png"
-        fig_path = os.path.join(self.logger.log_dir, fig_name)
-        plt.savefig(fig_path)
-
-        # plot the evaluation rewards
-        gains = gains[:, :max_step]
-        gains_means = np.mean(gains, axis=0)
-        gains_stds = np.std(gains, axis=0)
-        fig, ax = plt.subplots(figsize=(10, 5), dpi=300)
-        ax.plot(gains_means, label="mean")
-        ax.fill_between(
-            range(max_step),
-            gains_means - gains_stds,
-            gains_means + gains_stds,
-            alpha=0.25,
-            # label="min-max range",
-        )
-        ax.plot(gains_means - gains_stds, label="min", linestyle="--")
-        ax.plot(gains_means + gains_stds, label="max", linestyle="--")
-        ax.grid()
-        ax.legend()
-        ax.set_title("Evaluation Gains")
-        ax.set_xlabel("steps")
-        ax.set_ylabel("gains")
-        # save the plot
-        fig_name = f"eval_gain_{num_evals}_runs.png"
-        fig_path = os.path.join(self.logger.log_dir, fig_name)
-        plt.savefig(fig_path)
-
-        # log the evaluation results to tensorboard
-        for step in range(max_step):
+        for step in range(eval_ep_len):
             metrics = {
                 "eval_rewards_means": rewards_means[step],
                 "eval_rewards_stds": rewards_stds[step],
                 "eval_path_gain_dB_mean": gains_means[step],
                 "eval_path_gain_dB_std": gains_stds[step],
             }
-            for i in range(num_evals):
-                metrics[f"eval_reward_{i}"] = rewards[i, step]
-                metrics[f"eval_path_gain_dB_{i}"] = gains[i, step]
             self.logger.log_metrics(metrics, step)
+
+        # plot the evaluation rewards
+        fig_name = f"eval_rewards_{num_evals}_runs.png"
+        self.save_fig(rewards_means, rewards_stds, "Evaluation Rewards", fig_name)
+
+        # plot the evaluation path gain
+        fig_name = f"eval_gain_{num_evals}_runs.png"
+        self.save_fig(gains_means, gains_stds, "Evaluation Gains", fig_name)
+
+    def save_fig(self, means, stds, label, fig_name):
+        fig, ax = plt.subplots(figsize=(10, 5), dpi=300)
+        ax.plot(means, label="mean")
+        ax.fill_between(
+            range(len(means)),
+            means - stds,
+            means + stds,
+            alpha=0.25,
+        )
+        ax.plot(means - stds, label="min", linestyle="--")
+        ax.plot(means + stds, label="max", linestyle="--")
+        ax.grid()
+        ax.legend()
+        ax.set_title(label)
+        ax.set_xlabel("steps")
+        ax.set_ylabel(label)
+        fig_path = os.path.join(self.logger.log_dir, fig_name)
+        plt.savefig(fig_path)
 
     def tracker(self, iterator: Iterator, **kwargs) -> Iterator:
         """
