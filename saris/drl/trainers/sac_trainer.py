@@ -139,11 +139,11 @@ class SoftActorCriticTrainer(ac_trainer.ActorCriticTrainer):
             """
 
             # Clip Q-values
-            next_qs, _ = torch.min(next_qs, dim=0, keepdim=True)
-            next_qs = torch.repeat_interleave(next_qs, self.num_critics, dim=0)
+            # next_qs, _ = torch.min(next_qs, dim=0, keepdim=True)
+            # next_qs = torch.repeat_interleave(next_qs, self.num_critics, dim=0)
 
             # Double Q-learning: swap q_values of 2nd critic with q_values of 1st critic
-            # next_qs = torch.stack((next_qs[1], next_qs[0]), dim=0)
+            next_qs = torch.stack((next_qs[1], next_qs[0]), dim=0)
 
             return next_qs
 
