@@ -69,60 +69,6 @@ class SoftActorCriticTrainer(ac_trainer.ActorCriticTrainer):
 
     def create_step_functions(self):
 
-        def accumulate_gradients(agent, batch, rng_key):
-            batch_size = batch[0].shape[0]
-            num_minibatches = self.grad_accum_steps
-            minibatch_size = batch_size // self.grad_accum_steps
-            rngs = jax.random.split(rng_key, num_minibatches)
-            grad_fn = jax.value_and_grad(actor_loss)
-
-            def _minibatch_step(
-                minibatch_idx: jax.Array | int,
-            ) -> Tuple[struct.PyTreeNode, jtorch.Tensor]:
-                """Determine gradients and metrics for a single minibatch."""
-                minibatch = jax.tree_map(
-                    lambda x: jax.lax.dynamic_slice_in_dim(  # Slicing with variable index (jax.Array).
-                        x,
-                        start_index=minibatch_idx * minibatch_size,
-                        slice_size=minibatch_size,
-                        axis=0,
-                    ),
-                    batch,
-                )
-                step_loss, step_grads = grad_fn(
-                    actor_state.params,
-                    minibatch,
-                    train=True,
-                    rng_key=rngs[minibatch_idx],
-                )
-                return step_loss, step_grads
-
-            def _scan_step(
-                carry: Tuple[struct.PyTreeNode, jtorch.Tensor],
-                minibatch_idx: jax.Array | int,
-            ) -> Tuple[Tuple[struct.PyTreeNode, jtorch.Tensor], None]:
-                """Scan step function for looping over minibatches."""
-                step_loss, step_grads = _minibatch_step(minibatch_idx)
-                carry = jax.tree_map(jnp.add, carry, (step_loss, step_grads))
-                return carry, None
-
-            # Determine initial shapes for gradients and loss.
-            loss_shape, grads_shapes = jax.eval_shape(_minibatch_step, 0)
-            grads = jax.tree_map(lambda x: jnp.zeros(x.shape, x.dtype), grads_shapes)
-            loss = jax.tree_map(lambda x: jnp.zeros(x.shape, x.dtype), loss_shape)
-
-            # Loop over minibatches to determine gradients and metrics.
-            (loss, grads), _ = jax.lax.scan(
-                _scan_step,
-                init=(loss, grads),
-                xs=jnp.arange(num_minibatches),
-                length=num_minibatches,
-            )
-
-            # Average gradients over minibatches.
-            grads = jax.tree_map(lambda g: g / num_minibatches, grads)
-            return loss, grads
-
         def do_q_backup(next_qs: torch.Tensor) -> torch.Tensor:
             """
             Handle Q-values from multiple different target critic networks to produce target values.
