@@ -37,9 +37,6 @@ def main():
         path_gain = sig_cmap.get_path_gain(coverage_map)
         sig_cmap.render_to_file(coverage_map, None, filename=args.saved_path)
 
-    # results_name = "path_gain-" + args.saved_path.split("/")[-2] + ".txt"
-    # tmp_dir = utils.get_os_dir("TMP_DIR")
-    # results_file = os.path.join(tmp_dir, results_name)
     results_dict = {"path_gain": path_gain}
     with open(args.results_path, "wb") as f:
         pickle.dump(results_dict, f)
