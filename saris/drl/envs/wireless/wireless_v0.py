@@ -190,10 +190,16 @@ class WirelessEnvV0(Env):
             img_dir, f"{mitsuba_filename}_00000.png"
         )
 
+        # Set up path for saving results
+        tmp_dir = utils.get_os_dir("TMP_DIR")
+        results_name = f"path-gain-{self.log_string}-{self.current_time}.pkl"
+        results_file = os.path.join(tmp_dir, results_name)
+
         # Run Sionna script
         siona_script = os.path.join(
             source_dir, "saris", "sub_tasks", "calc_pathgain.py"
         )
+
         sionna_cmd = [
             "python",
             siona_script,
@@ -205,12 +211,13 @@ class WirelessEnvV0(Env):
             viz_scene_path,
             "--saved_path",
             render_filename,
+            "--results_path",
+            results_file,
             "--seed",
             str(self.seed),
         ]
         if use_cmap:
             sionna_cmd.append("--use_cmap")
-        tmp_dir = utils.get_os_dir("TMP_DIR")
         sionna_output_txt = os.path.join(tmp_dir, "sionna_outputs.txt")
         try:
             subprocess.run(sionna_cmd, check=True, stdout=open(sionna_output_txt, "a"))
@@ -219,10 +226,7 @@ class WirelessEnvV0(Env):
         finally:
             pass
 
-        results_name = "path_gain-" + self.log_string + self.current_time + ".txt"
-        results_file = os.path.join(tmp_dir, results_name)
         with open(results_file, "rb") as f:
-            # results_dict = json.load(f)
             results_dict = pickle.load(f)
             path_gain = float(results_dict["path_gain"])
         path_gain_dB = utils.linear2dB(path_gain)
