@@ -81,4 +81,4 @@ mkdir -p ${OPTIX_CACHE_PATH}
 python ./saris/cli.py --command train -dcfg ${DRL_CONFIG_FILE} -scfg ${SIONNA_CONFIG_FILE} -v --resume
 
 export OPTIX_CACHE_PATH=${SOURCE_DIR}/tmp/optix_cache_1
-poetry ./saris/cli.py --command eval -dcfg ${DRL_CONFIG_FILE} -scfg ${SIONNA_CONFIG_FILE} -v
+python ./saris/cli.py --command eval -dcfg ${DRL_CONFIG_FILE} -scfg ${SIONNA_CONFIG_FILE} -v
