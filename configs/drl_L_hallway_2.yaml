@@ -16,7 +16,7 @@ eval_ep_len: 100
 actor_learning_rate: 0.0001
 critic_learning_rate: 0.0004
 alpha_learning_rate: 0.0002
-batch_size: 64
+batch_size: 128
 num_train_steps_per_env_step: 10
 
 # Actor-critic configuration
