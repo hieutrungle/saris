@@ -130,7 +130,7 @@ class WirelessEnvV0(Env):
         blender_output_dir = os.path.join(assets_dir, "blender")
         tmp_dir = utils.get_os_dir("TMP_DIR")
 
-        focal_name = "focal_pts-" + self.log_string + ".pkl"
+        focal_name = f"focal_pts-{self.log_string}-{self.current_time}.pkl"
         focal_path = os.path.join(tmp_dir, focal_name)
         with open(focal_path, "wb") as f:
             pickle.dump(self._focal_points, f)
