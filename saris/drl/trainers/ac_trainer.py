@@ -692,6 +692,7 @@ class ActorCriticTrainer:
         ) as f:
             json.dump(metrics, f, indent=4, cls=utils.NpEncoder)
 
+    @staticmethod
     def save_models(self, step: int):
         """
         Save the agent's parameters to a file.
@@ -703,6 +704,7 @@ class ActorCriticTrainer:
         }
         torch.save(ckpt, os.path.join(self.logger.log_dir, f"checkpoints.pt"))
 
+    @staticmethod
     def load_models(self) -> int:
         """
         Load the agent's parameters from a file.
