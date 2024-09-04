@@ -290,7 +290,7 @@ class ActorCriticTrainer:
         warmup_scheduler = optim.lr_scheduler.LinearLR(
             optimizer, start_factor=1 / 20, total_iters=warmup_steps
         )
-        cosine_scheduler = optim.lr_scheduler.CosineAnnealingLR(
+        cosine_scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(
             optimizer, num_train_steps - warmup_steps, eta_min=lr / 10
         )
         scheduler = optim.lr_scheduler.SequentialLR(

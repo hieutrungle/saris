@@ -1,14 +1,12 @@
 from typing import Any, Tuple, Callable, Dict
 from saris.drl.trainers import ac_trainer
-from saris.drl.agents.actor_critic import ActorCritic
 from saris.drl.agents.sac import SoftActorCritic
 from saris.drl.networks.alpha import Alpha
 import numpy as np
-import functools
-import copy
 import torch
 import torch.nn as nn
 import torch.distributions as D
+import os
 
 
 class SoftActorCriticTrainer(ac_trainer.ActorCriticTrainer):
@@ -66,6 +64,39 @@ class SoftActorCriticTrainer(ac_trainer.ActorCriticTrainer):
             self.alpha_scaler = torch.cuda.amp.GradScaler()
         else:
             raise f"Device {self.device.type} not supported."
+
+    def save_models(self, step: int):
+        """
+        Save the agent's parameters to a file.
+        """
+        ckpt = {
+            "step": step,
+            "agent": self.agent.state_dict(),
+            "actor_optimizer": self.actor_optimizer.state_dict(),
+            "critic_optimizer": self.critic_optimizer.state_dict(),
+            "alpha_optimizer": self.alpha_optimizer.state_dict(),
+            "actor_scheduler": self.actor_scheduler.state_dict(),
+            "critic_scheduler": self.critic_scheduler.state_dict(),
+            "alpha_scheduler": self.alpha_scheduler.state_dict(),
+            "config": self.config,
+        }
+        torch.save(ckpt, os.path.join(self.logger.log_dir, f"checkpoints.pt"))
+
+    def load_models(self) -> int:
+        """
+        Load the agent's parameters from a file.
+        """
+        ckpt = torch.load(os.path.join(self.logger.log_dir, f"checkpoints.pt"))
+        self.agent.load_state_dict(ckpt["agent"])
+        if ckpt.get("actor_optimizer", None) is not None:
+            self.actor_optimizer.load_state_dict(ckpt["actor_optimizer"])
+            self.critic_optimizer.load_state_dict(ckpt["critic_optimizer"])
+            self.alpha_optimizer.load_state_dict(ckpt["alpha_optimizer"])
+            self.actor_scheduler.load_state_dict(ckpt["actor_scheduler"])
+            self.critic_scheduler.load_state_dict(ckpt["critic_scheduler"])
+            self.alpha_scheduler.load_state_dict(ckpt["alpha_scheduler"])
+        step = ckpt.get("step", 0)
+        return step
 
     def create_step_functions(self):
 
