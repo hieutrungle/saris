@@ -531,9 +531,12 @@ class ActorCriticTrainer:
         self, env: gym.Env, num_evals: int = 3, eval_ep_len: int = 30
     ) -> Sequence[Dict[str, np.ndarray]]:
         trajectories = []
+        env.unwrapped.eval = True
         for i in range(num_evals):
             trajectory = self.eval_trajectory(env, eval_ep_len)
             trajectories.append(trajectory)
+        env.unwrapped.eval = False
+
         return trajectories
 
     def eval_agent(

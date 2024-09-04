@@ -38,6 +38,7 @@ class WirelessEnvV0(Env):
         self.info = {}
         self.use_cmap = False
         self.location_known = False
+        self.eval = False
 
     def _get_observation(self) -> dict:
         observation = np.concatenate(
@@ -80,8 +81,13 @@ class WirelessEnvV0(Env):
             ]
             ris_locations = np.array(ris_locations)
             ris_locations = np.tile(ris_locations, (focal_shape[0], 2))
-            delta_focal_points = self.np_rng.uniform(-3, 3, focal_shape)
+            if not self.eval:
+                delta_focal_points = self.np_rng.uniform(-3, 3, focal_shape)
+            else:
+                delta_focal_points = np.zeros(focal_shape)
+
             self._focal_points = ris_locations + delta_focal_points
+
         self._focal_points = np.asarray(self._focal_points, dtype=np.float32)
 
         self.info = {}
