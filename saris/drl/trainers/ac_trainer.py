@@ -528,7 +528,7 @@ class ActorCriticTrainer:
         }
 
     def eval_trajectories(
-        self, env: gym.Env, num_evals: int = 3, eval_ep_len: int = 2
+        self, env: gym.Env, num_evals: int = 3, eval_ep_len: int = 30
     ) -> Sequence[Dict[str, np.ndarray]]:
         trajectories = []
         env.unwrapped.eval = True
