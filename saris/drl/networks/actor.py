@@ -29,10 +29,10 @@ class Actor(nn.Module):
             activation = _str_to_activation[activation]
 
         self.fourier = Fourier(num_observations, features[0] // 2)
-        self.mlp = MLP(features[0], features[-1], features[1:-1], activation, nn.Tanh())
-        # self.mlp = ResidualMLP(
-        #     features[0], features[-1], features[1:-1], activation, nn.Tanh()
-        # )
+        # self.mlp = MLP(features[0], features[-1], features[1:-1], activation, nn.Tanh())
+        self.mlp = ResidualMLP(
+            features[0], features[-1], features[1:-1], activation, nn.Tanh()
+        )
         self.ac_means = nn.Linear(features[-1], num_actions)
         self.ac_log_stds = nn.Linear(features[-1], num_actions)
 

@@ -29,12 +29,12 @@ class Crtic(nn.Module):
             activation = _str_to_activation[activation]
 
         self.fourier = Fourier(num_observations + num_actions, features[0] // 2)
-        self.mlp = MLP(
-            features[0], features[-1], features[1:-1], activation, nn.Identity()
-        )
-        # self.mlp = ResidualMLP(
+        # self.mlp = MLP(
         #     features[0], features[-1], features[1:-1], activation, nn.Identity()
         # )
+        self.mlp = ResidualMLP(
+            features[0], features[-1], features[1:-1], activation, nn.Identity()
+        )
         self.q_value = nn.Linear(features[-1], 1)
 
     def forward(

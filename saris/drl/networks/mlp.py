@@ -76,7 +76,6 @@ class ResidualMLP(nn.Module):
         features = [in_features] + list(features)
         mlp = nn.ModuleList()
         for i in range(len(features) - 1):
-            print(f"i: {i}")
             mlp.append(
                 ResidualDense(features[i], features[i + 1], activation, activation)
             )
