@@ -1,12 +1,7 @@
 from typing import Sequence
 import torch
 import torch.nn as nn
-from saris.drl.networks.network_utils import (
-    Activation,
-    _str_to_activation,
-    DType,
-    _str_to_dtype,
-)
+from saris.drl.networks.network_utils import Activation, _str_to_activation
 from saris.drl.networks.mlp import MLP, ResidualMLP
 from saris.drl.networks.common_blocks import Fourier
 
@@ -20,28 +15,41 @@ class Crtic(nn.Module):
         num_actions: int,
         features: Sequence[int],
         activation: Activation,
-        dtype: DType,
     ):
         super().__init__()
-        if isinstance(dtype, str):
-            dtype = _str_to_dtype[dtype]
         if isinstance(activation, str):
             activation = _str_to_activation[activation]
 
-        self.fourier = Fourier(num_observations + num_actions, features[0] // 2)
-        # self.mlp = MLP(
-        #     features[0], features[-1], features[1:-1], activation, nn.Identity()
-        # )
+        self.device_entries = 6
+        num_observations = num_observations - self.device_entries
+        self.device_embed = nn.Linear(self.device_entries, features[-1] // 2)
+
+        self.obs_fourier = Fourier(num_observations, features[0] // 4)
+        self.act_fourier = Fourier(num_actions, features[0] // 4)
+        self.act = nn.Linear(features[0] // 2, features[0] // 2)
+        self.obs = nn.Linear(features[0] // 2, features[0] // 2)
         self.mlp = ResidualMLP(
-            features[0], features[-1], features[1:-1], activation, nn.Identity()
+            features[0], features[-1] // 2, features[1:-1], activation, nn.Identity()
         )
+
         self.q_value = nn.Linear(features[-1], 1)
 
     def forward(
         self, observations: torch.Tensor, actions: torch.Tensor, train: bool = False
     ) -> torch.Tensor:
+
+        device_embed = observations[..., : self.device_entries]
+        device_embed = self.device_embed(device_embed)
+
+        observations = observations[..., self.device_entries :]
+        observations = self.obs_fourier(observations)
+        observations = self.obs(observations)
+        actions = self.act_fourier(actions)
+        actions = self.act(actions)
         mixed = torch.cat([observations, actions], axis=-1)
-        mixed = self.fourier(mixed)
         mixed = self.mlp(mixed)
+
+        mixed = torch.cat([mixed, device_embed], axis=-1)
+
         q_values = self.q_value(mixed)
         return q_values

@@ -90,7 +90,6 @@ def get_trainer_config(env: gym.Env, drl_config: dict, args: argparse.Namespace)
             "num_actions": num_acts,
             "features": drl_config["hidden_sizes"],
             "activation": "tanh",
-            "dtype": "bfloat16",
         },
         "critic_class": critic.Crtic,
         "critic_hparams": {
@@ -98,7 +97,6 @@ def get_trainer_config(env: gym.Env, drl_config: dict, args: argparse.Namespace)
             "num_actions": num_acts,
             "features": drl_config["hidden_sizes"],
             "activation": "relu",
-            "dtype": "bfloat16",
         },
         "actor_optimizer_hparams": {
             "optimizer": "adamw",

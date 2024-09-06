@@ -27,4 +27,3 @@ num_critics: 2
 num_critic_updates: 5
 temperature: 0.05
 num_actor_samples: 32
-saved_path: "./saved_models/"

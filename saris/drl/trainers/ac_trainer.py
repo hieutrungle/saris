@@ -170,8 +170,12 @@ class ActorCriticTrainer:
         Args:
           input_shapes: A list of input shapes to the model.
         """
-        print(f"Model: {model.__class__.__name__}")
-        summary(model, input_size=[*input_shapes])
+        print(f"\nModel: {model.__class__.__name__}")
+        summary(
+            model,
+            input_size=[*input_shapes],
+            col_names=["input_size", "output_size", "num_params"],
+        )
         print()
 
     def init_logger(self, logger_params: Optional[Dict] = None):
