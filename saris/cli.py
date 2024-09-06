@@ -63,7 +63,7 @@ def get_log_string(drl_config: dict):
         drl_config["discount"],
     )
     log_string += f"-tem{drl_config['temperature']}"
-    log_string += f"-stu{drl_config['tau']}"  # soft_target_update_rate
+    log_string += f"-polyak{drl_config['polyak']}"  # soft_target_update_rate
     for replaced_str in [" ", "]", "}"]:
         log_string = log_string.replace(replaced_str, "")
     for replaced_str in ["[", ",", ".", "{"]:
@@ -112,7 +112,7 @@ def get_trainer_config(env: gym.Env, drl_config: dict, args: argparse.Namespace)
         "num_critic_updates": drl_config["num_critic_updates"],
         "num_critics": drl_config["num_critics"],
         "discount": drl_config["discount"],
-        "tau": drl_config["tau"],
+        "polyak": drl_config["polyak"],
         "grad_accum_steps": 1,
         "seed": args.seed,
         "logger_params": {

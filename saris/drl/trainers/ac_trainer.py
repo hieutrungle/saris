@@ -104,7 +104,7 @@ class ActorCriticTrainer:
             "critic_optimizer_hparams": critic_optimizer_hparams,
             "num_critics": num_critics,
             "discount": discount,
-            "tau": tau,
+            "polyak": polyak,
             "logger_params": logger_params,
             "enable_progress_bar": self.enable_progress_bar,
             "debug": self.debug,
@@ -113,12 +113,10 @@ class ActorCriticTrainer:
         }
         self.config.update(kwargs)
 
-        # Create empty actor. Note: no parameters yet
         actor = self.create_model(self.actor_class, self.actor_hparams)
         batch_ob_shape = [1, *self.observation_shape]
         self.summarize_model(actor, [batch_ob_shape])
 
-        # Create empty critic. Note: no parameters yet
         critics = nn.ModuleList()
         target_critics = nn.ModuleList()
         for _ in range(self.num_critics):
