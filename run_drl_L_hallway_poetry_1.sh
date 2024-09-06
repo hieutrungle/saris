@@ -78,7 +78,7 @@ mkdir -p ${OPTIX_CACHE_PATH}
 ##############################
 # DRL run
 ##############################
-poetry run main --command train -dcfg ${DRL_CONFIG_FILE} -scfg ${SIONNA_CONFIG_FILE} -v --resume --seed 10
+poetry run main --command train -dcfg ${DRL_CONFIG_FILE} -scfg ${SIONNA_CONFIG_FILE} -v --resume --seed 0
 
 export OPTIX_CACHE_PATH=${TMP_DIR}/optix_cache_1
-poetry run main --command eval -dcfg ${DRL_CONFIG_FILE} -scfg ${SIONNA_CONFIG_FILE} -v --seed 10
+poetry run main --command eval -dcfg ${DRL_CONFIG_FILE} -scfg ${SIONNA_CONFIG_FILE} -v --seed 0
