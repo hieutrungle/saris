@@ -217,9 +217,10 @@ class SoftActorCriticTrainer(ac_trainer.ActorCriticTrainer):
                 target_critic_dict = self.agent.target_critics[i].state_dict()
                 critic_dict = self.agent.critics[i].state_dict()
                 for key in critic_dict:
-                    target_critic_dict[key] = critic_dict[
-                        key
-                    ] * self.tau + target_critic_dict[key] * (1 - self.tau)
+                    target_critic_dict[key] = (
+                        critic_dict[key] * (1 - self.polyak)
+                        + target_critic_dict[key] * self.polyak
+                    )
                 self.agent.target_critics[i].load_state_dict(target_critic_dict)
 
         def calc_actor_loss(

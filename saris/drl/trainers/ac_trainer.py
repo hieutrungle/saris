@@ -39,7 +39,7 @@ class ActorCriticTrainer:
         num_critic_updates: int = 4,
         num_critics: int = 2,
         discount: float = 0.9,
-        tau: float = 0.05,
+        polyak: float = 0.05,
         grad_accum_steps: int = 1,
         seed: int = 42,
         logger_params: Dict[str, Any] = None,
@@ -66,7 +66,7 @@ class ActorCriticTrainer:
             critic_optimizer_hparams: A dictionary of all hyperparameters of the optimizer.
                 Used during initialization of the optimizer.
             discount: The discount factor for the environment.
-            tau: The update factor for the target networks.
+            polyak: The update factor for the target networks.
             grad_accum_steps: The number of steps to accumulate gradients before applying
             seed: Seed to initialize PRNG.
             logger_params: A dictionary containing the specification of the logger.
@@ -86,7 +86,7 @@ class ActorCriticTrainer:
         self.num_critic_updates = num_critic_updates
         self.num_critics = num_critics
         self.discount = discount
-        self.tau = tau
+        self.polyak = polyak
         self.grad_accum_steps = grad_accum_steps
         self.seed = seed
         self.logger_params = logger_params
