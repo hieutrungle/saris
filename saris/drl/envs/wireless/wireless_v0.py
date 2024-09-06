@@ -33,7 +33,10 @@ class WirelessEnvV0(Env):
 
         self.action_space = self._get_action_space()
         self.observation_space = self._get_observation_space()
+
         self.taken_steps = 0.0
+        self.cur_gain = 0.0
+        self.next_gain = 0.0
 
         self.info = {}
         self.use_cmap = False
@@ -90,6 +93,9 @@ class WirelessEnvV0(Env):
 
         self._focal_points = np.asarray(self._focal_points, dtype=np.float32)
 
+        self.cur_gain = self._cal_path_gain(self._focal_points, use_cmap=self.use_cmap)
+        self.next_gain = self.cur_gain
+
         self.info = {}
         self.taken_steps = 0.0
 
@@ -99,34 +105,47 @@ class WirelessEnvV0(Env):
         self, action: np.ndarray, **kwargs
     ) -> Tuple[dict, float, bool, bool, dict]:
 
-        action = np.reshape(action, self._focal_points.shape)
-
         self.taken_steps += 1.0
-        reward, sim_info = self._calculate_reward(use_cmap=self.use_cmap)
-        reward = reward - 0.025 * self.taken_steps
-        self.info.update(sim_info)
+        self.cur_gain = self.next_gain
 
         truncated = False
         terminated = False
-        if np.any(np.abs(self._focal_points) > 120):
+        if np.any(np.abs(self._focal_points) > 100):
             terminated = True
 
+        action = np.reshape(action, self._focal_points.shape)
         self._focal_points = self._focal_points + action
         next_observation = self._get_observation()
+        self.next_gain = self._cal_path_gain(self._focal_points, use_cmap=self.use_cmap)
+
+        reward = self._cal_reward(self.cur_gain, self.next_gain, self.taken_steps)
+
+        step_info = {
+            "path_gain_dB": self.cur_gain,
+            "next_path_gain_dB": self.next_gain,
+            "reward": reward,
+        }
+        self.info.update(step_info)
 
         return next_observation, reward, terminated, truncated, self.info
 
-    def _calculate_reward(self, use_cmap: bool) -> float:
+    def _cal_reward(
+        self, cur_gain: float, next_gain: float, time_taken: float
+    ) -> float:
+        threshold_gain = -90
+        scaled_cur_gain = 1.25 * (cur_gain - threshold_gain)
+        gain_diff = 2.0 * (next_gain - cur_gain)
+        cost_time = -0.02 * time_taken
+        reward = scaled_cur_gain + gain_diff + cost_time
+        return reward
 
-        # Generate geometry file
-        self._run_blender()
+    def _cal_path_gain(self, focal_points: np.ndarray, use_cmap: bool = False) -> float:
 
-        # Run Sionna to get reward
-        reward, info = self._run_sionna(use_cmap=use_cmap)
+        self._prepare_geometry(focal_points)
+        path_gain_dB = self._cal_path_gain_sionna(use_cmap=use_cmap)
+        return path_gain_dB
 
-        return reward, info
-
-    def _run_blender(self):
+    def _prepare_geometry(self, focal_points: np.ndarray) -> None:
 
         # Blender export
         blender_app = utils.get_os_dir("BLENDER_APP")
@@ -139,7 +158,7 @@ class WirelessEnvV0(Env):
         focal_name = f"focal_pts-{self.log_string}-{self.current_time}.pkl"
         focal_path = os.path.join(tmp_dir, focal_name)
         with open(focal_path, "wb") as f:
-            pickle.dump(self._focal_points, f)
+            pickle.dump(focal_points, f)
 
         blender_script = os.path.join(
             source_dir, "saris", "blender_script", "bl_drl.py"
@@ -166,13 +185,7 @@ class WirelessEnvV0(Env):
         except subprocess.CalledProcessError as e:
             raise Exception(f"Error running Blender command: {e}")
 
-    def _run_sionna(self, use_cmap: bool = False) -> Tuple[float, float]:
-        path_gain_dB = self._cal_path_gain(use_cmap=use_cmap)
-        reward = path_gain_dB - (-90)
-        reward = reward * 1.5
-        return reward, {"path_gain_dB": path_gain_dB}
-
-    def _cal_path_gain(self, use_cmap: bool = False) -> float:
+    def _cal_path_gain_sionna(self, use_cmap: bool = False) -> float:
 
         assets_dir = utils.get_os_dir("ASSETS_DIR")
 

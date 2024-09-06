@@ -100,7 +100,7 @@ class SoftActorCriticTrainer(ac_trainer.ActorCriticTrainer):
 
     def create_step_functions(self):
 
-        def do_q_backup(next_qs: torch.Tensor) -> torch.Tensor:
+        def do_q_backup(q_values: torch.Tensor) -> torch.Tensor:
             """
             Handle Q-values from multiple different target critic networks to produce target values.
 
@@ -108,21 +108,21 @@ class SoftActorCriticTrainer(ac_trainer.ActorCriticTrainer):
             Double Q-learning: Use the critic that would have been selected by the current policy.
 
             Parameters:
-                next_qs (torch.Tensor): Q-values of shape (num_critics, batch_size).
+                q_values (torch.Tensor): Q-values of shape (num_critics, batch_size).
                     Leading dimension corresponds to target values FROM the different critics.
             Returns:
                 torch.Tensor: Target values of shape (num_critics, batch_size).
                     Leading dimension corresponds to target values FOR the different critics.
             """
 
-            # Clip Q-values
-            # next_qs, _ = torch.min(next_qs, dim=0, keepdim=True)
-            # next_qs = torch.repeat_interleave(next_qs, self.num_critics, dim=0)
+            # Clip Double Q-values
+            q_values, _ = torch.min(q_values, dim=0, keepdim=True)
+            q_values = torch.repeat_interleave(q_values, self.num_critics, dim=0)
 
-            # Double Q-learning: swap q_values of 2nd critic with q_values of 1st critic
-            next_qs = torch.stack((next_qs[1], next_qs[0]), dim=0)
+            # # Double Q-learning: swap q_values of 2nd critic with q_values of 1st critic
+            # q_values = torch.stack((q_values[1], q_values[0]), dim=0)
 
-            return next_qs
+            return q_values
 
         def calc_critic_loss(
             batch: dict[str, torch.Tensor],
@@ -231,6 +231,7 @@ class SoftActorCriticTrainer(ac_trainer.ActorCriticTrainer):
             action_distribution = self.agent.get_action_distribution(obs)
             actions = action_distribution.sample()
             q_values = self.agent.get_q_values(obs, actions)
+            q_values = do_q_backup(q_values)
 
             # Entropy regularization
             entropy = self.agent.get_entropy(
@@ -241,13 +242,12 @@ class SoftActorCriticTrainer(ac_trainer.ActorCriticTrainer):
                 torch.tensor(1.0, device=q_values.device).reshape(1, 1)
             )
 
-            loss = -(
-                torch.mean(q_values, dtype=torch.float32)
-                + alpha.float() * torch.mean(entropy, dtype=torch.float32)
-            )
+            q_values = torch.mean(q_values, dtype=torch.float32)
+            entropy = torch.mean(entropy, dtype=torch.float32)
+            loss = -(q_values + alpha.float() * entropy)
 
             info = {
-                "entropy": torch.mean(entropy),
+                "entropy": entropy,
                 "actor_loss": loss,
             }
             return loss, info
