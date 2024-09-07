@@ -493,7 +493,7 @@ class ActorCriticTrainer:
             env.unwrapped.location_known = False
             observations = np.expand_dims(ob, axis=0)
             observations = pytorch_utils.from_numpy(observations, self.device)
-            actions = self.agent.get_actions(observations)
+            actions = self.agent.get_actions(observations, deterministic=True)
             actions = pytorch_utils.to_numpy(actions)
             action = np.squeeze(actions, axis=0)
             try:

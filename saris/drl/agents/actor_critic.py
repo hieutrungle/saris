@@ -33,13 +33,19 @@ class ActorCritic(nn.Module):
         action_dist = D.Independent(action_dist, reinterpreted_batch_ndims=1)
         return action_dist
 
-    def get_actions(self, observations: torch.Tensor) -> torch.Tensor:
+    def get_actions(
+        self, observations: torch.Tensor, deterministic: bool = False
+    ) -> torch.Tensor:
         """
         Compute an action for a given observation.
         Output shape: (batch_size, action_dim)
         """
-        action_dist = self.get_action_distribution(observations)
-        actions = action_dist.sample()
+        if not deterministic:
+            action_dist = self.get_action_distribution(observations)
+            actions = action_dist.sample()
+        else:
+            means, _ = self.actor(observations)
+            actions = torch.tanh(means)
         return actions
 
     def get_target_q_values(
