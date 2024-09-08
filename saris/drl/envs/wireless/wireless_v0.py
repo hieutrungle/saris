@@ -110,7 +110,7 @@ class WirelessEnvV0(Env):
 
         truncated = False
         terminated = False
-        if np.any(np.abs(self._focal_points) > 100):
+        if np.any(np.abs(self._focal_points) > 60):
             terminated = True
 
         action = np.reshape(action, self._focal_points.shape)
