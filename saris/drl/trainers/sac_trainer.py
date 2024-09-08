@@ -65,7 +65,7 @@ class SoftActorCriticTrainer(ac_trainer.ActorCriticTrainer):
         else:
             raise f"Device {self.device.type} not supported."
 
-    def save_models(self, step: int):
+    def save_models(self, step: int, checkpoint_file: str = f"checkpoints.pt"):
         """
         Save the agent's parameters to a file.
         """
@@ -80,13 +80,13 @@ class SoftActorCriticTrainer(ac_trainer.ActorCriticTrainer):
             "alpha_scheduler": self.alpha_scheduler.state_dict(),
             "config": self.config,
         }
-        torch.save(ckpt, os.path.join(self.logger.log_dir, f"checkpoints.pt"))
+        torch.save(ckpt, os.path.join(self.logger.log_dir, checkpoint_file))
 
-    def load_models(self) -> int:
+    def load_models(self, checkpoint_file: str = f"checkpoints.pt") -> int:
         """
         Load the agent's parameters from a file.
         """
-        ckpt = torch.load(os.path.join(self.logger.log_dir, f"checkpoints.pt"))
+        ckpt = torch.load(os.path.join(self.logger.log_dir, checkpoint_file))
         self.agent.load_state_dict(ckpt["agent"])
         if ckpt.get("actor_optimizer", None) is not None:
             self.actor_optimizer.load_state_dict(ckpt["actor_optimizer"])

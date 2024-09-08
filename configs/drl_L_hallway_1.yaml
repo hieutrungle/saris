@@ -18,6 +18,7 @@ critic_learning_rate: 0.0004
 alpha_learning_rate: 0.0002
 batch_size: 256
 num_train_steps_per_env_step: 15
+save_interval: 100
 
 # Actor-critic configuration
 hidden_sizes: [256, 256, 256, 256]

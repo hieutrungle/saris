@@ -435,6 +435,9 @@ class ActorCriticTrainer:
                     self.logger.log_metrics(info, step)
                     self.logger.flush()
 
+                if step % drl_config["save_interval"] == 0:
+                    self.save_models(step, checkpoint_file=f"checkpoints_{step}.pt")
+
                 # Evaluation
                 if step % drl_config["eval_interval"] == 0:
                     print(f"Step: {step} - Evaluating agent")
@@ -697,7 +700,7 @@ class ActorCriticTrainer:
             json.dump(metrics, f, indent=4, cls=utils.NpEncoder)
 
     @staticmethod
-    def save_models(self, step: int):
+    def save_models(self, step: int, checkpoint_file: str = f"checkpoints.pt"):
         """
         Save the agent's parameters to a file.
         """
@@ -706,14 +709,14 @@ class ActorCriticTrainer:
             "agent": self.agent.state_dict(),
             "config": self.config,
         }
-        torch.save(ckpt, os.path.join(self.logger.log_dir, f"checkpoints.pt"))
+        torch.save(ckpt, os.path.join(self.logger.log_dir, checkpoint_file))
 
     @staticmethod
-    def load_models(self) -> int:
+    def load_models(self, checkpoint_file: str = f"checkpoints.pt") -> int:
         """
         Load the agent's parameters from a file.
         """
-        ckpt = torch.load(os.path.join(self.logger.log_dir, f"checkpoints.pt"))
+        ckpt = torch.load(os.path.join(self.logger.log_dir, checkpoint_file))
         self.agent.load_state_dict(ckpt["agent"])
         step = ckpt.get("step", 0)
         return step
