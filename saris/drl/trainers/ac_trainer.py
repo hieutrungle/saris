@@ -438,7 +438,9 @@ class ActorCriticTrainer:
                 # Evaluation
                 if step % drl_config["eval_interval"] == 0:
                     print(f"Step: {step} - Evaluating agent")
-                    eval_trajectories = self.eval_trajectories(env)
+                    eval_trajectories = self.eval_trajectories(
+                        env, num_evals=drl_config["num_eval_trials"]
+                    )
                     return_mean = np.mean([t["return"] for t in eval_trajectories])
                     return_std = np.std([t["return"] for t in eval_trajectories])
                     eval_metrics = {

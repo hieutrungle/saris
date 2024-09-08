@@ -9,7 +9,7 @@ ep_len: 200
 
 # Evaluation settings
 eval_interval: 400
-num_eval_trials: 3
+num_eval_trials: 1
 eval_ep_len: 100
 
 # Training settings
@@ -17,7 +17,7 @@ actor_learning_rate: 0.0001
 critic_learning_rate: 0.0004
 alpha_learning_rate: 0.0002
 batch_size: 256
-num_train_steps_per_env_step: 10
+num_train_steps_per_env_step: 15
 
 # Actor-critic configuration
 hidden_sizes: [256, 256, 256, 256]
@@ -25,5 +25,5 @@ discount: 0.90
 polyak: 0.95 # soft_target_update_rate
 num_critics: 2
 num_critic_updates: 5
-temperature: 0.05
+temperature: 0.1
 num_actor_samples: 32
