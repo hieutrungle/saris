@@ -13,7 +13,6 @@ class MLP(nn.Module):
         features: Sequence[int],
         activation: nn.Module = nn.GELU(),
         output_activation: nn.Module = nn.Identity(),
-        dtype: torch.dtype = torch.bfloat16,
     ):
         super().__init__()
 
