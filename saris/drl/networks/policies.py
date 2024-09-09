@@ -1,15 +1,15 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.distributions import Normal
+from torch.distributions import Normal, Independent
 from saris.drl.networks.network_utils import Activation, _str_to_activation
 from typing import Sequence
 from saris.drl.networks.mlp import MLP, ResidualMLP
 from saris.drl.networks.common_blocks import Fourier
+from typing import Tuple
 
 LOG_SIG_MAX = 2
 LOG_SIG_MIN = -20
-epsilon = 1e-6
 
 
 # Initialize Policy weights
@@ -19,7 +19,41 @@ def weights_init_(m):
         torch.nn.init.constant_(m.bias, 0)
 
 
-class GaussianPolicy(nn.Module):
+class BasePolicy(nn.Module):
+    def __init__(self):
+        super(BasePolicy, self).__init__()
+
+    def forward(self, observations: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Compute an action distribution for a given observation:
+            {mean, log_std} if Gaussian, {mean, _} if deterministic.
+
+        Return:
+            means: (batch_size, action_dim)
+            log_stds or None: (batch_size, action_dim)
+        """
+        raise NotImplementedError
+
+    @staticmethod
+    def sample(
+        self, observations: torch.Tensor
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """
+        Compute an action for a given observation.
+
+        Return:
+            actions: (batch_size, action_dim)
+            log_probs: (batch_size,)
+            means: (batch_size, action_dim)
+        """
+        raise NotImplementedError
+
+    @staticmethod
+    def to(self, device):
+        raise NotImplementedError
+
+
+class GaussianPolicy(BasePolicy):
     def __init__(
         self,
         num_inputs: int,
@@ -42,6 +76,7 @@ class GaussianPolicy(nn.Module):
 
         self.mean_linear = nn.Linear(hidden_sizes[-1], num_actions)
         self.log_std_linear = nn.Linear(hidden_sizes[-1], num_actions)
+        self.epsilon = 1e-6
 
         self.apply(weights_init_)
 
@@ -57,27 +92,36 @@ class GaussianPolicy(nn.Module):
                 (action_space.high + action_space.low) / 2.0
             )
 
-    def forward(self, observations: torch.Tensor, train: bool = False) -> torch.Tensor:
+    def forward(self, observations: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+
         mixed = self.fourier(observations)
         mixed = self.mlp(mixed)
         means = self.mean_linear(mixed)
         log_stds = self.log_std_linear(mixed)
         log_stds = torch.clamp(log_stds, min=LOG_SIG_MIN, max=LOG_SIG_MAX)
+
         return means, log_stds
 
-    def sample(self, state):
-        mean, log_std = self.forward(state)
-        std = log_std.exp()
-        normal = Normal(mean, std)
-        x_t = normal.rsample()  # for reparameterization trick (mean + std * N(0,1))
+    def sample(
+        self, observations: torch.Tensor
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+
+        means, log_stds = self.forward(observations)
+        stds = torch.exp(log_stds)
+        normal = Normal(means, stds)
+        normal = Independent(normal, 1)
+        x_t = normal.rsample()  # for reparameterization trick (means + std * N(0,1))
         y_t = torch.tanh(x_t)
-        action = y_t * self.action_scale + self.action_bias
-        log_prob = normal.log_prob(x_t)
+        actions = y_t * self.action_scale + self.action_bias
+
         # Enforcing Action Bound
-        log_prob -= torch.log(self.action_scale * (1 - y_t.pow(2)) + epsilon)
-        log_prob = log_prob.sum(1, keepdim=True)
-        mean = torch.tanh(mean) * self.action_scale + self.action_bias
-        return action, log_prob, mean
+        log_probs = normal.log_prob(x_t)
+        log_probs -= torch.log(self.action_scale * (1 - y_t.pow(2)) + self.epsilon)
+        log_probs = torch.sum(log_probs, dim=1, keepdim=True)
+
+        means = torch.tanh(means) * self.action_scale + self.action_bias
+
+        return actions, log_probs, means
 
     def to(self, device):
         self.action_scale = self.action_scale.to(device)
@@ -85,13 +129,28 @@ class GaussianPolicy(nn.Module):
         return super(GaussianPolicy, self).to(device)
 
 
-class DeterministicPolicy(nn.Module):
-    def __init__(self, num_inputs, num_actions, hidden_dim, action_space=None):
-        super(DeterministicPolicy, self).__init__()
-        self.linear1 = nn.Linear(num_inputs, hidden_dim)
-        self.linear2 = nn.Linear(hidden_dim, hidden_dim)
+class DeterministicPolicy(BasePolicy):
+    def __init__(
+        self,
+        num_inputs: int,
+        num_actions: int,
+        hidden_sizes: Sequence[int],
+        activation: Activation,
+        action_space=None,
+    ):
+        super().__init__()
+        if isinstance(activation, str):
+            activation = _str_to_activation[activation]
 
-        self.mean = nn.Linear(hidden_dim, num_actions)
+        self.fourier = Fourier(num_inputs, hidden_sizes[0] // 2)
+        self.mlp = MLP(
+            in_features=hidden_sizes[0],
+            out_features=hidden_sizes[-1] // 2,
+            features=hidden_sizes[1:-1],
+            activation=activation,
+        )
+
+        self.mean = nn.Linear(hidden_sizes[-1], num_actions)
         self.noise = torch.Tensor(num_actions)
 
         self.apply(weights_init_)
@@ -108,18 +167,21 @@ class DeterministicPolicy(nn.Module):
                 (action_space.high + action_space.low) / 2.0
             )
 
-    def forward(self, state):
-        x = F.relu(self.linear1(state))
-        x = F.relu(self.linear2(x))
-        mean = torch.tanh(self.mean(x)) * self.action_scale + self.action_bias
-        return mean
+    def forward(self, observations: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        mixed = self.fourier(observations)
+        mixed = self.mlp(mixed)
+        means = self.mean_linear(mixed)
+        means = torch.tanh(means) * self.action_scale + self.action_bias
+        return means, None
 
-    def sample(self, state):
-        mean = self.forward(state)
+    def sample(
+        self, observations: torch.Tensor
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        means = self.forward(observations)
         noise = self.noise.normal_(0.0, std=0.1)
         noise = noise.clamp(-0.25, 0.25)
-        action = mean + noise
-        return action, torch.tensor(0.0), mean
+        actions = means + noise
+        return actions, torch.tensor(0.0), means
 
     def to(self, device):
         self.action_scale = self.action_scale.to(device)
