@@ -2,7 +2,7 @@ import torch.nn as nn
 import torch
 
 
-class Alpha(nn.Module):
+class LogAlpha(nn.Module):
     """
     Temperature parameter for entropy.
     """

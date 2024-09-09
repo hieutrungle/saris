@@ -43,20 +43,16 @@ class BasePolicy(nn.Module):
 
         Return:
             actions: (batch_size, action_dim)
-            log_probs: (batch_size,)
+            log_probs: (batch_size, 1)
             means: (batch_size, action_dim)
         """
-        raise NotImplementedError
-
-    @staticmethod
-    def to(self, device):
         raise NotImplementedError
 
 
 class GaussianPolicy(BasePolicy):
     def __init__(
         self,
-        num_inputs: int,
+        num_observations: int,
         num_actions: int,
         hidden_sizes: Sequence[int],
         activation: Activation,
@@ -66,10 +62,10 @@ class GaussianPolicy(BasePolicy):
         if isinstance(activation, str):
             activation = _str_to_activation[activation]
 
-        self.fourier = Fourier(num_inputs, hidden_sizes[0] // 2)
+        self.fourier = Fourier(num_observations, hidden_sizes[0] // 2)
         self.mlp = MLP(
             in_features=hidden_sizes[0],
-            out_features=hidden_sizes[-1] // 2,
+            out_features=hidden_sizes[-1],
             features=hidden_sizes[1:-1],
             activation=activation,
         )
@@ -78,7 +74,7 @@ class GaussianPolicy(BasePolicy):
         self.log_std_linear = nn.Linear(hidden_sizes[-1], num_actions)
         self.epsilon = 1e-6
 
-        self.apply(weights_init_)
+        # self.apply(weights_init_)
 
         # action rescaling
         if action_space is None:
@@ -103,21 +99,24 @@ class GaussianPolicy(BasePolicy):
         return means, log_stds
 
     def sample(
-        self, observations: torch.Tensor
+        self,
+        observations: torch.Tensor,
+        num_samples: int = 1,
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
 
         means, log_stds = self.forward(observations)
         stds = torch.exp(log_stds)
         normal = Normal(means, stds)
-        normal = Independent(normal, 1)
-        x_t = normal.rsample()  # for reparameterization trick (means + std * N(0,1))
+        # for reparameterization trick (means + std * N(0,1))
+        x_t = normal.rsample(sample_shape=(num_samples,))
         y_t = torch.tanh(x_t)
         actions = y_t * self.action_scale + self.action_bias
 
         # Enforcing Action Bound
         log_probs = normal.log_prob(x_t)
         log_probs -= torch.log(self.action_scale * (1 - y_t.pow(2)) + self.epsilon)
-        log_probs = torch.sum(log_probs, dim=1, keepdim=True)
+        log_probs = torch.sum(log_probs, dim=-1, keepdim=True)
+        log_probs = torch.mean(log_probs, dim=0)
 
         means = torch.tanh(means) * self.action_scale + self.action_bias
 
@@ -153,7 +152,7 @@ class DeterministicPolicy(BasePolicy):
         self.mean = nn.Linear(hidden_sizes[-1], num_actions)
         self.noise = torch.Tensor(num_actions)
 
-        self.apply(weights_init_)
+        # self.apply(weights_init_)
 
         # action rescaling
         if action_space is None:

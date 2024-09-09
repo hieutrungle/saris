@@ -9,10 +9,11 @@ from saris.utils import pytorch_utils, utils
 import numpy as np
 import gymnasium as gym
 from saris.drl.envs import register_envs
-from saris.drl.networks import actor, critic
+from saris.drl.networks import actor, critic, policies
 from saris.drl.trainers import sac_trainer
 import importlib.resources
 import saris
+import torch
 
 
 def make_env(
@@ -84,11 +85,11 @@ def get_trainer_config(env: gym.Env, drl_config: dict, args: argparse.Namespace)
     trainer_config = {
         "observation_shape": ob_space.shape,
         "action_shape": ac_space.shape,
-        "actor_class": actor.Actor,
+        "actor_class": policies.GaussianPolicy,
         "actor_hparams": {
             "num_observations": num_obs,
             "num_actions": num_acts,
-            "features": drl_config["hidden_sizes"],
+            "hidden_sizes": drl_config["hidden_sizes"],
             "activation": "tanh",
         },
         "critic_class": critic.Crtic,
@@ -109,6 +110,7 @@ def get_trainer_config(env: gym.Env, drl_config: dict, args: argparse.Namespace)
         "num_actor_samples": drl_config["num_actor_samples"],
         "num_critic_updates": drl_config["num_critic_updates"],
         "num_critics": drl_config["num_critics"],
+        "temperature": drl_config["temperature"],
         "discount": drl_config["discount"],
         "polyak": drl_config["polyak"],
         "grad_accum_steps": 1,
@@ -120,6 +122,7 @@ def get_trainer_config(env: gym.Env, drl_config: dict, args: argparse.Namespace)
         "enable_progress_bar": True,
         "device": args.device,
         "debug": False,
+        "train_dtype": torch.float16,
     }
     return trainer_config
 

@@ -29,14 +29,13 @@ class ActorCritic(nn.Module):
 
     @staticmethod
     def get_actions(
-        self, observations: torch.Tensor
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        self, observations: torch.Tensor, train: bool = False
+    ) -> torch.Tensor:
         """
         Compute an action for a given observation.
+
         Return:
             actions: (batch_size, action_dim)
-            log_probs: (batch_size,)
-            means: (batch_size, action_dim)
         """
         raise NotImplementedError
 
@@ -48,6 +47,7 @@ class ActorCritic(nn.Module):
     ) -> torch.Tensor:
         """
         Compute target Q-values for a given observation-action pair.
+
         Output shape: (num_critics, batch_size)
         """
         raise NotImplementedError

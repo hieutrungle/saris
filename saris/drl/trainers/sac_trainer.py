@@ -1,7 +1,6 @@
 from typing import Any, Tuple, Callable, Dict
 from saris.drl.trainers import ac_trainer
 from saris.drl.agents.sac import SoftActorCritic
-from saris.drl.networks.alpha import Alpha
 import numpy as np
 import torch
 import torch.nn as nn
@@ -14,17 +13,16 @@ class SoftActorCriticTrainer(ac_trainer.ActorCriticTrainer):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
 
-        self.target_entropy = np.asarray(-np.prod(self.action_shape), dtype=np.float32)
-        self.target_entropy = torch.tensor(self.target_entropy, device=self.device)
-
-        alpha = Alpha(0.05)
-        self.summarize_model(alpha, [[1, 1]])
+        self.target_entropy = -torch.prod(
+            torch.Tensor(self.action_shape).to(self.device)
+        ).item()
+        self.alpha = self.temperature
+        self.log_alpha = torch.zeros(1, requires_grad=True, device=self.device)
 
         self.agent = SoftActorCritic(
             actor=self.agent.actor,
             critics=self.agent.critics,
             target_critics=self.agent.target_critics,
-            alpha=alpha,
         )
         self.agent = self.agent.to(self.device)
 
@@ -38,20 +36,20 @@ class SoftActorCriticTrainer(ac_trainer.ActorCriticTrainer):
         """
         # Initialize optimizer for actor and critic
         (self.actor_optimizer, self.actor_scheduler) = self.init_optimizer(
-            self.agent.actor,
+            self.agent.actor.parameters(),
             self.actor_optimizer_hparams,
             drl_config["total_steps"],
             drl_config["num_train_steps_per_env_step"],
         )
         (self.critic_optimizer, self.critic_scheduler) = self.init_optimizer(
-            self.agent.critics,
+            self.agent.critics.parameters(),
             self.critic_optimizer_hparams,
             drl_config["total_steps"],
             drl_config["num_train_steps_per_env_step"]
             * drl_config["num_critic_updates"],
         )
         (self.alpha_optimizer, self.alpha_scheduler) = self.init_optimizer(
-            self.agent.alpha,
+            [self.log_alpha],
             self.actor_optimizer_hparams,
             drl_config["total_steps"],
             drl_config["num_train_steps_per_env_step"],
@@ -61,7 +59,6 @@ class SoftActorCriticTrainer(ac_trainer.ActorCriticTrainer):
         if "cuda" in self.device.type:
             self.actor_scaler = torch.cuda.amp.GradScaler()
             self.critic_scaler = torch.cuda.amp.GradScaler()
-            self.alpha_scaler = torch.cuda.amp.GradScaler()
         else:
             raise f"Device {self.device.type} not supported."
 
@@ -72,6 +69,7 @@ class SoftActorCriticTrainer(ac_trainer.ActorCriticTrainer):
         ckpt = {
             "step": step,
             "agent": self.agent.state_dict(),
+            "alpha": self.alpha,
             "actor_optimizer": self.actor_optimizer.state_dict(),
             "critic_optimizer": self.critic_optimizer.state_dict(),
             "alpha_optimizer": self.alpha_optimizer.state_dict(),
@@ -88,7 +86,13 @@ class SoftActorCriticTrainer(ac_trainer.ActorCriticTrainer):
         """
         ckpt = torch.load(os.path.join(self.logger.log_dir, checkpoint_file))
         self.agent.load_state_dict(ckpt["agent"])
-        if ckpt.get("actor_optimizer", None) is not None:
+        self.agent = self.agent.to(self.device)
+
+        is_train = self.__dict__.get("actor_optimizer", False)
+        if ckpt.get("actor_optimizer", None) is not None and is_train:
+            self.alpha = ckpt["alpha"].to(self.device)
+            self.log_alpha = torch.log(torch.tensor(self.alpha, requires_grad=True))
+            self.log_alpha = self.log_alpha.to(self.device)
             self.actor_optimizer.load_state_dict(ckpt["actor_optimizer"])
             self.critic_optimizer.load_state_dict(ckpt["critic_optimizer"])
             self.alpha_optimizer.load_state_dict(ckpt["alpha_optimizer"])
@@ -100,87 +104,36 @@ class SoftActorCriticTrainer(ac_trainer.ActorCriticTrainer):
 
     def create_step_functions(self):
 
-        def do_q_backup(q_values: torch.Tensor) -> torch.Tensor:
-            """
-            Handle Q-values from multiple different target critic networks to produce target values.
-
-            # Clip-Q, clip to the minimum of the two critics' predictions.
-            Double Q-learning: Use the critic that would have been selected by the current policy.
-
-            Parameters:
-                q_values (torch.Tensor): Q-values of shape (num_critics, batch_size).
-                    Leading dimension corresponds to target values FROM the different critics.
-            Returns:
-                torch.Tensor: Target values of shape (num_critics, batch_size).
-                    Leading dimension corresponds to target values FOR the different critics.
-            """
-
-            # Clip Double Q-values
-            q_values, _ = torch.min(q_values, dim=0, keepdim=True)
-            q_values = torch.repeat_interleave(q_values, self.num_critics, dim=0)
-
-            # # Double Q-learning: swap q_values of 2nd critic with q_values of 1st critic
-            # q_values = torch.stack((q_values[1], q_values[0]), dim=0)
-
-            return q_values
-
         def calc_critic_loss(
             batch: dict[str, torch.Tensor],
         ) -> dict[str, torch.Tensor]:
-            obs, acts, rews, next_obs, dones = (
-                batch["observations"],
-                batch["actions"],
-                batch["rewards"],
-                batch["next_observations"],
-                batch["dones"],
-            )
-            batch_size = obs.shape[0]
+            obs = batch["observations"]
+            acts = batch["actions"]
+            next_obs = batch["next_observations"]
+            rews = batch["rewards"].unsqueeze(1)
+            dones = batch["dones"].unsqueeze(1)
 
             with torch.no_grad():
-
-                next_act_dist: D.Distribution = self.agent.get_action_distribution(
-                    next_obs
+                next_acts, next_log_pi, _ = self.agent.actor.sample(
+                    next_obs, self.num_actor_samples
                 )
-                # next_actions shape: (num_actor_samples, batch_size, action_dim)
-                next_actions = next_act_dist.sample((self.num_actor_samples,))
+                next_obs = next_obs.unsqueeze(0)
                 next_obs = torch.repeat_interleave(
-                    next_obs.unsqueeze(0), self.num_actor_samples, dim=0
+                    next_obs, self.num_actor_samples, dim=0
                 )
 
-                # next_q_values shape: (num_critics, num_actor_samples, batch_size)
-                next_q_values = self.agent.get_target_q_values(next_obs, next_actions)
-
-                # next_q_values shape: (num_critics, num_actor_samples, batch_size)
-                next_q_values = do_q_backup(next_q_values)
-
-                # Entropy regularization
-                # next_action_entropy shape: (num_actor_samples, batch_size)
-                next_action_entropy = self.agent.get_entropy(
-                    next_act_dist, sample_shape=(self.num_actor_samples,)
-                )
-                # next_action_entropy shape: (num_critics, num_actor_samples, batch_size)
-                next_action_entropy = torch.repeat_interleave(
-                    next_action_entropy.unsqueeze(0), self.num_critics, dim=0
-                )
-
-                alpha = self.agent.alpha(
-                    torch.tensor(1.0, device=next_action_entropy.device).reshape(1, 1)
-                )
-                # next_q_values shape: (num_critics, num_actor_samples, batch_size)
-                next_q_values = next_q_values + alpha * next_action_entropy
-
-                # shape: (num_critics, batch_size)
+                next_q_values = self.agent.get_target_q_values(next_obs, next_acts)
                 next_q_values = torch.mean(next_q_values, dim=1)
-                rews = torch.repeat_interleave(
-                    rews.unsqueeze(0), self.num_critics, dim=0
+                min_q_values, _ = torch.min(next_q_values, dim=0)
+                min_q_values = min_q_values - self.alpha * next_log_pi
+
+                target_q_values = rews + self.discount * (1.0 - dones) * min_q_values
+                target_q_values = target_q_values.unsqueeze(0)
+                target_q_values = torch.repeat_interleave(
+                    target_q_values, self.num_critics, dim=0
                 )
-                dones = torch.repeat_interleave(
-                    dones.unsqueeze(0), self.num_critics, dim=0
-                )
-                target_q_values = rews + self.discount * (1.0 - dones) * next_q_values
 
             q_values = self.agent.get_q_values(obs, acts)
-
             critic_loss = 0.5 * nn.functional.mse_loss(q_values, target_q_values)
 
             critic_info = {
@@ -193,9 +146,8 @@ class SoftActorCriticTrainer(ac_trainer.ActorCriticTrainer):
 
         def update_crtics(batch: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
 
-            with torch.autocast(device_type=self.device.type, dtype=torch.bfloat16):
+            with torch.autocast(device_type=self.device.type, dtype=self.train_dtype):
                 loss, info = calc_critic_loss(batch)
-            info.update({"critic_lr": self.critic_scheduler.get_last_lr()[0]})
 
             self.critic_optimizer.zero_grad(set_to_none=True)
             self.critic_scaler.scale(loss).backward()
@@ -205,6 +157,8 @@ class SoftActorCriticTrainer(ac_trainer.ActorCriticTrainer):
             )
             self.critic_scaler.step(self.critic_optimizer)
             self.critic_scaler.update()
+
+            info.update({"critic_lr": self.critic_scheduler.get_last_lr()[0]})
             self.critic_scheduler.step()
             return info
 
@@ -229,33 +183,24 @@ class SoftActorCriticTrainer(ac_trainer.ActorCriticTrainer):
             obs = batch["observations"]
 
             # Q-values
-            action_distribution = self.agent.get_action_distribution(obs)
-            actions = action_distribution.sample()
-            q_values = self.agent.get_q_values(obs, actions)
-            q_values = do_q_backup(q_values)
+            acts, log_pi, _ = self.agent.actor.sample(obs, self.num_actor_samples)
+            obs = obs.unsqueeze(0)
+            obs = torch.repeat_interleave(obs, self.num_actor_samples, dim=0)
+            q_values = self.agent.get_q_values(obs, acts)
+            q_values = torch.mean(q_values, dim=1)
+            min_q_values, _ = torch.min(q_values, dim=0)
 
-            # Entropy regularization
-            entropy = self.agent.get_entropy(
-                action_distribution, sample_shape=(self.num_actor_samples,)
+            # Jπ = 𝔼st∼D,εt∼N[α * logπ(f(εt;st)|st) − Q(st,f(εt;st))]
+            loss = -torch.mean(
+                min_q_values - (self.alpha * log_pi), dtype=torch.float32
             )
 
-            alpha = self.agent.alpha(
-                torch.tensor(1.0, device=q_values.device).reshape(1, 1)
-            )
-
-            q_values = torch.mean(q_values, dtype=torch.float32)
-            entropy = torch.mean(entropy, dtype=torch.float32)
-            loss = -(q_values + alpha.float() * entropy)
-
-            info = {
-                "entropy": entropy,
-                "actor_loss": loss,
-            }
+            info = {"actor_loss": loss}
             return loss, info
 
         def update_actor(batch: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
 
-            with torch.autocast(device_type=self.device.type, dtype=torch.bfloat16):
+            with torch.autocast(device_type=self.device.type, dtype=self.train_dtype):
                 loss, info = calc_actor_loss(batch)
             info.update({"actor_lr": self.actor_scheduler.get_last_lr()[0]})
 
@@ -274,32 +219,26 @@ class SoftActorCriticTrainer(ac_trainer.ActorCriticTrainer):
         ) -> dict[str, torch.Tensor]:
             obs = batch["observations"]
 
-            action_dist: D.Distribution = self.agent.get_action_distribution(obs)
-            entropy = self.agent.get_entropy(action_dist)
-            entropy = torch.mean(entropy)
+            _, log_pi, _ = self.agent.actor.sample(obs)
+            alpha_loss = -(
+                self.log_alpha * (log_pi + self.target_entropy).detach()
+            ).mean()
 
-            alpha = self.agent.alpha(
-                torch.tensor(1.0, device=entropy.device).reshape(1, 1)
-            )
-            loss = torch.mean(
-                alpha * (entropy - self.target_entropy), dtype=torch.float32
-            )
-
-            return loss, {"alpha": alpha, "alpha_loss": loss}
+            return alpha_loss, {"alpha_loss": alpha_loss}
 
         def update_alpha(batch: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
 
-            with torch.autocast(device_type=self.device.type, dtype=torch.bfloat16):
+            with torch.autocast(device_type=self.device.type, dtype=self.train_dtype):
                 loss, info = calc_alpha_loss(batch)
             info.update({"alpha_lr": self.alpha_scheduler.get_last_lr()[0]})
 
             self.alpha_optimizer.zero_grad(set_to_none=True)
-            self.alpha_scaler.scale(loss).backward()
-            self.alpha_scaler.unscale_(self.alpha_optimizer)
-            torch.nn.utils.clip_grad_norm_(self.agent.alpha.parameters(), max_norm=1.0)
-            self.alpha_scaler.step(self.alpha_optimizer)
-            self.alpha_scaler.update()
+            loss.backward()
+            self.alpha_optimizer.step()
             self.alpha_scheduler.step()
+
+            self.alpha = self.log_alpha.exp()
+            info.update({"alpha": self.alpha.clone().item()})
 
             return info
 
@@ -311,10 +250,11 @@ class SoftActorCriticTrainer(ac_trainer.ActorCriticTrainer):
             return {"loss": 0.0}
 
         def update_step(batch: dict[str, torch.Tensor]):
-            # for loop
+
             for _ in range(self.num_critic_updates):
                 info = update_crtics(batch)
-                update_target_crtics()
+            update_target_crtics()
+
             actor_info = update_actor(batch)
             alpha_info = update_alpha(batch)
 

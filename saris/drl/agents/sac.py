@@ -12,35 +12,25 @@ class SoftActorCritic(ActorCritic):
         actor: nn.Module,
         critics: nn.ModuleList,
         target_critics: nn.ModuleList,
-        alpha: nn.Module,
     ):
         super().__init__(actor, critics, target_critics)
-        self.alpha = alpha
-
-    # def get_action_distribution(self, observations: torch.Tensor) -> D.Distribution:
-    #     """
-    #     Compute an action distribution for a given observation.
-    #     """
-    #     means, log_stds = self.actor(observations)
-    #     action_dist = D.Normal(means, torch.exp(log_stds))
-    #     action_dist = D.TransformedDistribution(
-    #         action_dist, D.TanhTransform(cache_size=1)
-    #     )
-    #     action_dist = D.Independent(action_dist, reinterpreted_batch_ndims=1)
-    #     return action_dist
 
     def get_actions(
-        self, observations: torch.Tensor
+        self, observations: torch.Tensor, train: bool = False
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         Compute an action for a given observation.
+
         Return:
             actions: (batch_size, action_dim)
             log_probs: (batch_size,)
             means: (batch_size, action_dim)
         """
-        action, log_prob, mean = self.actor.sample(observations)
-        return action, log_prob, mean
+        if train:
+            actions, _, _ = self.actor.sample(observations)
+        else:
+            _, _, actions = self.actor.sample(observations)
+        return actions
 
     def get_target_q_values(
         self,
@@ -55,7 +45,7 @@ class SoftActorCritic(ActorCritic):
         for i, target_critic in enumerate(self.target_critics):
             target_q_values.append(target_critic(observations, actions))
         target_q_values = torch.stack(target_q_values)
-        return target_q_values.squeeze()
+        return target_q_values
 
     def get_q_values(
         self,
@@ -71,7 +61,7 @@ class SoftActorCritic(ActorCritic):
         for i, critic in enumerate(self.critics):
             q_values.append(critic(observations, actions))
         q_values = torch.stack(q_values)
-        return q_values.squeeze()
+        return q_values
 
     def __repr__(self):
         return f"{self.__class__.__name__}"

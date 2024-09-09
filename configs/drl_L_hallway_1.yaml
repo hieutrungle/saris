@@ -22,9 +22,9 @@ save_interval: 100
 
 # Actor-critic configuration
 hidden_sizes: [256, 256, 256, 256]
-discount: 0.90
+discount: 0.75
 polyak: 0.95 # soft_target_update_rate
 num_critics: 2
-num_critic_updates: 5
+num_critic_updates: 2
 temperature: 0.1
-num_actor_samples: 32
+num_actor_samples: 16

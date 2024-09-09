@@ -38,6 +38,7 @@ class ActorCriticTrainer:
         num_actor_samples: int = 16,
         num_critic_updates: int = 4,
         num_critics: int = 2,
+        temperature: float = 0.1,
         discount: float = 0.9,
         polyak: float = 0.05,
         grad_accum_steps: int = 1,
@@ -46,6 +47,7 @@ class ActorCriticTrainer:
         enable_progress_bar: bool = True,
         device: torch.device = torch.device("cpu"),
         debug: bool = False,
+        train_dtype: torch.dtype = torch.float16,
         **kwargs,
     ) -> None:
         """
@@ -85,6 +87,7 @@ class ActorCriticTrainer:
         self.num_actor_samples = num_actor_samples
         self.num_critic_updates = num_critic_updates
         self.num_critics = num_critics
+        self.temperature = temperature
         self.discount = discount
         self.polyak = polyak
         self.grad_accum_steps = grad_accum_steps
@@ -93,6 +96,7 @@ class ActorCriticTrainer:
         self.enable_progress_bar = enable_progress_bar
         self.device = device
         self.debug = debug
+        self.train_dtype = train_dtype
 
         # Set of hyperparameters to save
         self.config = {
@@ -255,7 +259,7 @@ class ActorCriticTrainer:
 
     def init_optimizer(
         self,
-        module: nn.Module,
+        params: Sequence[nn.Parameter],
         optimizer_hparams: Dict[str, Any],
         num_epochs: int,
         num_steps_per_epoch: int,
@@ -264,7 +268,7 @@ class ActorCriticTrainer:
         Initializes the optimizer and learning rate scheduler.
 
         Args:
-            module: The module for which the optimizer should be initialized.
+            params: The parameters of the model to optimize.
             optimizer_hparams: A dictionary of all hyperparameters of the optimizer.
             num_epochs: Number of epochs the model will be trained for.
             num_steps_per_epoch: Number of training steps per epoch.
@@ -287,8 +291,8 @@ class ActorCriticTrainer:
         lr = hparams.pop("lr", 1e-3)
         num_train_steps = int(num_epochs * num_steps_per_epoch)
         warmup_steps = hparams.pop("warmup_steps", num_train_steps // 5)
+        optimizer = opt_class(params, lr=lr, **hparams)
 
-        optimizer = opt_class(module.parameters(), lr=lr, **hparams)
         warmup_scheduler = optim.lr_scheduler.LinearLR(
             optimizer, start_factor=1 / 20, total_iters=warmup_steps
         )
@@ -386,7 +390,7 @@ class ActorCriticTrainer:
                 env.unwrapped.location_known = False
                 observations = np.expand_dims(observation, axis=0)
                 observations = pytorch_utils.from_numpy(observations, self.device)
-                actions = self.agent.get_actions(observations)
+                actions = self.agent.get_actions(observations, train=True)
                 actions = pytorch_utils.to_numpy(actions)
                 action = np.squeeze(actions, axis=0)
 
@@ -498,7 +502,7 @@ class ActorCriticTrainer:
             env.unwrapped.location_known = False
             observations = np.expand_dims(ob, axis=0)
             observations = pytorch_utils.from_numpy(observations, self.device)
-            actions = self.agent.get_actions(observations, deterministic=True)
+            actions = self.agent.get_actions(observations)
             actions = pytorch_utils.to_numpy(actions)
             action = np.squeeze(actions, axis=0)
             try:
@@ -561,7 +565,6 @@ class ActorCriticTrainer:
         env.unwrapped.use_cmap = True
         self.load_models()
 
-        num_evals = 3
         gains = np.full((num_evals, eval_ep_len), np.nan)
         rewards = np.full((num_evals, eval_ep_len), np.nan)
         saved_metrics = {}
