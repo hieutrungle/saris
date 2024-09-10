@@ -367,7 +367,7 @@ class ActorCriticTrainer:
         t_range = tqdm(
             range(start_step, drl_config["total_steps"]),
             total=drl_config["total_steps"],
-            dynamic_ncols=True,
+            # dynamic_ncols=True,
             initial=start_step,
         )
 

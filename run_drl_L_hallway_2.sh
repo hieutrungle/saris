@@ -78,7 +78,7 @@ mkdir -p ${OPTIX_CACHE_PATH}
 ##############################
 # DRL run
 ##############################
-python ./saris/cli.py --command train -dcfg ${DRL_CONFIG_FILE} -scfg ${SIONNA_CONFIG_FILE} -v --resume --seed 10
+python ./saris/cli.py --command train -dcfg ${DRL_CONFIG_FILE} -scfg ${SIONNA_CONFIG_FILE} -v --resume --seed 100
 
 export OPTIX_CACHE_PATH=${TMP_DIR}/optix_cache_2
-python ./saris/cli.py --command eval -dcfg ${DRL_CONFIG_FILE} -scfg ${SIONNA_CONFIG_FILE} -v --seed 10
+python ./saris/cli.py --command eval -dcfg ${DRL_CONFIG_FILE} -scfg ${SIONNA_CONFIG_FILE} -v --seed 100

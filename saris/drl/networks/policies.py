@@ -103,6 +103,14 @@ class GaussianPolicy(BasePolicy):
         observations: torch.Tensor,
         num_samples: int = 1,
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """
+        Compute an action for a given observation.
+
+        Return:
+            actions: (num_samples, batch_size, action_dim)
+            log_probs: (batch_size, 1)
+            means: (batch_size, action_dim)
+        """
 
         means, log_stds = self.forward(observations)
         stds = torch.exp(log_stds)

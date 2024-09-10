@@ -17,17 +17,21 @@ class SoftActorCritic(ActorCritic):
 
     def get_actions(
         self, observations: torch.Tensor, train: bool = False
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    ) -> torch.Tensor:
         """
         Compute an action for a given observation.
 
         Return:
             actions: (batch_size, action_dim)
+
+        actor sample returns:
+            actions: (num_samples, batch_size, action_dim)
             log_probs: (batch_size,)
             means: (batch_size, action_dim)
         """
         if train:
             actions, _, _ = self.actor.sample(observations)
+            actions = actions[0]
         else:
             _, _, actions = self.actor.sample(observations)
         return actions
