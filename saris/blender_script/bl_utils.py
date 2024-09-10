@@ -175,3 +175,11 @@ def compute_rot_angle(
     phi = sign(y) * math.acos(x / math.sqrt(x**2 + y**2))  # rotation in z-axis
 
     return (r, theta, phi)
+
+
+def constraint_angle(angle: float, min_angle: float, max_angle: float):
+    if angle < min_angle:
+        angle = min_angle
+    if angle > max_angle:
+        angle = max_angle
+    return angle
