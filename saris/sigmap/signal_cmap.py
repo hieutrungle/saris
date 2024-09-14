@@ -181,3 +181,7 @@ class SignalCoverageMap:
     def free_memory(self) -> None:
         tf.keras.backend.clear_session()
         gc.collect()
+
+        physical_devices = tf.config.list_physical_devices("GPU")
+        if physical_devices:
+            tf.config.experimental.reset_memory_stats("GPU:0")
