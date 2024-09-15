@@ -78,24 +78,24 @@ def get_trainer_config(env: gym.Env, drl_config: dict, args: argparse.Namespace)
     ac_space = env.action_space
     print(f"Observation space: {ob_space}")
     print(f"Action space: {ac_space}")
-    num_obs = env.observation_space.shape[0]
-    num_acts = env.action_space.shape[0]
+    ob_dim = env.get_wrapper_attr("observation_dim")
+    ac_dim = env.get_wrapper_attr("action_dim")
 
     # Trainer
     trainer_config = {
-        "observation_shape": ob_space.shape,
-        "action_shape": ac_space.shape,
+        "observation_shape": [ob_dim],
+        "action_shape": [ac_dim],
         "actor_class": policies.GaussianPolicy,
         "actor_hparams": {
-            "num_observations": num_obs,
-            "num_actions": num_acts,
+            "num_observations": ob_dim,
+            "num_actions": ac_dim,
             "hidden_sizes": drl_config["hidden_sizes"],
             "activation": "tanh",
         },
         "critic_class": critic.Crtic,
         "critic_hparams": {
-            "num_observations": num_obs,
-            "num_actions": num_acts,
+            "num_observations": ob_dim,
+            "num_actions": ac_dim,
             "features": drl_config["hidden_sizes"],
             "activation": "relu",
         },

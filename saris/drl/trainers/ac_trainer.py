@@ -222,7 +222,7 @@ class ActorCriticTrainer:
         if not os.path.isfile(os.path.join(log_dir, "hparams.json")):
             os.makedirs(os.path.join(log_dir, "metrics/"), exist_ok=True)
             with open(os.path.join(log_dir, "hparams.json"), "w") as f:
-                json.dump(self.config, f, indent=4)
+                json.dump(self.config, f, indent=4, cls=utils.NpEncoder)
 
         return logger
 
@@ -394,12 +394,24 @@ class ActorCriticTrainer:
                 actions = pytorch_utils.to_numpy(actions)
                 action = np.squeeze(actions, axis=0)
 
-            try:
-                next_observation, reward, terminated, truncated, info = env.step(action)
-            except Exception as e:
-                print(f"Error in step {step}: {e}")
-                time.sleep(2)
-                continue
+            print(f"")
+            print(f"Action: {action}")
+            next_observation, reward, terminated, truncated, info = env.step(action)
+
+            # try:
+            #     next_observation, reward, terminated, truncated, info = env.step(action)
+            # except Exception as e:
+            #     print(f"Error in step {step}: {e}")
+            #     time.sleep(2)
+            #     continue
+
+            print(
+                f"Step: {step} - Reward: {reward} - Path Gain: {info['path_gain_dB']}"
+            )
+            print(f"Action: {action}")
+            print(f"Observation: {observation}")
+            print(f"Next Observation: {next_observation}")
+            exit()
 
             done = terminated or truncated
             done = np.asarray(done, dtype=np.float32)

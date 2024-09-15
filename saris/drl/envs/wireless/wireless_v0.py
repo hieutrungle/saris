@@ -1,5 +1,9 @@
-from typing import Tuple
 import os
+
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
+os.environ["TF_GPU_ALLOCATOR"] = "cuda_malloc_async"  # to avoid memory fragmentation
+
+from typing import Tuple
 import re
 import subprocess
 import time
@@ -9,6 +13,19 @@ from saris.utils import utils
 import pickle
 import glob
 import json
+from saris.blender_script import shared_utils
+import tensorflow as tf
+from saris.sigmap import signal_cmap
+from sionna.channel import (
+    cir_to_ofdm_channel,
+    subcarrier_frequencies,
+    OFDMChannel,
+    ApplyOFDMChannel,
+    CIRDataset,
+    time_lag_discrete_time_channel,
+    cir_to_time_channel,
+    time_to_ofdm_channel,
+)
 
 
 class WirelessEnvV0(Env):
@@ -25,14 +42,44 @@ class WirelessEnvV0(Env):
         self.log_string = log_string
         self.seed = seed
         self.np_rng = np.random.default_rng(self.seed)
+        tf.random.set_seed(self.seed)
         self.current_time = "_" + time.strftime("%d-%m-%Y_%H-%M-%S")
 
-        self._rx_position = np.zeros((3,))
-        self._tx_position = np.zeros((3,))
-        self._focal_points = np.zeros((1, 6))  # 2 focal points for each device
+        # Set up action and observation space
+        reflector_config = shared_utils.set_up_reflector()
+        self.lead_follow_dict, self.init_angles, self.angle_deltas = reflector_config
+        self.num_lead_tiles = len(self.lead_follow_dict.keys())
+        # angles = [theta, phi] for each tile
+        # theta: azimuth angle, phi: elevation angle
+        init_theta, init_phi = self.init_angles
+        min_delta, max_delta = self.angle_deltas
+        self.lead_theta_space = spaces.Box(
+            low=init_theta + min_delta,
+            high=init_theta + max_delta,
+            shape=(self.num_lead_tiles,),
+            dtype=np.float32,
+        )
+        self.lead_phi_space = spaces.Box(
+            low=init_phi + min_delta,
+            high=init_phi + max_delta,
+            shape=(self.num_lead_tiles,),
+            dtype=np.float32,
+        )
 
-        self.action_space = self._get_action_space()
+        # Power average of the equivalent channel
+        self.channel_power_space = spaces.Box(
+            low=-np.inf, high=np.inf, shape=(1,), dtype=np.float32
+        )
+
+        self.thetas = np.zeros(self.num_lead_tiles)
+        self.phis = np.zeros(self.num_lead_tiles)
+        self.channel_power = np.zeros(1)
+
         self.observation_space = self._get_observation_space()
+        self.action_space = self._get_action_space()
+
+        self.observation_dim = self._get_observation_dim()
+        self.action_dim = self._get_action_dim()
 
         self.taken_steps = 0.0
         self.cur_gain = 0.0
@@ -43,57 +90,72 @@ class WirelessEnvV0(Env):
         self.location_known = False
         self.eval = False
 
-    def _get_observation(self) -> dict:
-        observation = np.concatenate(
-            [self._rx_position, self._tx_position, self._focal_points.reshape(-1)]
-        )
-        return observation
-
     def _get_observation_space(self) -> spaces.Box:
-        observation_shape = self._get_observation().shape
-        return spaces.Box(
-            low=-np.inf, high=np.inf, shape=observation_shape, dtype=np.float32
+        observation_space = spaces.Dict(
+            {
+                "thetas": self.lead_theta_space,
+                "phis": self.lead_phi_space,
+                "channel_power": self.channel_power_space,
+            }
         )
+        return observation_space
+
+    def _get_observation_dim(self) -> int:
+        observation_dim = 0
+        for key, value in self.observation_space.items():
+            observation_dim += np.prod(value.shape)
+        return observation_dim
 
     def _get_action_space(self) -> spaces.Box:
-        action_shape = self._focal_points.reshape(-1).shape
-        return spaces.Box(low=-1.0, high=1.0, shape=action_shape, dtype=np.float32)
+        action_space = spaces.Dict(
+            {
+                "delta_thetas": spaces.Box(
+                    low=-1.0, high=1.0, shape=(self.num_lead_tiles,), dtype=np.float32
+                ),
+                "delta_phis": spaces.Box(
+                    low=-1.0, high=1.0, shape=(self.num_lead_tiles,), dtype=np.float32
+                ),
+            }
+        )
+        return action_space
 
-    def reset(self, seed: int = None, options: dict = None) -> np.ndarray:
+    def _get_action_dim(self) -> int:
+        action_dim = 0
+        for key, value in self.action_space.items():
+            action_dim += np.prod(value.shape)
+        return action_dim
+
+    def _get_observation(self) -> dict:
+        observation = np.concatenate([self.thetas, self.phis, self.channel_power])
+        observation = {
+            "thetas": self.thetas,
+            "phis": self.phis,
+            "channel_power": self.channel_power,
+        }
+        return observation
+
+    def reset(self, seed: int = None, options: dict = None) -> Tuple[np.ndarray, dict]:
         super().reset(seed=seed, options=options)
         if seed is not None:
             self.seed = seed
             self.np_rng = np.random.default_rng(self.seed)
-        sionna_config = utils.load_yaml_file(self.sionna_config_file)
-        self._rx_position = list(sionna_config["rx_position"])
-        self._rx_position = np.asarray(self._rx_position, dtype=np.float32)
-        self._tx_position = list(sionna_config["tx_position"])
-        self._tx_position = np.asarray(self._tx_position, dtype=np.float32)
-        pos = np.concatenate((self._rx_position, self._tx_position))
-        focal_point_shape = self._focal_points.shape
-        pos = np.tile(pos, (focal_point_shape[0], 1))
 
-        # TODO: get random uniform number from a sphere with radius that is half the distance between RIS and RX; RIS and tx
-        focal_shape = self._focal_points.shape
-        if self.location_known:
-            delta_focal_points = self.np_rng.uniform(-1, 1, focal_shape)
-            self._focal_points = pos + delta_focal_points
-        else:
-            ris_locations = utils.load_yaml_file(self.sionna_config_file)[
-                "ris_locations"
-            ]
-            ris_locations = np.array(ris_locations)
-            ris_locations = np.tile(ris_locations, (focal_shape[0], 2))
-            if not self.eval:
-                delta_focal_points = self.np_rng.uniform(-3, 3, focal_shape)
-            else:
-                delta_focal_points = np.zeros(focal_shape)
+        self.thetas = self.np_rng.uniform(
+            low=self.lead_theta_space.low,
+            high=self.lead_theta_space.high,
+            size=(self.num_lead_tiles,),
+        )
+        self.thetas = np.asarray(self.thetas, dtype=np.float32)
+        self.phis = self.np_rng.uniform(
+            low=self.lead_phi_space.low,
+            high=self.lead_phi_space.high,
+            size=(self.num_lead_tiles,),
+        )
+        self.phis = np.asarray(self.phis, dtype=np.float32)
+        self.channel_power = self._cal_path_gain(use_cmap=self.use_cmap)
+        self.channel_power = np.array([self.channel_power])
 
-            self._focal_points = ris_locations + delta_focal_points
-
-        self._focal_points = np.asarray(self._focal_points, dtype=np.float32)
-
-        self.cur_gain = self._cal_path_gain(self._focal_points, use_cmap=self.use_cmap)
+        self.cur_gain = self.channel_power[0]
         self.next_gain = self.cur_gain
 
         self.info = {}
@@ -110,13 +172,22 @@ class WirelessEnvV0(Env):
 
         truncated = False
         terminated = False
-        if np.any(np.abs(self._focal_points) > 60):
-            terminated = True
+        # TODO: constraint fot angles
+        self.thetas = np.clip(
+            self.thetas + action["delta_thetas"],
+            self.lead_theta_space.low,
+            self.lead_theta_space.high,
+        )
+        self.phis = np.clip(
+            self.phis + action["delta_phis"],
+            self.lead_phi_space.low,
+            self.lead_phi_space.high,
+        )
+        self.channel_power = np.array([self.cur_gain])
 
-        action = np.reshape(action, self._focal_points.shape)
-        self._focal_points = self._focal_points + action
         next_observation = self._get_observation()
-        self.next_gain = self._cal_path_gain(self._focal_points, use_cmap=self.use_cmap)
+
+        self.next_gain = self._cal_path_gain(use_cmap=self.use_cmap)
 
         reward = self._cal_reward(self.cur_gain, self.next_gain, self.taken_steps)
 
@@ -132,21 +203,27 @@ class WirelessEnvV0(Env):
     def _cal_reward(
         self, cur_gain: float, next_gain: float, time_taken: float
     ) -> float:
-        threshold_gain = -90
-        scaled_cur_gain = 1.25 * (cur_gain - threshold_gain)
+        # threshold_gain = -90
+        # scaled_cur_gain = 1.25 * (cur_gain - threshold_gain)
         gain_diff = 2.0 * (next_gain - cur_gain)
         cost_time = -0.02 * time_taken
-        reward = scaled_cur_gain + gain_diff + cost_time
+        reward = gain_diff + cost_time
+        # reward = scaled_cur_gain + gain_diff + cost_time
         return reward
 
-    def _cal_path_gain(self, focal_points: np.ndarray, use_cmap: bool = False) -> float:
+    def _cal_path_gain(self, use_cmap: bool = False) -> float:
 
-        self._prepare_geometry(focal_points)
+        start_time = time.time()
+        self._prepare_geometry()
         path_gain_dB = self._cal_path_gain_sionna(use_cmap=use_cmap)
+
         return path_gain_dB
 
-    def _prepare_geometry(self, focal_points: np.ndarray) -> None:
-
+    def _prepare_geometry(self) -> None:
+        """
+        Prepare geometry for Sionna script using Blender.
+        This function saves current states of thetas and phis to a pickle file and runs the Blender script.
+        """
         # Blender export
         blender_app = utils.get_os_dir("BLENDER_APP")
         blender_dir = utils.get_os_dir("BLENDER_DIR")
@@ -155,10 +232,13 @@ class WirelessEnvV0(Env):
         blender_output_dir = os.path.join(assets_dir, "blender")
         tmp_dir = utils.get_os_dir("TMP_DIR")
 
-        focal_name = f"focal_pts-{self.log_string}-{self.current_time}.pkl"
-        focal_path = os.path.join(tmp_dir, focal_name)
-        with open(focal_path, "wb") as f:
-            pickle.dump(focal_points, f)
+        # ! TODO: Need to convert from degrees to radians
+        theta_phi = (self.thetas, self.phis)
+        angle_path = os.path.join(
+            tmp_dir, f"angles-{self.log_string}-{self.current_time}.pkl"
+        )
+        with open(angle_path, "wb") as f:
+            pickle.dump(theta_phi, f)
 
         blender_script = os.path.join(
             source_dir, "saris", "blender_script", "bl_drl.py"
@@ -175,7 +255,7 @@ class WirelessEnvV0(Env):
             "-cfg",
             self.sionna_config_file,
             "-i",
-            focal_path,
+            angle_path,
             "-o",
             blender_output_dir,
         ]
@@ -210,43 +290,67 @@ class WirelessEnvV0(Env):
         )
 
         # Set up path for saving results
-        tmp_dir = utils.get_os_dir("TMP_DIR")
-        results_name = f"path-gain-{self.log_string}-{self.current_time}.pkl"
-        results_file = os.path.join(tmp_dir, results_name)
+        # tmp_dir = utils.get_os_dir("TMP_DIR")
+        # results_name = f"path-gain-{self.log_string}-{self.current_time}.pkl"
+        # results_file = os.path.join(tmp_dir, results_name)
 
-        # Run Sionna script
-        siona_script = os.path.join(
-            source_dir, "saris", "sub_tasks", "calc_pathgain.py"
+        config = utils.load_config(self.sionna_config_file)
+        sig_cmap = signal_cmap.SignalCoverageMap(
+            config, compute_scene_path, viz_scene_path
         )
 
-        sionna_cmd = [
-            "python",
-            siona_script,
-            "-cfg",
-            self.sionna_config_file,
-            "--compute_scene_path",
-            compute_scene_path,
-            "--viz_scene_path",
-            viz_scene_path,
-            "--saved_path",
-            render_filename,
-            "--results_path",
-            results_file,
-            "--seed",
-            str(self.seed),
-        ]
-        if use_cmap:
-            sionna_cmd.append("--use_cmap")
-        sionna_output_txt = os.path.join(tmp_dir, "sionna_outputs.txt")
-        try:
-            subprocess.run(sionna_cmd, check=True, stdout=open(sionna_output_txt, "a"))
-        except subprocess.CalledProcessError as e:
-            raise Exception(f"Error running Sionna command: {e}")
-        finally:
-            pass
+        bandwidth = 20e6
+        if not use_cmap:
+            paths = sig_cmap.compute_paths()
+            cir = paths.cir()
+            a, tau = cir
+            (l_min, l_max) = time_lag_discrete_time_channel(bandwidth)
+            h_time = cir_to_time_channel(bandwidth, a, tau, l_min, l_max)
+            h_time_avg_power = tf.reduce_mean(
+                tf.reduce_sum(tf.abs(h_time) ** 2, axis=-1)
+            ).numpy()
+            path_gain = h_time_avg_power
+        else:
+            coverage_map = sig_cmap.compute_cmap()
+            path_gain = sig_cmap.get_path_gain(coverage_map)
+            sig_cmap.render_to_file(coverage_map, filename=render_filename)
 
-        with open(results_file, "rb") as f:
-            results_dict = pickle.load(f)
-            path_gain = float(results_dict["path_gain"])
-        path_gain_dB = utils.linear2dB(path_gain)
-        return path_gain_dB
+        print(f"Path gain: {path_gain}")
+        return path_gain
+
+        # # Run Sionna script
+        # siona_script = os.path.join(
+        #     source_dir, "saris", "sub_tasks", "calc_pathgain.py"
+        # )
+
+        # sionna_cmd = [
+        #     "python",
+        #     siona_script,
+        #     "-cfg",
+        #     self.sionna_config_file,
+        #     "--compute_scene_path",
+        #     compute_scene_path,
+        #     "--viz_scene_path",
+        #     viz_scene_path,
+        #     "--saved_path",
+        #     render_filename,
+        #     "--results_path",
+        #     results_file,
+        #     "--seed",
+        #     str(self.seed),
+        # ]
+        # if use_cmap:
+        #     sionna_cmd.append("--use_cmap")
+        # sionna_output_txt = os.path.join(tmp_dir, "sionna_outputs.txt")
+        # try:
+        #     subprocess.run(sionna_cmd, check=True, stdout=open(sionna_output_txt, "a"))
+        # except subprocess.CalledProcessError as e:
+        #     raise Exception(f"Error running Sionna command: {e}")
+        # finally:
+        #     pass
+
+        # with open(results_file, "rb") as f:
+        #     results_dict = pickle.load(f)
+        #     path_gain = float(results_dict["path_gain"])
+        # path_gain_dB = utils.linear2dB(path_gain)
+        # return path_gain_dB

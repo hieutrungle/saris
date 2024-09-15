@@ -47,12 +47,12 @@ echo -e Assets directory: $ASSETS_DIR '\n'
 BLENDER_APP=${BLENDER_DIR}/blender-3.3.14-linux-x64_1/blender
 
 # Open a random blender file to install and enable the mitsuba plugin
-mkdir -p ${BLENDER_DIR}/addons
-if [ ! -f ${BLENDER_DIR}/addons/mitsuba*.zip ]; then
-    wget -P ${BLENDER_DIR}/addons https://github.com/mitsuba-renderer/mitsuba-blender/releases/download/v0.3.0/mitsuba-blender.zip 
-    # unzip mitsuba-blender.zip -d ${BLENDER_DIR}/addons
-fi
-${BLENDER_APP} -b ${BLENDER_DIR}/models/hallway_L_1.blend --python ${SOURCE_DIR}/saris/blender_script/install_mitsuba_addon.py -- --blender_app ${BLENDER_APP}
+# mkdir -p ${BLENDER_DIR}/addons
+# if [ ! -f ${BLENDER_DIR}/addons/mitsuba*.zip ]; then
+#     wget -P ${BLENDER_DIR}/addons https://github.com/mitsuba-renderer/mitsuba-blender/releases/download/v0.3.0/mitsuba-blender.zip 
+#     # unzip mitsuba-blender.zip -d ${BLENDER_DIR}/addons
+# fi
+# ${BLENDER_APP} -b ${BLENDER_DIR}/models/hallway_L_1.blend --python ${SOURCE_DIR}/saris/blender_script/install_mitsuba_addon.py -- --blender_app ${BLENDER_APP}
 
 # get scene_name from CONFIG_FILE
 # SCENE_NAME=$(python -c "import yaml; print(yaml.safe_load(open('${CONFIG_FILE}', 'r'))['scene_name'])")
@@ -80,5 +80,5 @@ mkdir -p ${OPTIX_CACHE_PATH}
 ##############################
 poetry run main --command train -dcfg ${DRL_CONFIG_FILE} -scfg ${SIONNA_CONFIG_FILE} -v --resume --seed 100
 
-export OPTIX_CACHE_PATH=${TMP_DIR}/optix_cache_1
-poetry run main --command eval -dcfg ${DRL_CONFIG_FILE} -scfg ${SIONNA_CONFIG_FILE} -v --seed 100
+# export OPTIX_CACHE_PATH=${TMP_DIR}/optix_cache_1
+# poetry run main --command eval -dcfg ${DRL_CONFIG_FILE} -scfg ${SIONNA_CONFIG_FILE} -v --seed 100
