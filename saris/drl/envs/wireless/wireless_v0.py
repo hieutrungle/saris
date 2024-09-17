@@ -3,6 +3,8 @@ import os
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
 os.environ["TF_GPU_ALLOCATOR"] = "cuda_malloc_async"  # to avoid memory fragmentation
 
+# import orderdict
+from collections import OrderedDict
 from typing import Tuple
 import re
 import subprocess
@@ -19,12 +21,13 @@ from saris.sigmap import signal_cmap
 from sionna.channel import (
     cir_to_ofdm_channel,
     subcarrier_frequencies,
-    OFDMChannel,
-    ApplyOFDMChannel,
-    CIRDataset,
     time_lag_discrete_time_channel,
     cir_to_time_channel,
     time_to_ofdm_channel,
+)
+
+tf.config.experimental.set_memory_growth(
+    tf.config.experimental.list_physical_devices("GPU")[0], True
 )
 
 
@@ -53,33 +56,26 @@ class WirelessEnvV0(Env):
         # theta: azimuth angle, phi: elevation angle
         init_theta, init_phi = self.init_angles
         min_delta, max_delta = self.angle_deltas
-        self.lead_theta_space = spaces.Box(
-            low=init_theta + min_delta,
-            high=init_theta + max_delta,
-            shape=(self.num_lead_tiles,),
-            dtype=np.float32,
-        )
-        self.lead_phi_space = spaces.Box(
-            low=init_phi + min_delta,
-            high=init_phi + max_delta,
-            shape=(self.num_lead_tiles,),
-            dtype=np.float32,
-        )
+
+        theta_high = [init_theta + max_delta] * self.num_lead_tiles
+        phi_high = [init_phi + max_delta] * self.num_lead_tiles
+        angle_high = np.concatenate([theta_high, phi_high])
+
+        theta_low = [init_theta + min_delta] * self.num_lead_tiles
+        phi_low = [init_phi + min_delta] * self.num_lead_tiles
+        angle_low = np.concatenate([theta_low, phi_low])
+
+        self.angle_space = spaces.Box(low=angle_low, high=angle_high, dtype=np.float32)
 
         # Power average of the equivalent channel
-        self.channel_power_space = spaces.Box(
+        self.gain_space = spaces.Box(
             low=-np.inf, high=np.inf, shape=(1,), dtype=np.float32
         )
 
-        self.thetas = np.zeros(self.num_lead_tiles)
-        self.phis = np.zeros(self.num_lead_tiles)
-        self.channel_power = np.zeros(1)
+        self.angles = None
 
         self.observation_space = self._get_observation_space()
         self.action_space = self._get_action_space()
-
-        self.observation_dim = self._get_observation_dim()
-        self.action_dim = self._get_action_dim()
 
         self.taken_steps = 0.0
         self.cur_gain = 0.0
@@ -93,75 +89,38 @@ class WirelessEnvV0(Env):
     def _get_observation_space(self) -> spaces.Box:
         observation_space = spaces.Dict(
             {
-                "thetas": self.lead_theta_space,
-                "phis": self.lead_phi_space,
-                "channel_power": self.channel_power_space,
+                "angles": self.angle_space,
+                "gain": self.gain_space,
             }
         )
         return observation_space
 
-    def _get_observation_dim(self) -> int:
-        observation_dim = 0
-        for key, value in self.observation_space.items():
-            observation_dim += np.prod(value.shape)
-        return observation_dim
-
     def _get_action_space(self) -> spaces.Box:
-        action_space = spaces.Dict(
-            {
-                "delta_thetas": spaces.Box(
-                    low=-1.0, high=1.0, shape=(self.num_lead_tiles,), dtype=np.float32
-                ),
-                "delta_phis": spaces.Box(
-                    low=-1.0, high=1.0, shape=(self.num_lead_tiles,), dtype=np.float32
-                ),
-            }
-        )
+        action_space = spaces.Box(low=-1, high=1, shape=self.angle_space.shape)
         return action_space
 
-    def _get_action_dim(self) -> int:
-        action_dim = 0
-        for key, value in self.action_space.items():
-            action_dim += np.prod(value.shape)
-        return action_dim
-
-    def _get_observation(self) -> dict:
-        observation = np.concatenate([self.thetas, self.phis, self.channel_power])
-        observation = {
-            "thetas": self.thetas,
-            "phis": self.phis,
-            "channel_power": self.channel_power,
-        }
-        return observation
-
-    def reset(self, seed: int = None, options: dict = None) -> Tuple[np.ndarray, dict]:
+    def reset(self, seed: int = None, options: dict = None) -> Tuple[dict, dict]:
         super().reset(seed=seed, options=options)
-        if seed is not None:
-            self.seed = seed
-            self.np_rng = np.random.default_rng(self.seed)
 
-        self.thetas = self.np_rng.uniform(
-            low=self.lead_theta_space.low,
-            high=self.lead_theta_space.high,
-            size=(self.num_lead_tiles,),
+        self.angles = self.np_rng.uniform(
+            low=self.angle_space.low, high=self.angle_space.high
         )
-        self.thetas = np.asarray(self.thetas, dtype=np.float32)
-        self.phis = self.np_rng.uniform(
-            low=self.lead_phi_space.low,
-            high=self.lead_phi_space.high,
-            size=(self.num_lead_tiles,),
-        )
-        self.phis = np.asarray(self.phis, dtype=np.float32)
-        self.channel_power = self._cal_path_gain(use_cmap=self.use_cmap)
-        self.channel_power = np.array([self.channel_power])
+        self.angles = np.clip(self.angles, self.angle_space.low, self.angle_space.high)
 
-        self.cur_gain = self.channel_power[0]
+        self.cur_gain = self._cal_path_gain_dB(use_cmap=self.use_cmap)
         self.next_gain = self.cur_gain
+
+        observation = OrderedDict(
+            {
+                "angles": np.array(self.angles, dtype=np.float32),
+                "gain": np.array([self.cur_gain], dtype=np.float32),
+            }
+        )
 
         self.info = {}
         self.taken_steps = 0.0
 
-        return self._get_observation(), self.info
+        return observation, self.info
 
     def step(
         self, action: np.ndarray, **kwargs
@@ -170,24 +129,19 @@ class WirelessEnvV0(Env):
         self.taken_steps += 1.0
         self.cur_gain = self.next_gain
 
+        self.angles = np.clip(
+            self.angles + action, self.angle_space.low, self.angle_space.high
+        )
+
         truncated = False
         terminated = False
-        # TODO: constraint fot angles
-        self.thetas = np.clip(
-            self.thetas + action["delta_thetas"],
-            self.lead_theta_space.low,
-            self.lead_theta_space.high,
-        )
-        self.phis = np.clip(
-            self.phis + action["delta_phis"],
-            self.lead_phi_space.low,
-            self.lead_phi_space.high,
-        )
-        self.channel_power = np.array([self.cur_gain])
 
-        next_observation = self._get_observation()
-
-        self.next_gain = self._cal_path_gain(use_cmap=self.use_cmap)
+        self.next_gain = 0.0
+        self.next_gain = self._cal_path_gain_dB(use_cmap=self.use_cmap)
+        next_observation = {
+            "angles": np.asarray(self.angles, dtype=np.float32),
+            "gain": np.asarray([self.next_gain], dtype=np.float32),
+        }
 
         reward = self._cal_reward(self.cur_gain, self.next_gain, self.taken_steps)
 
@@ -203,19 +157,16 @@ class WirelessEnvV0(Env):
     def _cal_reward(
         self, cur_gain: float, next_gain: float, time_taken: float
     ) -> float:
-        # threshold_gain = -90
-        # scaled_cur_gain = 1.25 * (cur_gain - threshold_gain)
         gain_diff = 2.0 * (next_gain - cur_gain)
         cost_time = -0.02 * time_taken
         reward = gain_diff + cost_time
-        # reward = scaled_cur_gain + gain_diff + cost_time
         return reward
 
-    def _cal_path_gain(self, use_cmap: bool = False) -> float:
+    def _cal_path_gain_dB(self, use_cmap: bool = False) -> float:
 
-        start_time = time.time()
         self._prepare_geometry()
-        path_gain_dB = self._cal_path_gain_sionna(use_cmap=use_cmap)
+        path_gain = self._cal_path_gain_sionna(use_cmap=use_cmap)
+        path_gain_dB = utils.linear2dB(path_gain)
 
         return path_gain_dB
 
@@ -232,13 +183,14 @@ class WirelessEnvV0(Env):
         blender_output_dir = os.path.join(assets_dir, "blender")
         tmp_dir = utils.get_os_dir("TMP_DIR")
 
-        # ! TODO: Need to convert from degrees to radians
-        theta_phi = (self.thetas, self.phis)
+        # // ! TODO: Need to convert from degrees to radians
+        angles = np.deg2rad(self.angles)
+        angles = (angles[: len(angles) // 2], angles[len(angles) // 2 :])
         angle_path = os.path.join(
             tmp_dir, f"angles-{self.log_string}-{self.current_time}.pkl"
         )
         with open(angle_path, "wb") as f:
-            pickle.dump(theta_phi, f)
+            pickle.dump(angles, f)
 
         blender_script = os.path.join(
             source_dir, "saris", "blender_script", "bl_drl.py"
@@ -289,11 +241,6 @@ class WirelessEnvV0(Env):
             img_dir, f"{mitsuba_filename}_00000.png"
         )
 
-        # Set up path for saving results
-        # tmp_dir = utils.get_os_dir("TMP_DIR")
-        # results_name = f"path-gain-{self.log_string}-{self.current_time}.pkl"
-        # results_file = os.path.join(tmp_dir, results_name)
-
         config = utils.load_config(self.sionna_config_file)
         sig_cmap = signal_cmap.SignalCoverageMap(
             config, compute_scene_path, viz_scene_path
@@ -315,42 +262,4 @@ class WirelessEnvV0(Env):
             path_gain = sig_cmap.get_path_gain(coverage_map)
             sig_cmap.render_to_file(coverage_map, filename=render_filename)
 
-        print(f"Path gain: {path_gain}")
         return path_gain
-
-        # # Run Sionna script
-        # siona_script = os.path.join(
-        #     source_dir, "saris", "sub_tasks", "calc_pathgain.py"
-        # )
-
-        # sionna_cmd = [
-        #     "python",
-        #     siona_script,
-        #     "-cfg",
-        #     self.sionna_config_file,
-        #     "--compute_scene_path",
-        #     compute_scene_path,
-        #     "--viz_scene_path",
-        #     viz_scene_path,
-        #     "--saved_path",
-        #     render_filename,
-        #     "--results_path",
-        #     results_file,
-        #     "--seed",
-        #     str(self.seed),
-        # ]
-        # if use_cmap:
-        #     sionna_cmd.append("--use_cmap")
-        # sionna_output_txt = os.path.join(tmp_dir, "sionna_outputs.txt")
-        # try:
-        #     subprocess.run(sionna_cmd, check=True, stdout=open(sionna_output_txt, "a"))
-        # except subprocess.CalledProcessError as e:
-        #     raise Exception(f"Error running Sionna command: {e}")
-        # finally:
-        #     pass
-
-        # with open(results_file, "rb") as f:
-        #     results_dict = pickle.load(f)
-        #     path_gain = float(results_dict["path_gain"])
-        # path_gain_dB = utils.linear2dB(path_gain)
-        # return path_gain_dB
