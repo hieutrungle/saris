@@ -292,11 +292,14 @@ class TrainerModule:
         rewards = torch.zeros((args.num_steps, args.num_envs)).to(args.device)
         dones = torch.zeros((args.num_steps, args.num_envs)).to(args.device)
         values = torch.zeros((args.num_steps, args.num_envs)).to(args.device)
+        next_obs = torch.zeros(
+            (args.num_steps, args.num_envs) + envs.single_observation_space.shape
+        )
 
         global_step = 0
         start_time = time.time()
-        next_obs, info = envs.reset(seed=args.seed)
-        next_obs = pytorch_utils.from_numpy(next_obs, args.device)
+        next_ob, info = envs.reset(seed=args.seed)
+        next_ob = pytorch_utils.from_numpy(next_ob, args.device)
         next_done = torch.zeros(args.num_envs).to(args.device)
 
         iter_range = tqdm(
@@ -309,24 +312,25 @@ class TrainerModule:
 
             for step in range(0, args.num_steps):
                 global_step += 1 * args.num_envs
-                obs[step] = next_obs
+                obs[step] = next_ob
                 dones[step] = next_done
 
                 with torch.no_grad():
                     action, log_prob, _, value = self.agent.get_action_and_value(
-                        next_obs
+                        next_ob
                     )
                     values[step] = value.flatten()
                 actions[step] = action
                 logprobs[step] = log_prob
 
                 # TRY NOT TO MODIFY: execute the game and log data.
-                next_obs, reward, terminations, truncations, infos = envs.step(
+                next_ob, reward, terminations, truncations, infos = envs.step(
                     pytorch_utils.to_numpy(action)
                 )
+                next_obs[step] = next_ob
                 done = np.logical_or(terminations, truncations)
                 rewards[step] = pytorch_utils.from_numpy(reward, args.device).view(-1)
-                next_obs = pytorch_utils.from_numpy(next_obs, args.device)
+                next_ob = pytorch_utils.from_numpy(next_ob, args.device)
                 next_done = torch.Tensor(done).to(args.device)
 
                 if "final_info" in infos:
@@ -346,7 +350,7 @@ class TrainerModule:
 
             # bootstrap value if not done
             with torch.no_grad():
-                next_value = self.agent.get_value(next_obs).reshape(1, -1)
+                next_value = self.agent.get_value(next_ob).reshape(1, -1)
                 advantages = torch.zeros_like(rewards).to(args.device)
                 lastgaelam = 0
                 for t in reversed(range(args.num_steps)):
@@ -382,6 +386,10 @@ class TrainerModule:
             utils.save_data(
                 {f"{iter}": pytorch_utils.to_numpy(actions)},
                 os.path.join(buffer_saved_dir, "actions.txt"),
+            )
+            utils.save_data(
+                {f"{iter}": next_obs.cpu().numpy()},
+                os.path.join(buffer_saved_dir, "next_obs.txt"),
             )
             utils.save_data(
                 {f"{iter}": pytorch_utils.to_numpy(logprobs)},
