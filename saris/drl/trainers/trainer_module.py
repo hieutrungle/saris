@@ -376,19 +376,19 @@ class TrainerModule:
             b_values = values.reshape(-1)
 
             utils.save_data(
-                pytorch_utils.to_numpy(obs),
+                {f"{iter}": pytorch_utils.to_numpy(obs)},
                 os.path.join(buffer_saved_dir, "obs.txt"),
             )
             utils.save_data(
-                pytorch_utils.to_numpy(actions),
+                {f"{iter}": pytorch_utils.to_numpy(actions)},
                 os.path.join(buffer_saved_dir, "actions.txt"),
             )
             utils.save_data(
-                pytorch_utils.to_numpy(rewards),
+                {f"{iter}": pytorch_utils.to_numpy(logprobs)},
                 os.path.join(buffer_saved_dir, "rewards.txt"),
             )
             utils.save_data(
-                pytorch_utils.to_numpy(dones),
+                {f"{iter}": pytorch_utils.to_numpy(dones)},
                 os.path.join(buffer_saved_dir, "dones.txt"),
             )
 

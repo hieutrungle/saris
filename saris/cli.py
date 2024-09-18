@@ -69,7 +69,7 @@ class Args:
     """the number of parallel game environments"""
     num_envs: int = 8
     """the number of steps to run in each environment per policy rollout"""
-    num_steps: int = 2
+    num_steps: int = 16
     """the discount factor gamma"""
     gamma: float = 0.75
     """the lambda for the general advantage estimation"""
