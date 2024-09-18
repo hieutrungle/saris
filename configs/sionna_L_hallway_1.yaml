@@ -1,6 +1,5 @@
 base_config: hallway
-mitsuba_filename: hallway
-scene_name: hallway_L_1
+scene_name: hallway_L
 resolution: [1920, 1080]
 cm_vmin: -120
 cm_vmax: -60

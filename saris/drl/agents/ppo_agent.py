@@ -35,8 +35,8 @@ class Agent(nn.Module):
     def get_value(self, x):
         return self.critic(x)
 
-    def get_action_and_value(self, x, action=None):
-        action_mean = self.actor_mean(x)
+    def get_action_and_value(self, obs, action=None):
+        action_mean = self.actor_mean(obs)
         action_logstd = self.actor_logstd.expand_as(action_mean)
         action_std = torch.exp(action_logstd)
         probs = Normal(action_mean, action_std)
@@ -55,4 +55,4 @@ class Agent(nn.Module):
         log_probs = probs.log_prob(action).sum(1)
         entropy = probs.entropy().sum(1)
 
-        return (action, log_probs, entropy, self.critic(x))
+        return (action, log_probs, entropy, self.critic(obs))

@@ -11,11 +11,15 @@ import gymnasium as gym
 from saris.drl.envs import register_envs
 from saris.drl.trainers import trainer_module
 from saris.drl.agents import ppo_agent
+from saris.drl.envs.wireless import WirelessEnvV0
 import importlib.resources
 import saris
 import torch
 import tyro
 from dataclasses import dataclass
+import multiprocessing
+
+multiprocessing.set_start_method("spawn", force=True)
 
 
 @dataclass
@@ -43,9 +47,11 @@ class Args:
     """whether to capture videos of the agent performances (check out `videos` folder)"""
     capture_video: bool = False
     """Log interval"""
-    log_interval: int = 50
+    save_interval: int = 2
     """Verbose level"""
     verbose: bool = False
+    """Resume training from a checkpoint"""
+    resume: bool = False
 
     # Environment specific arguments
     """Replay buffer capacity"""
@@ -59,19 +65,19 @@ class Args:
     """the id of the environment"""
     env_id: str = "wireless-sigmap-v0"
     """total timesteps of the experiments"""
-    total_timesteps: int = 32000
+    total_timesteps: int = 64000
     """the learning rate of the optimizer"""
-    learning_rate: float = 3e-4
+    learning_rate: float = 1e-4
     """the number of parallel game environments"""
-    num_envs: int = 1
+    num_envs: int = 8
     """the number of steps to run in each environment per policy rollout"""
-    num_steps: int = 32
+    num_steps: int = 16
     """the discount factor gamma"""
     gamma: float = 0.75
     """the lambda for the general advantage estimation"""
-    gae_lambda: float = 0.95
+    gae_lambda: float = 0.9
     """the number of mini-batches"""
-    num_minibatches: int = 32
+    num_minibatches: int = 2
     """the K epochs to update the policy"""
     update_epochs: int = 10
     """Toggles advantages normalization"""
@@ -81,7 +87,7 @@ class Args:
     """Toggles whether or not to use a clipped loss for the value function, as per the paper."""
     clip_vloss: bool = True
     """coefficient of the entropy"""
-    ent_coef: float = 0.0
+    ent_coef: float = 0.05
     """coefficient of the value function"""
     vf_coef: float = 0.5
     """the maximum norm for the gradient clipping"""
@@ -107,16 +113,19 @@ def make_env(
     capture_video: Optional[bool] = None,
     run_name: Optional[str] = None,
 ):
+
     gamma = args.gamma
+    import tensorflow as tf
 
     def thunk():
-        env = gym.make(
-            env_id,
-            max_episode_steps=args.ep_len,
+
+        env = WirelessEnvV0(
+            idx=idx,
             sionna_config_file=args.sionna_config_file,
             log_string=args.log_string,
             seed=args.seed,
         )
+        env = gym.wrappers.TimeLimit(env, max_episode_steps=args.ep_len)
         env = gym.wrappers.RecordEpisodeStatistics(env)
         env = gym.wrappers.FlattenObservation(env)
         env = gym.wrappers.RecordEpisodeStatistics(env)
@@ -140,7 +149,7 @@ def make_env(
 
 def get_log_string(args: argparse.Namespace):
 
-    log_string = f"{args.exp_name}__{args.env_id}__{args.seed}"
+    log_string = f"{args.exp_name}__{args.env_id}__seed{args.seed}"
     log_string += f"__discount{args.gamma}"
 
     for replaced_str in [" ", "]", "}"]:
@@ -151,13 +160,13 @@ def get_log_string(args: argparse.Namespace):
 
 
 def get_ppo_trainer_config(envs: gym.Env, args: argparse.Namespace):
-    ob_space = envs.observation_space
-    ac_space = envs.action_space
+    ob_space = envs.single_observation_space
+    ac_space = envs.single_action_space
     print(f"Observation space: {ob_space}")
     print(f"Action space: {ac_space}")
 
-    ob_shape = envs.observation_space.shape
-    ac_shape = envs.action_space.shape
+    ob_shape = envs.single_observation_space.shape
+    ac_shape = envs.single_action_space.shape
     print(f"Observation shape: {ob_shape}")
     print(f"Action shape: {ac_shape}")
 
@@ -169,7 +178,7 @@ def get_ppo_trainer_config(envs: gym.Env, args: argparse.Namespace):
         "agent_hparams": {
             "ob_shape": ob_shape,
             "ac_shape": ac_shape,
-            "rpo_alpha": 0.5,
+            "rpo_alpha": args.rpo_alpha,
         },
         "agent_optimizer_hparams": {
             "optimizer": "adamw",
@@ -180,6 +189,7 @@ def get_ppo_trainer_config(envs: gym.Env, args: argparse.Namespace):
             "log_dir": os.path.join(args.source_dir, "local_assets", "logs"),
             "log_name": os.path.join("SARIS_PPO_" + args.log_string),
         },
+        "args": args,
         "enable_progress_bar": True,
         "device": args.device,
         "train_dtype": torch.float16,
@@ -199,9 +209,12 @@ def main():
 
     # Env
     register_envs()
-    envs = gym.vector.SyncVectorEnv(
+    envs = gym.vector.AsyncVectorEnv(
         [make_env(args.env_id, args, i) for i in range(args.num_envs)]
     )
+    # envs = gym.vector.SyncVectorEnv(
+    #     [make_env(args.env_id, args, i) for i in range(args.num_envs)]
+    # )
 
     # Trainer
     trainer_config = get_ppo_trainer_config(envs, args)
@@ -214,6 +227,8 @@ def main():
         trainer.eval_agent(envs, args)
     else:
         raise ValueError(f"Invalid command: {args.command}")
+
+    envs.close()
 
 
 def parse_agrs():

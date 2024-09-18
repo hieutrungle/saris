@@ -1,8 +1,11 @@
 from saris.utils import utils, timer, map_prep
-import tensorflow as tf
 import sionna.rt
 import gc
 from typing import Optional
+import os
+
+# import importlib
+import tensorflow as tf
 
 
 class SignalCoverageMap:
@@ -13,6 +16,7 @@ class SignalCoverageMap:
         viz_scene_path: str,
         verbose: bool = False,
     ):
+
         self.config = config
 
         # input directories
@@ -147,21 +151,22 @@ class SignalCoverageMap:
         scene.render_to_file(**render_config)
 
     def get_path_gain_slow(self, coverage_map: sionna.rt.CoverageMap) -> float:
+
         coverage_map_tensor = coverage_map.as_tensor()
         coverage_map_centers = coverage_map.cell_centers
         rx_position = self.config["rx_position"]
-        distances = tf.norm(coverage_map_centers - rx_position, axis=-1)
-        min_dist = tf.reduce_min(distances)
-        min_ind = tf.where(tf.equal(distances, min_dist))[0]
+        distances = tfnorm(coverage_map_centers - rx_position, axis=-1)
+        min_dist = tfreduce_min(distances)
+        min_ind = tfwhere(tfequal(distances, min_dist))[0]
 
-        path_gain: tf.Tensor = coverage_map_tensor[0, min_ind[0], min_ind[1]]
+        path_gain: tfTensor = coverage_map_tensor[0, min_ind[0], min_ind[1]]
         path_gain = float(path_gain.numpy())
         return path_gain
 
     def get_path_gain(self, coverage_map: sionna.rt.CoverageMap) -> float:
         coverage_map_tensor = coverage_map.as_tensor()
         coverage_map_centers = coverage_map.cell_centers
-        rx_position = tf.convert_to_tensor(self.config["rx_position"])
+        rx_position = tfconvert_to_tensor(self.config["rx_position"])
 
         top_left_pos = coverage_map_centers[0, 0, 0:2] - (coverage_map.cell_size / 2)
         x_distance_to_top_left = rx_position[0] - top_left_pos[0]
@@ -170,7 +175,7 @@ class SignalCoverageMap:
         ind_y = int(y_distance_to_top_left / coverage_map.cell_size[1])
         ind_x = int(x_distance_to_top_left / coverage_map.cell_size[0])
 
-        path_gain: tf.Tensor = coverage_map_tensor[0, ind_y, ind_x]
+        path_gain: tfTensor = coverage_map_tensor[0, ind_y, ind_x]
         path_gain = float(path_gain.numpy())
         return path_gain
 

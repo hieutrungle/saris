@@ -18,6 +18,8 @@ import torch.nn as nn
 from torchinfo import summary
 from torch import optim
 import glob
+from abc import ABCMeta, abstractmethod
+import time
 
 
 class TrainerModule:
@@ -31,21 +33,13 @@ class TrainerModule:
         action_shape: Sequence[int],
         agent_class: Callable,
         agent_hparams: Dict[str, Any],
-        actor_optimizer_hparams: Dict[str, Any],
-        critic_optimizer_hparams: Dict[str, Any],
-        num_actor_samples: int = 16,
-        num_critic_updates: int = 4,
-        num_critics: int = 2,
-        temperature: float = 0.1,
-        discount: float = 0.9,
-        polyak: float = 0.05,
-        grad_accum_steps: int = 1,
-        seed: int = 42,
-        logger_params: Dict[str, Any] = None,
-        enable_progress_bar: bool = True,
+        agent_optimizer_hparams: Dict[str, Any],
+        seed: int,
+        logger_params: Dict[str, Any],
+        args: argparse.Namespace,
         device: torch.device = torch.device("cpu"),
-        debug: bool = False,
         train_dtype: torch.dtype = torch.float16,
+        enable_progress_bar: bool = True,
         **kwargs,
     ) -> None:
         """
@@ -55,19 +49,14 @@ class TrainerModule:
         Args:
             observation_shape: The shape of the observation space.
             action_shape: The shape of the action space.
-            actor_class: The class of the actor model that should be trained.
-            actor_hparams: A dictionary of all hyperparameters of the actor model.
+            agent_class: The class of the agent model that should be trained.
+            agent_hparams: A dictionary of all hyperparameters of the agent model.
               Is used as input to the model when created.
             critic_class: The class of the critic model that should be trained.
             critic_hparams: A dictionary of all hyperparameters of the critic model.
               Is used as input to the model when created.
-            actor_optimizer_hparams: A dictionary of all hyperparameters of the optimizer.
+            agent_optimizer_hparams: A dictionary of all hyperparameters of the optimizer.
                 Used during initialization of the optimizer.
-            critic_optimizer_hparams: A dictionary of all hyperparameters of the optimizer.
-                Used during initialization of the optimizer.
-            discount: The discount factor for the environment.
-            polyak: The update factor for the target networks.
-            grad_accum_steps: The number of steps to accumulate gradients before applying
             seed: Seed to initialize PRNG.
             logger_params: A dictionary containing the specification of the logger.
             enable_progress_bar: If False, no progress bar is shown.
@@ -78,37 +67,26 @@ class TrainerModule:
         self.action_shape = action_shape
         self.agent_class = agent_class
         self.agent_hparams = agent_hparams
-        self.actor_optimizer_hparams = actor_optimizer_hparams
-        self.critic_optimizer_hparams = critic_optimizer_hparams
-        self.num_actor_samples = num_actor_samples
-        self.num_critic_updates = num_critic_updates
-        self.num_critics = num_critics
-        self.temperature = temperature
-        self.discount = discount
-        self.polyak = polyak
-        self.grad_accum_steps = grad_accum_steps
+        self.agent_optimizer_hparams = agent_optimizer_hparams
         self.seed = seed
         self.logger_params = logger_params
         self.enable_progress_bar = enable_progress_bar
         self.device = device
-        self.debug = debug
         self.train_dtype = train_dtype
 
         # Set of hyperparameters to save
         self.config = {
             "agent_class": agent_class.__name__,
             "agent_hparams": agent_hparams,
-            "actor_optimizer_hparams": actor_optimizer_hparams,
-            "critic_optimizer_hparams": critic_optimizer_hparams,
-            "num_critics": num_critics,
-            "discount": discount,
-            "polyak": polyak,
+            "agent_optimizer_hparams": agent_optimizer_hparams,
             "logger_params": logger_params,
             "enable_progress_bar": self.enable_progress_bar,
-            "debug": self.debug,
-            "grad_accum_steps": grad_accum_steps,
             "seed": self.seed,
         }
+        for k, v in args.__dict__.items():
+            if v is not None and not isinstance(v, torch.device):
+                self.config.update({k: v})
+
         self.config.update(kwargs)
 
         self.agent = self.create_model(self.agent_class, self.agent_hparams)
@@ -195,7 +173,7 @@ class TrainerModule:
 
         return logger
 
-    @staticmethod
+    @abstractmethod
     def update_step():
         raise NotImplementedError
 
@@ -250,19 +228,19 @@ class TrainerModule:
     def get_agent(self):
         return self.agent
 
-    @staticmethod
-    def init_agent_optimizer(self, drl_config: Dict[str, Any]) -> None:
+    @abstractmethod
+    def init_agent_optimizer(self, args: argparse.Namespace) -> None:
         """
         Initializes the optimizer for the agent
         """
         (self.agent_optimizer, self.agent_scheduler) = self.init_optimizer(
             self.agent.parameters(),
             self.agent_optimizer_hparams,
-            drl_config["total_steps"],
-            drl_config["num_train_steps_per_env_step"],
+            args.num_iterations,
+            args.update_epochs,
         )
 
-    @staticmethod
+    @abstractmethod
     def init_gradient_scaler(self):
         """
         Initializes the gradient scaler for mixed precision training.
@@ -272,20 +250,20 @@ class TrainerModule:
         else:
             raise f"Device {self.device.type} not supported."
 
-    def train_agent(
-        self, env: gym.Env, drl_config: Dict[str, Any], args: argparse.Namespace
-    ):
+    def train_agent(self, envs: gym.Env, args: argparse.Namespace):
         print("\n" + f"*" * 80)
         print(f"Training {self.agent_class.__name__}")
 
-        self.init_agent_optimizer(drl_config)
+        self.init_agent_optimizer(args)
+        self.init_gradient_scaler()
+        self.agent = self.agent.to(self.device)
 
         # Create replay buffer
         local_assets_dir = utils.get_dir(args.source_dir, "local_assets")
-        buffer_saved_name = os.path.join("replay_buffer", drl_config["log_string"])
+        buffer_saved_name = os.path.join("replay_buffer", args.log_string)
         buffer_saved_dir = utils.get_dir(local_assets_dir, buffer_saved_name)
         replay_buffer = ReplayBuffer(
-            drl_config["replay_buffer_capacity"], buffer_saved_dir, seed=args.seed
+            args.replay_buffer_capacity, buffer_saved_dir, seed=args.seed
         )
 
         # Load model if exists
@@ -303,146 +281,213 @@ class TrainerModule:
             start_step = 0
         start_step = int(start_step)
 
-        # Training loop
-        (ob, info) = env.reset()
+        # ALGO Logic: Storage setup
+        obs = torch.zeros(
+            (args.num_steps, args.num_envs) + envs.single_observation_space.shape
+        ).to(args.device)
+        actions = torch.zeros(
+            (args.num_steps, args.num_envs) + envs.single_action_space.shape
+        ).to(args.device)
+        logprobs = torch.zeros((args.num_steps, args.num_envs)).to(args.device)
+        rewards = torch.zeros((args.num_steps, args.num_envs)).to(args.device)
+        dones = torch.zeros((args.num_steps, args.num_envs)).to(args.device)
+        values = torch.zeros((args.num_steps, args.num_envs)).to(args.device)
 
-        best_return = -np.inf
-        t_range = tqdm(
-            range(start_step, drl_config["total_steps"]),
-            total=drl_config["total_steps"],
-            # dynamic_ncols=True,
+        global_step = 0
+        start_time = time.time()
+        next_obs, info = envs.reset(seed=args.seed)
+        next_obs = pytorch_utils.from_numpy(next_obs, args.device)
+        next_done = torch.zeros(args.num_envs).to(args.device)
+
+        iter_range = tqdm(
+            range(start_step, args.num_iterations),
+            total=args.num_iterations,
             initial=start_step,
         )
 
-        self.init_gradient_scaler()
+        for iter in iter_range:
 
-        exit()
+            for step in range(0, args.num_steps):
+                global_step += 1 * args.num_envs
+                obs[step] = next_obs
+                dones[step] = next_done
 
-        for step in t_range:
-            # accumulate data in replay buffer
-            if step < int(drl_config["random_steps"] * 2 / 3):
-                env.unwrapped.location_known = True
-                ob, info = env.reset()
-                action = env.action_space.sample()
-            elif step == int(drl_config["random_steps"] * 2 / 3):
-                env.unwrapped.location_known = False
-                ob, info = env.reset()
-                action = env.action_space.sample()
-            elif step < drl_config["random_steps"]:
-                env.unwrapped.location_known = False
-                action = env.action_space.sample()
-            else:
-                env.unwrapped.location_known = False
-                observations = np.expand_dims(observation, axis=0)
-                observations = pytorch_utils.from_numpy(observations, self.device)
-                actions = self.agent.get_actions(observations, train=True)
-                actions = pytorch_utils.to_numpy(actions)
-                action = np.squeeze(actions, axis=0)
-
-            print(f"")
-            print(f"Action: {action}")
-            next_observation, reward, terminated, truncated, info = env.step(action)
-
-            # try:
-            #     next_observation, reward, terminated, truncated, info = env.step(action)
-            # except Exception as e:
-            #     print(f"Error in step {step}: {e}")
-            #     time.sleep(2)
-            #     continue
-
-            print(
-                f"Step: {step} - Reward: {reward} - Path Gain: {info['path_gain_dB']}"
-            )
-            print(f"Action: {action}")
-            print(f"Observation: {observation}")
-            print(f"Next Observation: {next_observation}")
-            exit()
-
-            done = terminated or truncated
-            done = np.asarray(done, dtype=np.float32)
-            reward = np.asarray(reward, dtype=np.float32)
-            action = np.asarray(action, dtype=np.float32)
-
-            replay_buffer.insert(
-                observation=observation,
-                action=action,
-                reward=reward,
-                next_observation=next_observation,
-                done=done,
-            )
-
-            self.logger.log_metrics({"train_reward": reward}, step)
-            self.logger.log_metrics({"train_path_gain_dB": info["path_gain_dB"]}, step)
-            if done:
-                train_return = float(np.mean(info["episode"]["r"]))
-                self.logger.log_metrics({"train_return": train_return}, step)
-                self.logger.log_metrics({"train_ep_len": info["episode"]["l"]}, step)
-                observation, info = env.reset()
-            else:
-                observation = next_observation
-
-            # Update agent
-            if step >= drl_config["training_starts"]:
-                for _ in range(drl_config["num_train_steps_per_env_step"]):
-                    batch = replay_buffer.sample(drl_config["batch_size"])
-                    update_info = self.update_step(
-                        pytorch_utils.from_numpy(batch, self.device)
+                with torch.no_grad():
+                    action, log_prob, _, value = self.agent.get_action_and_value(
+                        next_obs
                     )
-                update_info = pytorch_utils.to_numpy(update_info)
-                info.update(update_info)
+                    values[step] = value.flatten()
+                actions[step] = action
+                logprobs[step] = log_prob
 
-                # Logging
-                if step % args.log_interval == 0:
-                    self.logger.log_metrics(info, step)
-                    self.logger.flush()
+                # TRY NOT TO MODIFY: execute the game and log data.
+                next_obs, reward, terminations, truncations, infos = envs.step(
+                    pytorch_utils.to_numpy(action)
+                )
+                done = np.logical_or(terminations, truncations)
+                rewards[step] = pytorch_utils.from_numpy(reward, args.device).view(-1)
+                next_obs = pytorch_utils.from_numpy(next_obs, args.device)
+                next_done = torch.Tensor(done).to(args.device)
 
-                if step % drl_config["save_interval"] == 0:
-                    self.save_models(step, checkpoint_file=f"checkpoints_{step}.pt")
+                if "final_info" in infos:
+                    for info in infos["final_info"]:
+                        if info and "episode" in info:
+                            print(
+                                f"global_step={global_step}, episodic_return={info['episode']['r']}"
+                            )
+                            self.logger.log_metrics(
+                                {"charts/episodic_return": info["episode"]["r"]},
+                                global_step,
+                            )
+                            self.logger.log_metrics(
+                                {"charts/episodic_length": info["episode"]["l"]},
+                                global_step,
+                            )
 
-                # Evaluation
-                if step % drl_config["eval_interval"] == 0:
-                    print(f"Step: {step} - Evaluating agent")
-                    eval_trajectories = self.eval_trajectories(
-                        env, num_evals=drl_config["num_eval_trials"]
+            # bootstrap value if not done
+            with torch.no_grad():
+                next_value = self.agent.get_value(next_obs).reshape(1, -1)
+                advantages = torch.zeros_like(rewards).to(args.device)
+                lastgaelam = 0
+                for t in reversed(range(args.num_steps)):
+                    if t == args.num_steps - 1:
+                        nextnonterminal = 1.0 - next_done
+                        nextvalues = next_value
+                    else:
+                        nextnonterminal = 1.0 - dones[t + 1]
+                        nextvalues = values[t + 1]
+                    delta = (
+                        rewards[t]
+                        + args.gamma * nextvalues * nextnonterminal
+                        - values[t]
                     )
-                    return_mean = np.mean([t["return"] for t in eval_trajectories])
-                    return_std = np.std([t["return"] for t in eval_trajectories])
-                    eval_metrics = {
-                        "eval_return_mean": return_mean,
-                        "eval_return_std": return_std,
-                    }
-                    self.save_metrics(f"eval_metrics_{step}", eval_metrics)
-                    self.logger.log_metrics(eval_metrics, step)
-                    if return_mean > best_return:
-                        best_return = return_mean
-                        self.save_models(step)
-                        best_metrics = eval_metrics
-                        best_metrics.update({"step": step})
-                        best_metrics.update(info)
-                        for k, v in best_metrics.items():
-                            if isinstance(v, torch.Tensor) or isinstance(v, np.ndarray):
-                                best_metrics[k] = float(np.mean(v))
-                        self.save_metrics("best_metrics", best_metrics)
+                    advantages[t] = lastgaelam = (
+                        delta
+                        + args.gamma * args.gae_lambda * nextnonterminal * lastgaelam
+                    )
+                returns = advantages + values
 
-                    # Add traj to replay buffer
-                    for traj in eval_trajectories:
-                        replay_buffer.insert_batch(
-                            observations=traj["obs"],
-                            actions=traj["acts"],
-                            rewards=traj["rews"],
-                            next_observations=traj["next_obs"],
-                            dones=traj["dones"],
+            # flatten the batch
+            b_obs = obs.reshape((-1,) + envs.single_observation_space.shape)
+            b_logprobs = logprobs.reshape(-1)
+            b_actions = actions.reshape((-1,) + envs.single_action_space.shape)
+            b_advantages = advantages.reshape(-1)
+            b_returns = returns.reshape(-1)
+            b_values = values.reshape(-1)
+
+            # Optimizing the policy and value network
+            b_inds = np.arange(args.batch_size)
+            clipfracs = []
+            for epoch in range(args.update_epochs):
+                np.random.shuffle(b_inds)
+                for start in range(0, args.batch_size, args.minibatch_size):
+                    end = start + args.minibatch_size
+                    mb_inds = b_inds[start:end]
+
+                    _, newlogprob, entropy, newvalue = self.agent.get_action_and_value(
+                        b_obs[mb_inds], b_actions[mb_inds]
+                    )
+                    logratio = newlogprob - b_logprobs[mb_inds]
+                    ratio = logratio.exp()
+
+                    with torch.no_grad():
+                        # calculate approx_kl http://joschu.net/blog/kl-approx.html
+                        old_approx_kl = (-logratio).mean()
+                        approx_kl = ((ratio - 1) - logratio).mean()
+                        clipfracs += [
+                            ((ratio - 1.0).abs() > args.clip_coef).float().mean().item()
+                        ]
+
+                    mb_advantages = b_advantages[mb_inds]
+                    if args.norm_adv:
+                        mb_advantages = (mb_advantages - mb_advantages.mean()) / (
+                            mb_advantages.std() + 1e-8
                         )
 
-                t_range.set_postfix(
-                    {
-                        "actor_loss": f"{info['actor_loss']:.4e}",
-                        "critic_loss": f"{info['critic_loss']:.4e}",
-                        "alpha": f"{info['alpha']:.4e}",
-                    },
-                    refresh=True,
-                )
+                    # Policy loss
+                    pg_loss1 = -mb_advantages * ratio
+                    pg_loss2 = -mb_advantages * torch.clamp(
+                        ratio, 1 - args.clip_coef, 1 + args.clip_coef
+                    )
+                    pg_loss = torch.max(pg_loss1, pg_loss2).mean()
+
+                    # Value loss
+                    newvalue = newvalue.view(-1)
+                    if args.clip_vloss:
+                        v_loss_unclipped = (newvalue - b_returns[mb_inds]) ** 2
+                        v_clipped = b_values[mb_inds] + torch.clamp(
+                            newvalue - b_values[mb_inds],
+                            -args.clip_coef,
+                            args.clip_coef,
+                        )
+                        v_loss_clipped = (v_clipped - b_returns[mb_inds]) ** 2
+                        v_loss_max = torch.max(v_loss_unclipped, v_loss_clipped)
+                        v_loss = 0.5 * v_loss_max.mean()
+                    else:
+                        v_loss = 0.5 * ((newvalue - b_returns[mb_inds]) ** 2).mean()
+
+                    entropy_loss = entropy.mean()
+                    loss = (
+                        pg_loss - args.ent_coef * entropy_loss + v_loss * args.vf_coef
+                    )
+
+                    self.agent_optimizer.zero_grad(set_to_none=True)
+                    self.agent_scaler.scale(loss).backward()
+                    self.agent_scaler.unscale_(self.agent_optimizer)
+                    torch.nn.utils.clip_grad_norm_(
+                        self.agent.parameters(), max_norm=0.5
+                    )
+                    self.agent_scaler.step(self.agent_optimizer)
+                    self.agent_scaler.update()
+                    self.agent_scheduler.step()
+
+                    # self.agent_optimizer.zero_grad(set_to_none=True)
+                    # loss.backward()
+                    # nn.utils.clip_grad_norm_(
+                    #     self.agent.parameters(), args.max_grad_norm
+                    # )
+                    # self.agent_optimizer.step()
+                    # self.agent_scheduler.step()
+
+                if args.target_kl is not None:
+                    if approx_kl > args.target_kl:
+                        break
+
+            y_pred, y_true = b_values.cpu().numpy(), b_returns.cpu().numpy()
+            var_y = np.var(y_true)
+            explained_var = (
+                np.nan if var_y == 0 else 1 - np.var(y_true - y_pred) / var_y
+            )
+
+            # TRY NOT TO MODIFY: record rewards for plotting purposes
+            metrics = {
+                "charts/learning_rate": self.agent_optimizer.param_groups[0]["lr"],
+                "losses/value_loss": v_loss.item(),
+                "losses/policy_loss": pg_loss.item(),
+                "losses/entropy": entropy_loss.item(),
+                "losses/old_approx_kl": old_approx_kl.item(),
+                "losses/approx_kl": approx_kl.item(),
+                "losses/clipfrac": np.mean(clipfracs),
+                "losses/explained_variance": explained_var,
+                "charts/SPS": int(global_step / (time.time() - start_time)),
+            }
+            self.logger.log_metrics(metrics, global_step)
+            print("SPS:", global_step / (time.time() - start_time))
+
+            iter_range.set_postfix(
+                {
+                    "policy_loss": f"{pg_loss.item():.4e}",
+                    "value_loss": f"{v_loss.item():.4e}",
+                    "entropy": f"{entropy_loss.item():.4e}",
+                },
+                refresh=True,
+            )
+
+            if iter % args.save_interval == 0:
+                self.save_models(global_step, f"checkpoints_{global_step}.pt")
+
         print(f"Training complete!\n")
+        self.on_training_end()
 
     def eval_trajectory(self, env: gym.Env, eval_ep_len=30):
         (ob, info) = env.reset()
@@ -659,7 +704,7 @@ class TrainerModule:
         ) as f:
             json.dump(metrics, f, indent=4, cls=utils.NpEncoder)
 
-    @staticmethod
+    @abstractmethod
     def save_models(self, step: int, checkpoint_file: str = f"checkpoints.pt"):
         """
         Save the agent's parameters to a file.
@@ -671,7 +716,7 @@ class TrainerModule:
         }
         torch.save(ckpt, os.path.join(self.logger.log_dir, checkpoint_file))
 
-    @staticmethod
+    @abstractmethod
     def load_models(self, checkpoint_file: str = f"checkpoints.pt") -> int:
         """
         Load the agent's parameters from a file.
@@ -680,3 +725,15 @@ class TrainerModule:
         self.agent.load_state_dict(ckpt["agent"])
         step = ckpt.get("step", 0)
         return step
+
+    def on_training_end(self):
+        """
+        End the training process.
+        """
+        self.logger.flush()
+        self.logger.close()
+        self.agent = self.agent.to("cpu")
+        print("Training ended.")
+        print(f"*" * 80)
+        print()
+        exit()

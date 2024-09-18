@@ -15,7 +15,7 @@ if cmd_folder not in sys.path:
 import bl_utils, bl_parser, shared_utils
 
 
-def export_drl_hallway_angle(args, config):
+def export_drl_hallway_angle(args):
 
     lead_follow_dict, _, _ = shared_utils.set_up_reflector()
 
@@ -45,40 +45,28 @@ def export_drl_hallway_angle(args, config):
             devices[0][follow_idx].scale = [0.1, 0.1, 0.01]
 
     # Save files without ceiling
-    folder_dir = os.path.join(
-        args.output_dir,
-        f"{config.scene_name}",
-        f"idx",
-    )
+    folder_dir = os.path.join(args.output_dir, f"idx")
     bl_utils.mkdir_with_replacement(folder_dir)
-    bl_utils.save_mitsuba_xml(
-        folder_dir, config.mitsuba_filename, [*devices_names, "Wall", "Floor"]
-    )
+    bl_utils.save_mitsuba_xml(folder_dir, "hallway", [*devices_names, "Wall", "Floor"])
 
     # Save files with ceiling
-    folder_dir = os.path.join(
-        args.output_dir,
-        f"{config.scene_name}",
-        f"ceiling_idx",
-    )
+    folder_dir = os.path.join(args.output_dir, f"ceiling_idx")
     bl_utils.mkdir_with_replacement(folder_dir)
     bl_utils.save_mitsuba_xml(
         folder_dir,
-        config.mitsuba_filename,
+        "hallway",
         [*devices_names, "Wall", "Floor", "Ceiling"],
     )
 
 
 def main():
     args = create_argparser().parse_args()
-    config = bl_utils.make_conf(args.config_file)
-    export_drl_hallway_angle(args, config)
+    export_drl_hallway_angle(args)
 
 
 def create_argparser() -> bl_parser.ArgumentParserForBlender:
     """Parses command line arguments."""
     parser = bl_parser.ArgumentParserForBlender()
-    parser.add_argument("--config_file", "-cfg", type=str, required=True)
     parser.add_argument("--input_path", "-i", type=str, required=True)
     parser.add_argument("--output_dir", "-o", type=str, required=True)
     parser.add_argument("--verbose", "-v", action="store_true", default=False)

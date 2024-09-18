@@ -1,5 +1,6 @@
 import os
 
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
 os.environ["TF_GPU_ALLOCATOR"] = "cuda_malloc_async"  # to avoid memory fragmentation
 
@@ -16,7 +17,7 @@ import pickle
 import glob
 import json
 from saris.blender_script import shared_utils
-import tensorflow as tf
+
 from saris.sigmap import signal_cmap
 from sionna.channel import (
     cir_to_ofdm_channel,
@@ -26,26 +27,33 @@ from sionna.channel import (
     time_to_ofdm_channel,
 )
 
-tf.config.experimental.set_memory_growth(
-    tf.config.experimental.list_physical_devices("GPU")[0], True
-)
+import importlib
+import tensorflow as tf
 
 
 class WirelessEnvV0(Env):
 
     def __init__(
         self,
+        idx: int,
         sionna_config_file: str,
         log_string: str = "WirelessEnvV0",
         seed: int = 0,
         **kwargs,
     ):
         super(WirelessEnvV0, self).__init__()
-        self.sionna_config_file = sionna_config_file
+
+        self.idx = idx
         self.log_string = log_string
         self.seed = seed
         self.np_rng = np.random.default_rng(self.seed)
+
+        tf.config.experimental.set_memory_growth(
+            tf.config.experimental.list_physical_devices("GPU")[0], True
+        )
         tf.random.set_seed(self.seed)
+
+        self.sionna_config = utils.load_config(sionna_config_file)
         self.current_time = "_" + time.strftime("%d-%m-%Y_%H-%M-%S")
 
         # Set up action and observation space
@@ -180,9 +188,9 @@ class WirelessEnvV0(Env):
         blender_dir = utils.get_os_dir("BLENDER_DIR")
         source_dir = utils.get_os_dir("SOURCE_DIR")
         assets_dir = utils.get_os_dir("ASSETS_DIR")
-        blender_output_dir = os.path.join(assets_dir, "blender")
         tmp_dir = utils.get_os_dir("TMP_DIR")
-
+        scene_name = f"{self.sionna_config['scene_name']}_{self.idx}"
+        blender_output_dir = os.path.join(assets_dir, "blender", scene_name)
         # // ! TODO: Need to convert from degrees to radians
         angles = np.deg2rad(self.angles)
         angles = (angles[: len(angles) // 2], angles[len(angles) // 2 :])
@@ -195,7 +203,6 @@ class WirelessEnvV0(Env):
         blender_script = os.path.join(
             source_dir, "saris", "blender_script", "bl_drl.py"
         )
-        scene_name = utils.load_yaml_file(self.sionna_config_file)["scene_name"]
 
         blender_cmd = [
             blender_app,
@@ -204,8 +211,6 @@ class WirelessEnvV0(Env):
             "--python",
             blender_script,
             "--",
-            "-cfg",
-            self.sionna_config_file,
             "-i",
             angle_path,
             "-o",
@@ -219,10 +224,9 @@ class WirelessEnvV0(Env):
 
     def _cal_path_gain_sionna(self, use_cmap: bool = False) -> float:
 
-        assets_dir = utils.get_os_dir("ASSETS_DIR")
-
         # Set up geometry paths for Sionna script
-        scene_name = utils.load_yaml_file(self.sionna_config_file)["scene_name"]
+        assets_dir = utils.get_os_dir("ASSETS_DIR")
+        scene_name = f"{self.sionna_config['scene_name']}_{self.idx}"
         blender_output_dir = os.path.join(assets_dir, "blender", scene_name)
         compute_scene_dir = os.path.join(blender_output_dir, "ceiling_idx")
         compute_scene_path = glob.glob(os.path.join(compute_scene_dir, "*.xml"))[0]
@@ -230,20 +234,13 @@ class WirelessEnvV0(Env):
         viz_scene_path = glob.glob(os.path.join(viz_scene_dir, "*.xml"))[0]
 
         # Path for outputing iamges if we want to visualize the coverage map
-        source_dir = utils.get_os_dir("SOURCE_DIR")
         img_dir = os.path.join(
             assets_dir, "images", self.log_string + self.current_time
         )
-        mitsuba_filename = utils.load_yaml_file(self.sionna_config_file)[
-            "mitsuba_filename"
-        ]
-        render_filename = utils.create_filename(
-            img_dir, f"{mitsuba_filename}_00000.png"
-        )
+        render_filename = utils.create_filename(img_dir, f"{scene_name}_00000.png")
 
-        config = utils.load_config(self.sionna_config_file)
         sig_cmap = signal_cmap.SignalCoverageMap(
-            config, compute_scene_path, viz_scene_path
+            self.sionna_config, compute_scene_path, viz_scene_path
         )
 
         bandwidth = 20e6
