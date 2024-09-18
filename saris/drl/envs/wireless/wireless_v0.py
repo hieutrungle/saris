@@ -45,7 +45,7 @@ class WirelessEnvV0(Env):
 
         self.idx = idx
         self.log_string = log_string
-        self.seed = seed
+        self.seed = seed + idx
         self.np_rng = np.random.default_rng(self.seed)
 
         tf.config.experimental.set_memory_growth(
@@ -125,10 +125,9 @@ class WirelessEnvV0(Env):
             }
         )
 
-        self.info = {}
         self.taken_steps = 0.0
 
-        return observation, self.info
+        return observation, {}
 
     def step(
         self, action: np.ndarray, **kwargs
@@ -158,9 +157,8 @@ class WirelessEnvV0(Env):
             "next_path_gain_dB": self.next_gain,
             "reward": reward,
         }
-        self.info.update(step_info)
 
-        return next_observation, reward, terminated, truncated, self.info
+        return next_observation, reward, terminated, truncated, step_info
 
     def _cal_reward(
         self, cur_gain: float, next_gain: float, time_taken: float
@@ -195,7 +193,7 @@ class WirelessEnvV0(Env):
         angles = np.deg2rad(self.angles)
         angles = (angles[: len(angles) // 2], angles[len(angles) // 2 :])
         angle_path = os.path.join(
-            tmp_dir, f"angles-{self.log_string}-{self.current_time}.pkl"
+            tmp_dir, f"angles-{self.log_string}-{self.current_time}-{self.idx}.pkl"
         )
         with open(angle_path, "wb") as f:
             pickle.dump(angles, f)

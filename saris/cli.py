@@ -11,15 +11,13 @@ import gymnasium as gym
 from saris.drl.envs import register_envs
 from saris.drl.trainers import trainer_module
 from saris.drl.agents import ppo_agent
-from saris.drl.envs.wireless import WirelessEnvV0
 import importlib.resources
 import saris
 import torch
 import tyro
 from dataclasses import dataclass
-import multiprocessing
 
-multiprocessing.set_start_method("spawn", force=True)
+register_envs()
 
 
 @dataclass
@@ -65,13 +63,13 @@ class Args:
     """the id of the environment"""
     env_id: str = "wireless-sigmap-v0"
     """total timesteps of the experiments"""
-    total_timesteps: int = 64000
+    total_timesteps: int = 32000
     """the learning rate of the optimizer"""
     learning_rate: float = 1e-4
     """the number of parallel game environments"""
     num_envs: int = 8
     """the number of steps to run in each environment per policy rollout"""
-    num_steps: int = 16
+    num_steps: int = 2
     """the discount factor gamma"""
     gamma: float = 0.75
     """the lambda for the general advantage estimation"""
@@ -119,16 +117,16 @@ def make_env(
 
     def thunk():
 
-        env = WirelessEnvV0(
+        env = gym.make(
+            env_id,
             idx=idx,
             sionna_config_file=args.sionna_config_file,
             log_string=args.log_string,
             seed=args.seed,
+            max_episode_steps=args.ep_len,
         )
-        env = gym.wrappers.TimeLimit(env, max_episode_steps=args.ep_len)
         env = gym.wrappers.RecordEpisodeStatistics(env)
         env = gym.wrappers.FlattenObservation(env)
-        env = gym.wrappers.RecordEpisodeStatistics(env)
         env = gym.wrappers.ClipAction(env)
         env = gym.wrappers.NormalizeObservation(env)
         env = gym.wrappers.TransformObservation(env, lambda obs: np.clip(obs, -10, 10))
@@ -208,9 +206,9 @@ def main():
         utils.log_config(sionna_config)
 
     # Env
-    register_envs()
     envs = gym.vector.AsyncVectorEnv(
-        [make_env(args.env_id, args, i) for i in range(args.num_envs)]
+        [make_env(args.env_id, args, i) for i in range(args.num_envs)],
+        context="spawn",
     )
     # envs = gym.vector.SyncVectorEnv(
     #     [make_env(args.env_id, args, i) for i in range(args.num_envs)]

@@ -262,9 +262,9 @@ class TrainerModule:
         local_assets_dir = utils.get_dir(args.source_dir, "local_assets")
         buffer_saved_name = os.path.join("replay_buffer", args.log_string)
         buffer_saved_dir = utils.get_dir(local_assets_dir, buffer_saved_name)
-        replay_buffer = ReplayBuffer(
-            args.replay_buffer_capacity, buffer_saved_dir, seed=args.seed
-        )
+        # replay_buffer = ReplayBuffer(
+        #     args.replay_buffer_capacity, buffer_saved_dir, seed=args.seed
+        # )
 
         # Load model if exists
         is_ckpt_available = False
@@ -374,6 +374,23 @@ class TrainerModule:
             b_advantages = advantages.reshape(-1)
             b_returns = returns.reshape(-1)
             b_values = values.reshape(-1)
+
+            utils.save_data(
+                pytorch_utils.to_numpy(obs),
+                os.path.join(buffer_saved_dir, "obs.txt"),
+            )
+            utils.save_data(
+                pytorch_utils.to_numpy(actions),
+                os.path.join(buffer_saved_dir, "actions.txt"),
+            )
+            utils.save_data(
+                pytorch_utils.to_numpy(rewards),
+                os.path.join(buffer_saved_dir, "rewards.txt"),
+            )
+            utils.save_data(
+                pytorch_utils.to_numpy(dones),
+                os.path.join(buffer_saved_dir, "dones.txt"),
+            )
 
             # Optimizing the policy and value network
             b_inds = np.arange(args.batch_size)

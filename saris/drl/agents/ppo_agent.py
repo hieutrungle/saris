@@ -16,19 +16,19 @@ class Agent(nn.Module):
         super().__init__()
         self.rpo_alpha = rpo_alpha
         self.critic = nn.Sequential(
-            layer_init(nn.Linear(np.prod(ob_shape), 64)),
+            layer_init(nn.Linear(np.prod(ob_shape), 256)),
             nn.Tanh(),
-            layer_init(nn.Linear(64, 64)),
+            layer_init(nn.Linear(256, 256)),
             nn.Tanh(),
-            layer_init(nn.Linear(64, 1), std=1.0),
+            layer_init(nn.Linear(256, 1), std=1.0),
         )
 
         self.actor_mean = nn.Sequential(
-            layer_init(nn.Linear(np.prod(ob_shape), 64)),
+            layer_init(nn.Linear(np.prod(ob_shape), 256)),
             nn.Tanh(),
-            layer_init(nn.Linear(64, 64)),
+            layer_init(nn.Linear(256, 256)),
             nn.Tanh(),
-            layer_init(nn.Linear(64, np.prod(ac_shape)), std=0.01),
+            layer_init(nn.Linear(256, np.prod(ac_shape)), std=0.01),
         )
         self.actor_logstd = nn.Parameter(torch.zeros(1, np.prod(ac_shape)))
 

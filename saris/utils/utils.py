@@ -228,3 +228,9 @@ def add_batch_dimension(data: Union[np.ndarray, dict]):
         return {k: add_batch_dimension(v) for k, v in data.items()}
     else:
         return data[None, ...]
+
+
+def save_data(data: dict, file_path: str, mode: str = "a") -> None:
+    with open(file_path, mode) as f:
+        json.dump(data, f, cls=NpEncoder, indent=4)
+        f.write("\n")
