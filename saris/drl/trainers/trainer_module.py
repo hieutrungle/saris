@@ -282,12 +282,12 @@ class TrainerModule:
         start_step = int(start_step)
 
         # ALGO Logic: Storage setup
-        obs = torch.zeros(
-            (args.num_steps, args.num_envs) + envs.single_observation_space.shape
-        ).to(args.device)
-        actions = torch.zeros(
-            (args.num_steps, args.num_envs) + envs.single_action_space.shape
-        ).to(args.device)
+        obs = torch.zeros((args.num_steps, args.num_envs) + envs.single_observation_space.shape).to(
+            args.device
+        )
+        actions = torch.zeros((args.num_steps, args.num_envs) + envs.single_action_space.shape).to(
+            args.device
+        )
         logprobs = torch.zeros((args.num_steps, args.num_envs)).to(args.device)
         rewards = torch.zeros((args.num_steps, args.num_envs)).to(args.device)
         dones = torch.zeros((args.num_steps, args.num_envs)).to(args.device)
@@ -316,9 +316,7 @@ class TrainerModule:
                 dones[step] = next_done
 
                 with torch.no_grad():
-                    action, log_prob, _, value = self.agent.get_action_and_value(
-                        next_ob
-                    )
+                    action, log_prob, _, value = self.agent.get_action_and_value(next_ob)
                     values[step] = value.flatten()
                 actions[step] = action
                 logprobs[step] = log_prob
@@ -360,14 +358,9 @@ class TrainerModule:
                     else:
                         nextnonterminal = 1.0 - dones[t + 1]
                         nextvalues = values[t + 1]
-                    delta = (
-                        rewards[t]
-                        + args.gamma * nextvalues * nextnonterminal
-                        - values[t]
-                    )
+                    delta = rewards[t] + args.gamma * nextvalues * nextnonterminal - values[t]
                     advantages[t] = lastgaelam = (
-                        delta
-                        + args.gamma * args.gae_lambda * nextnonterminal * lastgaelam
+                        delta + args.gamma * args.gae_lambda * nextnonterminal * lastgaelam
                     )
                 returns = advantages + values
 
@@ -419,9 +412,7 @@ class TrainerModule:
                         # calculate approx_kl http://joschu.net/blog/kl-approx.html
                         old_approx_kl = (-logratio).mean()
                         approx_kl = ((ratio - 1) - logratio).mean()
-                        clipfracs += [
-                            ((ratio - 1.0).abs() > args.clip_coef).float().mean().item()
-                        ]
+                        clipfracs += [((ratio - 1.0).abs() > args.clip_coef).float().mean().item()]
 
                     mb_advantages = b_advantages[mb_inds]
                     if args.norm_adv:
@@ -452,16 +443,12 @@ class TrainerModule:
                         v_loss = 0.5 * ((newvalue - b_returns[mb_inds]) ** 2).mean()
 
                     entropy_loss = entropy.mean()
-                    loss = (
-                        pg_loss - args.ent_coef * entropy_loss + v_loss * args.vf_coef
-                    )
+                    loss = pg_loss - args.ent_coef * entropy_loss + v_loss * args.vf_coef
 
                     self.agent_optimizer.zero_grad(set_to_none=True)
                     self.agent_scaler.scale(loss).backward()
                     self.agent_scaler.unscale_(self.agent_optimizer)
-                    torch.nn.utils.clip_grad_norm_(
-                        self.agent.parameters(), max_norm=0.5
-                    )
+                    torch.nn.utils.clip_grad_norm_(self.agent.parameters(), max_norm=0.5)
                     self.agent_scaler.step(self.agent_optimizer)
                     self.agent_scaler.update()
                     self.agent_scheduler.step()
@@ -480,9 +467,7 @@ class TrainerModule:
 
             y_pred, y_true = b_values.cpu().numpy(), b_returns.cpu().numpy()
             var_y = np.var(y_true)
-            explained_var = (
-                np.nan if var_y == 0 else 1 - np.var(y_true - y_pred) / var_y
-            )
+            explained_var = np.nan if var_y == 0 else 1 - np.var(y_true - y_pred) / var_y
 
             # TRY NOT TO MODIFY: record rewards for plotting purposes
             metrics = {
@@ -577,14 +562,10 @@ class TrainerModule:
 
         return trajectories
 
-    def eval_agent(
-        self, env: gym.Env, drl_config: Dict[str, Any], args: argparse.Namespace
-    ):
+    def eval_agent(self, env: gym.Env, drl_config: Dict[str, Any], args: argparse.Namespace):
 
         print("\n" + f"*" * 80)
-        print(
-            f"Evaluating {self.actor_class.__name__} and {self.critic_class.__name__}"
-        )
+        print(f"Evaluating {self.actor_class.__name__} and {self.critic_class.__name__}")
 
         eval_ep_len = drl_config["eval_ep_len"]
         num_evals = drl_config["num_eval_trials"]
@@ -696,9 +677,7 @@ class TrainerModule:
         print(f"*" * 80)
         print()
 
-    def add_batch_dimension(
-        self, data: Union[np.ndarray, list, dict, tuple]
-    ) -> np.ndarray:
+    def add_batch_dimension(self, data: Union[np.ndarray, list, dict, tuple]) -> np.ndarray:
         """
         Adds a batch dimension to the data.
 
@@ -724,9 +703,7 @@ class TrainerModule:
         filename: Name of the metrics file without folders and postfix.
         metrics: A dictionary of metrics to save in the file.
         """
-        with open(
-            os.path.join(self.logger.log_dir, f"metrics/{filename}.json"), "w"
-        ) as f:
+        with open(os.path.join(self.logger.log_dir, f"metrics/{filename}.json"), "w") as f:
             json.dump(metrics, f, indent=4, cls=utils.NpEncoder)
 
     @abstractmethod
