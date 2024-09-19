@@ -227,7 +227,7 @@ def train(args: argparse.Namespace, envs: gym.vector.VectorEnv):
         if global_step < args.learning_starts:
             actions = np.array([envs.single_action_space.sample() for _ in range(envs.num_envs)])
         else:
-            actions, _, _ = agent.actor.get_action(torch.Tensor(obs).to(args.device))
+            actions, _, _ = agent.actor.get_actions(torch.Tensor(obs).to(args.device))
             actions = actions.detach().cpu().numpy()
 
         # TRY NOT TO MODIFY: execute the game and log data.
@@ -256,7 +256,7 @@ def train(args: argparse.Namespace, envs: gym.vector.VectorEnv):
             for _ in range(args.num_updates_per_step):
                 data = rb.sample(args.batch_size)
                 with torch.no_grad():
-                    next_state_actions, next_state_log_pi, _ = agent.actor.get_action(
+                    next_state_actions, next_state_log_pi, _ = agent.actor.get_actions(
                         data.next_observations
                     )
                     next_q1s = agent.target_qf1(data.next_observations, next_state_actions)
@@ -288,7 +288,7 @@ def train(args: argparse.Namespace, envs: gym.vector.VectorEnv):
                 if global_step % args.policy_frequency == 0:
                     # compensate for the delay by doing 'actor_update_interval' instead of 1
                     for _ in range(args.policy_frequency):
-                        pi, log_pi, _ = agent.actor.get_action(data.observations)
+                        pi, log_pi, _ = agent.actor.get_actions(data.observations)
                         qf1_pi = agent.qf1(data.observations, pi)
                         qf2_pi = agent.qf2(data.observations, pi)
                         min_qf_pi = torch.min(qf1_pi, qf2_pi)

@@ -68,7 +68,7 @@ class Actor(nn.Module):
 
         return mean, log_std
 
-    def get_action(self, x):
+    def get_actions(self, x):
         mean, log_std = self(x)
         std = log_std.exp()
         normal = torch.distributions.Normal(mean, std)
@@ -99,20 +99,29 @@ class Agent(nn.Module):
         self.target_qf1.load_state_dict(self.qf1.state_dict())
         self.target_qf2.load_state_dict(self.qf2.state_dict())
 
-    def get_action(self, x):
-        return self.actor.get_action(x)
+    def get_actions(self, obs: dict[str, torch.Tensor]):
+        _, _, mean = self.actor.get_actions(obs)
+        return mean
 
-    def get_q_values(self, x, a):
-        q1 = self.qf1(x, a)
-        q2 = self.qf2(x, a)
+    def get_trainable_action(self, obs: dict[str, torch.Tensor]):
+        action, log_prob, mean = self.actor.get_actions(obs)
+        return action, log_prob, mean
+
+    def get_q_values(
+        self, obs: dict[str, torch.Tensor], a: torch.Tensor
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        q1 = self.qf1(obs, a)
+        q2 = self.qf2(obs, a)
         return q1, q2
 
-    def get_target_q_values(self, x, a):
-        q1 = self.target_qf1(x, a)
-        q2 = self.target_qf2(x, a)
+    def get_target_q_values(
+        self, obs: dict[str, torch.Tensor], a: torch.Tensor
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        q1 = self.target_qf1(obs, a)
+        q2 = self.target_qf2(obs, a)
         return q1, q2
 
-    def update_target(self, tau):
+    def update_target(self, tau: float):
         for target_param, param in zip(self.target_qf1.parameters(), self.qf1.parameters()):
             target_param.data.copy_(tau * param.data + (1 - tau) * target_param.data)
         for target_param, param in zip(self.target_qf2.parameters(), self.qf2.parameters()):
@@ -226,8 +235,8 @@ class DictActor(nn.Module):
 
         return mean, log_std
 
-    def get_action(self, x):
-        mean, log_std = self(x)
+    def get_actions(self, obs: dict):
+        mean, log_std = self(obs)
         std = log_std.exp()
         normal = torch.distributions.Normal(mean, std)
         x_t = normal.rsample()  # for reparameterization trick (mean + std * N(0,1))

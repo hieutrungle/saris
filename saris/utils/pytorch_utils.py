@@ -45,3 +45,10 @@ def to_numpy(tensor: Union[torch.Tensor, dict]) -> Union[np.ndarray, dict]:
         return tensor
     else:
         return tensor.to("cpu").detach().float().numpy()
+
+
+def add_batch_dim(data: Union[torch.Tensor, dict[str, torch.Tensor]]) -> dict[str, torch.Tensor]:
+    if isinstance(data, dict):
+        return {k: v.unsqueeze(0) for k, v in data.items()}
+    else:
+        return data.unsqueeze(0)
