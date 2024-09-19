@@ -90,20 +90,11 @@ class SignalCoverageMap:
         paths = scene.compute_paths(**paths_kwargs)
         return paths
 
-    def compute_render(
-        self, cmap_enabled: bool = False, paths_enabled: bool = False
-    ) -> None:
+    def compute_render(self, cmap_enabled: bool = False, paths_enabled: bool = False) -> None:
 
         # Visualize coverage maps with ceiling off
-        if cmap_enabled:
-            cm = self.compute_cmap()
-        else:
-            cm = None
-
-        if paths_enabled:
-            paths = self.compute_paths()
-        else:
-            paths = None
+        cm = self.compute_cmap() if cmap_enabled else None
+        paths = self.compute_paths() if paths_enabled else None
 
         scene = map_prep.prepare_scene(self.config, self._viz_scene_path, self.cam)
 
