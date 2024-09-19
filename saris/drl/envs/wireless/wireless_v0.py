@@ -221,10 +221,6 @@ class WirelessEnvV0(Env):
         viz_scene_dir = os.path.join(blender_output_dir, "idx")
         viz_scene_path = glob.glob(os.path.join(viz_scene_dir, "*.xml"))[0]
 
-        # Path for outputing iamges if we want to visualize the coverage map
-        img_dir = os.path.join(assets_dir, "images", self.log_string + self.current_time)
-        render_filename = utils.create_filename(img_dir, f"{scene_name}_00000.png")
-
         sig_cmap = signal_cmap.SignalCoverageMap(
             self.sionna_config, compute_scene_path, viz_scene_path
         )
@@ -239,6 +235,11 @@ class WirelessEnvV0(Env):
             h_time_avg_power = tf.reduce_mean(tf.reduce_sum(tf.abs(h_time) ** 2, axis=-1)).numpy()
             path_gain = h_time_avg_power
         else:
+            # Path for outputing iamges if we want to visualize the coverage map
+            img_dir = os.path.join(
+                assets_dir, "images", self.log_string + self.current_time + f"_{self.idx}"
+            )
+            render_filename = utils.create_filename(img_dir, f"{scene_name}_00000.png")
             coverage_map = sig_cmap.compute_cmap()
             path_gain = sig_cmap.get_path_gain(coverage_map)
             sig_cmap.render_to_file(coverage_map, filename=render_filename)

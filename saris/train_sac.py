@@ -247,6 +247,7 @@ def train(args: argparse.Namespace, envs: gym.vector.VectorEnv):
             if trunc:
                 real_next_obs[idx] = infos["final_observation"][idx]
         rb.add(obs, real_next_obs, actions, rewards, terminations, infos)
+        # TODO: save data to file
 
         # TRY NOT TO MODIFY: CRUCIAL step easy to overlook
         obs = next_obs
