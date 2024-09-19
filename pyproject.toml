@@ -32,6 +32,7 @@ tensorflow = { version = "=2.14.1", extras = ["and-cuda"] }
 tensorrt = "=8.5.3.1"
 pyyaml = "^6.0.2"
 tyro = "^0.8.10"
+stable-baselines3 = {extras = ["extra"], version = "^2.3.2"}
 
 
 [tool.poetry.dev-dependencies]
