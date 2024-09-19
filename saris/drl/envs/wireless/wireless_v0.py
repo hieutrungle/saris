@@ -76,9 +76,7 @@ class WirelessEnvV0(Env):
         self.angle_space = spaces.Box(low=angle_low, high=angle_high, dtype=np.float32)
 
         # Power average of the equivalent channel
-        self.gain_space = spaces.Box(
-            low=-np.inf, high=np.inf, shape=(1,), dtype=np.float32
-        )
+        self.gain_space = spaces.Box(low=-np.inf, high=np.inf, shape=(1,), dtype=np.float32)
 
         self.angles = None
 
@@ -110,9 +108,7 @@ class WirelessEnvV0(Env):
     def reset(self, seed: int = None, options: dict = None) -> Tuple[dict, dict]:
         super().reset(seed=seed, options=options)
 
-        self.angles = self.np_rng.uniform(
-            low=self.angle_space.low, high=self.angle_space.high
-        )
+        self.angles = self.np_rng.uniform(low=self.angle_space.low, high=self.angle_space.high)
         self.angles = np.clip(self.angles, self.angle_space.low, self.angle_space.high)
 
         self.cur_gain = self._cal_path_gain_dB(use_cmap=self.use_cmap)
@@ -129,16 +125,12 @@ class WirelessEnvV0(Env):
 
         return observation, {}
 
-    def step(
-        self, action: np.ndarray, **kwargs
-    ) -> Tuple[dict, float, bool, bool, dict]:
+    def step(self, action: np.ndarray, **kwargs) -> Tuple[dict, float, bool, bool, dict]:
 
         self.taken_steps += 1.0
         self.cur_gain = self.next_gain
 
-        self.angles = np.clip(
-            self.angles + action, self.angle_space.low, self.angle_space.high
-        )
+        self.angles = np.clip(self.angles + action, self.angle_space.low, self.angle_space.high)
 
         truncated = False
         terminated = False
@@ -160,12 +152,12 @@ class WirelessEnvV0(Env):
 
         return next_observation, reward, terminated, truncated, step_info
 
-    def _cal_reward(
-        self, cur_gain: float, next_gain: float, time_taken: float
-    ) -> float:
+    def _cal_reward(self, cur_gain: float, next_gain: float, time_taken: float) -> float:
+        threshold = -100.0  # dB
+        scaled_gain = cur_gain - threshold
         gain_diff = 2.0 * (next_gain - cur_gain)
         cost_time = -0.02 * time_taken
-        reward = gain_diff + cost_time
+        reward = scaled_gain + gain_diff + cost_time
         return reward
 
     def _cal_path_gain_dB(self, use_cmap: bool = False) -> float:
@@ -198,9 +190,7 @@ class WirelessEnvV0(Env):
         with open(angle_path, "wb") as f:
             pickle.dump(angles, f)
 
-        blender_script = os.path.join(
-            source_dir, "saris", "blender_script", "bl_drl.py"
-        )
+        blender_script = os.path.join(source_dir, "saris", "blender_script", "bl_drl.py")
 
         blender_cmd = [
             blender_app,
@@ -232,9 +222,7 @@ class WirelessEnvV0(Env):
         viz_scene_path = glob.glob(os.path.join(viz_scene_dir, "*.xml"))[0]
 
         # Path for outputing iamges if we want to visualize the coverage map
-        img_dir = os.path.join(
-            assets_dir, "images", self.log_string + self.current_time
-        )
+        img_dir = os.path.join(assets_dir, "images", self.log_string + self.current_time)
         render_filename = utils.create_filename(img_dir, f"{scene_name}_00000.png")
 
         sig_cmap = signal_cmap.SignalCoverageMap(
@@ -248,9 +236,7 @@ class WirelessEnvV0(Env):
             a, tau = cir
             (l_min, l_max) = time_lag_discrete_time_channel(bandwidth)
             h_time = cir_to_time_channel(bandwidth, a, tau, l_min, l_max)
-            h_time_avg_power = tf.reduce_mean(
-                tf.reduce_sum(tf.abs(h_time) ** 2, axis=-1)
-            ).numpy()
+            h_time_avg_power = tf.reduce_mean(tf.reduce_sum(tf.abs(h_time) ** 2, axis=-1)).numpy()
             path_gain = h_time_avg_power
         else:
             coverage_map = sig_cmap.compute_cmap()
