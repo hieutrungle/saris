@@ -61,12 +61,16 @@ class Args:
     load_step: int = 0
 
     # Environment specific arguments
+    """the id of the environment"""
+    env_id: str = "wireless-sigmap-v0"
     """Replay buffer capacity"""
     replay_buffer_capacity: int = 1000
     """the length of the episode"""
     ep_len: int = 100
     """Config file for the wireless simulation"""
     sionna_config_file: str = "sionna_config.yaml"
+    """the number of parallel game environments"""
+    num_envs: int = 2
 
     # Algorithm specific arguments
     """total timesteps of the experiments"""
@@ -119,7 +123,7 @@ def make_env(
             max_episode_steps=args.ep_len,
         )
         env = gym.wrappers.RecordEpisodeStatistics(env)
-        env = gym.wrapper.TimeLimit(env, max_episode_steps=args.ep_len)
+        env = gym.wrappers.TimeLimit(env, max_episode_steps=args.ep_len)
         env.action_space.seed(args.seed)
         env.observation_space.seed(args.seed)
 
@@ -179,12 +183,7 @@ def train(args: argparse.Namespace, envs: gym.vector.VectorEnv):
         % ("\n".join([f"|{key}|{value}|" for key, value in vars(args).items()])),
     )
 
-    agent = sac.Agent(
-        envs.single_observation_space.shape,
-        envs.single_action_space.shape,
-        envs.single_action_space.high,
-        envs.single_action_space.low,
-    )
+    agent = sac.Agent(envs.single_observation_space, envs.single_action_space)
 
     num_agent_update = (args.total_timesteps - args.learning_starts) * args.num_updates_per_step
     q_optimizer, q_scheduler = init_optimizer(
@@ -215,6 +214,7 @@ def train(args: argparse.Namespace, envs: gym.vector.VectorEnv):
         envs.single_observation_space,
         envs.single_action_space,
         torch.device("cpu"),
+        n_envs=envs.num_envs,
         handle_timeout_termination=True,
     )
 
@@ -231,7 +231,7 @@ def train(args: argparse.Namespace, envs: gym.vector.VectorEnv):
             actions = actions.detach().cpu().numpy()
 
         # TRY NOT TO MODIFY: execute the game and log data.
-        next_obs, rewards, terminations, truncations, infos = envs.step(actions)
+        next_obs, rewards, terminations, truncations, infos = envs.step_async(actions)
 
         # TRY NOT TO MODIFY: record rewards for plotting purposes
         if "final_info" in infos:
@@ -246,6 +246,16 @@ def train(args: argparse.Namespace, envs: gym.vector.VectorEnv):
         for idx, trunc in enumerate(truncations):
             if trunc:
                 real_next_obs[idx] = infos["final_observation"][idx]
+
+        print(f"obs: {obs}")
+        print(f"real_next_obs: {real_next_obs}")
+        print(f"actions: {actions}")
+        print(f"rewards: {rewards}")
+        print(f"terminations: {terminations}")
+        print(f"infos: {infos}")
+        for info in infos:
+            print(f"info: {info}")
+        print()
         rb.add(obs, real_next_obs, actions, rewards, terminations, infos)
         # TODO: save data to file
 
@@ -255,7 +265,7 @@ def train(args: argparse.Namespace, envs: gym.vector.VectorEnv):
         # ALGO LOGIC: training.
         if global_step > args.learning_starts:
             for _ in range(args.num_updates_per_step):
-                data = rb.sample(args.batch_size)
+                data = rb.sample(args.batch_size, envs.num_envs)
                 with torch.no_grad():
                     next_state_actions, next_state_log_pi, _ = agent.actor.get_actions(
                         data.next_observations
@@ -391,11 +401,6 @@ def main():
     ac_space = envs.single_action_space
     print(f"Observation space: {ob_space}")
     print(f"Action space: {ac_space}")
-
-    ob_shape = envs.single_observation_space.shape
-    ac_shape = envs.single_action_space.shape
-    print(f"Observation shape: {ob_shape}")
-    print(f"Action shape: {ac_shape}")
 
     if args.track:
         import wandb

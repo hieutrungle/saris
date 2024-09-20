@@ -84,18 +84,13 @@ class Actor(nn.Module):
 
 
 class Agent(nn.Module):
-    def __init__(
-        self,
-        ob_shape: Sequence[int],
-        ac_shape: Sequence[int],
-        action_high: Union[float, Sequence[float]],
-        action_low: Union[float, Sequence[float]],
-    ):
-        self.actor = DictActor(ob_shape, ac_shape, action_high, action_low)
-        self.qf1 = DictSoftQNetwork(ob_shape, ac_shape)
-        self.qf2 = DictSoftQNetwork(ob_shape, ac_shape)
-        self.target_qf1 = DictSoftQNetwork(ob_shape, ac_shape)
-        self.target_qf2 = DictSoftQNetwork(ob_shape, ac_shape)
+    def __init__(self, ob_space: gym.spaces.Dict, ac_space: gym.spaces.Box):
+        super().__init__()
+        self.actor = DictActor(ob_space, ac_space)
+        self.qf1 = DictSoftQNetwork(ob_space, ac_space)
+        self.qf2 = DictSoftQNetwork(ob_space, ac_space)
+        self.target_qf1 = DictSoftQNetwork(ob_space, ac_space)
+        self.target_qf2 = DictSoftQNetwork(ob_space, ac_space)
         self.target_qf1.load_state_dict(self.qf1.state_dict())
         self.target_qf2.load_state_dict(self.qf2.state_dict())
 
