@@ -733,7 +733,6 @@ class TrainerModule:
         End the training process.
         """
         self.logger.flush()
-        self.logger.close()
         self.agent = self.agent.to("cpu")
         print("Training ended.")
         print(f"*" * 80)
