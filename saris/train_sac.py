@@ -94,7 +94,7 @@ class Args:
     """the learning rate of the Q network network optimizer"""
     q_lr: float = 1e-3
     """The number of agent updates per environment step"""
-    num_updates_per_step: int = 1
+    num_updates_per_step: int = 2
     """the frequency of training policy (delayed)"""
     policy_frequency: int = 2
     """the frequency of updates for the target nerworks"""
