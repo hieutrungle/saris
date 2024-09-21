@@ -22,6 +22,7 @@ import tyro
 from stable_baselines3.common import buffers
 from torch.utils.tensorboard import SummaryWriter
 import time
+import copy
 
 register_envs()
 
@@ -74,9 +75,9 @@ class Args:
 
     # Algorithm specific arguments
     """total timesteps of the experiments"""
-    total_timesteps: int = 5000
+    total_timesteps: int = 16000
     """the replay memory buffer size"""
-    buffer_size: int = int(5000)
+    buffer_size: int = int(4000)
     """the discount factor gamma"""
     gamma: float = 0.99
     """target smoothing coefficient (default: 0.005)"""
@@ -184,6 +185,7 @@ def train(args: argparse.Namespace, envs: gym.vector.VectorEnv):
     )
 
     agent = sac.Agent(envs.single_observation_space, envs.single_action_space)
+    agent = agent.to(args.device)
 
     num_agent_update = (args.total_timesteps - args.learning_starts) * args.num_updates_per_step
     q_optimizer, q_scheduler = init_optimizer(
@@ -215,10 +217,17 @@ def train(args: argparse.Namespace, envs: gym.vector.VectorEnv):
         envs.single_action_space,
         torch.device("cpu"),
         n_envs=envs.num_envs,
-        handle_timeout_termination=True,
+        handle_timeout_termination=False,
     )
+    # Create replay buffer
+    local_assets_dir = utils.get_dir(args.source_dir, "local_assets")
+    buffer_saved_name = os.path.join("replay_buffer", args.log_string)
+    buffer_saved_dir = utils.get_dir(local_assets_dir, buffer_saved_name)
 
     start_time = time.time()
+
+    obs_rms = create_running_meanstd_for_dict(envs.single_observation_space)
+    rewards_rms = RunningMeanStd(shape=(1,))
 
     obs, _ = envs.reset(seed=args.seed)
     # TODO: use some new data + old data from the replay buffer. Mix both offline and online data.
@@ -227,59 +236,112 @@ def train(args: argparse.Namespace, envs: gym.vector.VectorEnv):
         if global_step < args.learning_starts:
             actions = np.array([envs.single_action_space.sample() for _ in range(envs.num_envs)])
         else:
-            actions, _, _ = agent.actor.get_actions(torch.Tensor(obs).to(args.device))
+            torch_obs = pytorch_utils.from_numpy(obs, args.device)
+            actions, _, _ = agent.actor.get_actions(torch_obs)
             actions = actions.detach().cpu().numpy()
 
         # TRY NOT TO MODIFY: execute the game and log data.
-        next_obs, rewards, terminations, truncations, infos = envs.step_async(actions)
+        next_obs, rewards, terminations, truncations, infos = envs.step(actions)
 
         # TRY NOT TO MODIFY: record rewards for plotting purposes
         if "final_info" in infos:
-            for info in infos["final_info"]:
-                print(f"global_step={global_step}, episodic_return={info['episode']['r']}")
-                writer.add_scalar("charts/episodic_return", info["episode"]["r"], global_step)
-                writer.add_scalar("charts/episodic_length", info["episode"]["l"], global_step)
-                break
+            returns = [info["episode"]["r"] for info in infos["final_info"]]
+            return_mean = np.mean([info["episode"]["r"] for info in infos["final_info"]])
+            return_std = np.std([info["episode"]["r"] for info in infos["final_info"]])
+            writer.add_scalar("charts/return_max", np.max(returns), global_step)
+            writer.add_scalar("charts/return_min", np.min(returns), global_step)
+            writer.add_scalar("charts/return_mean", return_mean, global_step)
+            writer.add_scalar("charts/return_std", return_std, global_step)
+            print(f"global_step={global_step}, return_mean={return_mean}, return_std={return_std}")
+
+            path_gains = [info["path_gain_dB"] for info in infos["final_info"]]
+            next_path_gains = [info["next_path_gain_dB"] for info in infos["final_info"]]
+        else:
+            path_gains = infos["path_gain_dB"]
+            next_path_gains = infos["next_path_gain_dB"]
+        # save data to file
+        utils.save_data(
+            {f"{global_step}": path_gains},
+            os.path.join(buffer_saved_dir, "path_gains.txt"),
+        )
+        utils.save_data(
+            {f"{global_step}": next_path_gains},
+            os.path.join(buffer_saved_dir, "next_path_gains.txt"),
+        )
 
         # TRY NOT TO MODIFY: save data to reply buffer; handle `final_observation`
-        real_next_obs = next_obs.copy()
+        real_next_obs = copy.deepcopy(next_obs)
         for idx, trunc in enumerate(truncations):
             if trunc:
-                real_next_obs[idx] = infos["final_observation"][idx]
+                # Dict Obs
+                for key in real_next_obs.keys():
+                    real_next_obs[key][idx] = infos["final_observation"][idx][key]
+                # real_next_obs[idx] = infos["final_observation"][idx]
 
-        print(f"obs: {obs}")
-        print(f"real_next_obs: {real_next_obs}")
-        print(f"actions: {actions}")
-        print(f"rewards: {rewards}")
-        print(f"terminations: {terminations}")
-        print(f"infos: {infos}")
-        for info in infos:
-            print(f"info: {info}")
-        print()
-        rb.add(obs, real_next_obs, actions, rewards, terminations, infos)
-        # TODO: save data to file
+        dones = np.zeros_like(terminations)
+        rb.add(obs, real_next_obs, actions, rewards, dones, [])
+        utils.save_data(
+            {f"{global_step}": obs},
+            os.path.join(buffer_saved_dir, "obs.txt"),
+        )
+        utils.save_data(
+            {f"{global_step}": actions},
+            os.path.join(buffer_saved_dir, "actions.txt"),
+        )
+        utils.save_data(
+            {f"{global_step}": real_next_obs},
+            os.path.join(buffer_saved_dir, "next_obs.txt"),
+        )
+        utils.save_data(
+            {f"{global_step}": dones},
+            os.path.join(buffer_saved_dir, "dones.txt"),
+        )
+        utils.save_data(
+            {f"{global_step}": rewards},
+            os.path.join(buffer_saved_dir, "rewards.txt"),
+        )
 
         # TRY NOT TO MODIFY: CRUCIAL step easy to overlook
+        obs_rms = update_rms_dict(obs_rms, obs)
+        rewards_rms.update(torch.tensor(rewards, dtype=torch.float))
         obs = next_obs
 
         # ALGO LOGIC: training.
         if global_step > args.learning_starts:
             for _ in range(args.num_updates_per_step):
-                data = rb.sample(args.batch_size, envs.num_envs)
+                data = rb.sample(args.batch_size)
+                print(f"global_step={global_step}, data={data}")
+                torch_obs = normalize_obs(copy.deepcopy(data.observations), obs_rms, args.device)
+                torch_next_obs = normalize_obs(
+                    copy.deepcopy(data.next_observations), obs_rms, args.device
+                )
+                torch_actions = data.actions.to(args.device)
+                print(f"reward mean={rewards_rms.mean}, reward var={rewards_rms.var}")
+                torch_rewards = data.rewards / (rewards_rms.var + 1e-8)
+                torch_rewards = torch_rewards.to(args.device)
+                torch_dones = data.dones.to(args.device)
+                print(f"global_step={global_step}, torch_obs={torch_obs}")
+                print(f"global_step={global_step}, torch_actions={torch_actions}")
+                print(f"global_step={global_step}, torch_next_obs={torch_next_obs}")
+                print(f"global_step={global_step}, torch_rewards={torch_rewards}")
+                print(f"global_step={global_step}, torch_dones={torch_dones}")
+                print()
+                print(f"global_step={global_step}, data={data}")
+                print()
                 with torch.no_grad():
                     next_state_actions, next_state_log_pi, _ = agent.actor.get_actions(
-                        data.next_observations
+                        torch_next_obs
                     )
-                    next_q1s = agent.target_qf1(data.next_observations, next_state_actions)
-                    next_q2s = agent.target_qf2(data.next_observations, next_state_actions)
+                    next_q1s = agent.target_qf1(torch_next_obs, next_state_actions)
+                    next_q2s = agent.target_qf2(torch_next_obs, next_state_actions)
                     min_next_qs, _ = torch.min(next_q1s, next_q2s) - alpha * next_state_log_pi
                     min_next_qs = min_next_qs.view(-1)
-                    flat_rews = data.rewards.flatten()
-                    flat_dones = data.dones.flatten()
+                    flat_rews = torch_rewards.flatten()
+                    flat_dones = torch_dones.flatten()
                     target_q_values = flat_rews + (1 - flat_dones) * args.gamma * min_next_qs
 
-                qf1_values = agent.qf1(data.observations, data.actions).view(-1)
-                qf2_values = agent.qf2(data.observations, data.actions).view(-1)
+                qf1_values = agent.qf1(torch_obs, torch_actions).view(-1)
+                qf2_values = agent.qf2(torch_obs, torch_actions).view(-1)
                 qf1_loss = F.mse_loss(qf1_values, target_q_values)
                 qf2_loss = F.mse_loss(qf2_values, target_q_values)
                 qf_loss = qf1_loss + qf2_loss
@@ -299,9 +361,9 @@ def train(args: argparse.Namespace, envs: gym.vector.VectorEnv):
                 if global_step % args.policy_frequency == 0:
                     # compensate for the delay by doing 'actor_update_interval' instead of 1
                     for _ in range(args.policy_frequency):
-                        pi, log_pi, _ = agent.actor.get_actions(data.observations)
-                        qf1_pi = agent.qf1(data.observations, pi)
-                        qf2_pi = agent.qf2(data.observations, pi)
+                        pi, log_pi, _ = agent.actor.get_actions(torch_obs)
+                        qf1_pi = agent.qf1(torch_obs, pi)
+                        qf2_pi = agent.qf2(torch_obs, pi)
                         min_qf_pi = torch.min(qf1_pi, qf2_pi)
                         actor_loss = ((alpha * log_pi) - min_qf_pi).mean()
 
@@ -353,6 +415,89 @@ def train(args: argparse.Namespace, envs: gym.vector.VectorEnv):
                 if args.autotune:
                     optimizer_state_dicts["a_optimizer"] = a_optimizer.state_dict()
                 save_checkpoint(args, agent, optimizer_state_dicts, log_path, global_step)
+
+
+# From gymnasium/wrappers/normalize.py
+class RunningMeanStd:
+    """Tracks the mean, variance and count of values."""
+
+    # https://en.wikipedia.org/wiki/Algorithms_for_calculating_variance#Parallel_algorithm
+    def __init__(self, epsilon=1e-4, shape=()):
+        """Tracks the mean, variance and count of values."""
+        self.mean = torch.zeros(shape, dtype=torch.float)
+        self.var = torch.ones(shape, dtype=torch.float)
+        self.count = epsilon
+
+    def update(self, x):
+        """Updates the mean, var and count from a batch of samples."""
+        batch_mean = torch.mean(x, axis=0)
+        batch_var = torch.var(x, axis=0)
+        batch_count = x.shape[0]
+        self.update_from_moments(batch_mean, batch_var, batch_count)
+
+    def update_from_moments(self, batch_mean, batch_var, batch_count):
+        """Updates from batch mean, variance and count moments."""
+        self.mean, self.var, self.count = update_mean_var_count_from_moments(
+            self.mean, self.var, self.count, batch_mean, batch_var, batch_count
+        )
+
+
+def update_mean_var_count_from_moments(mean, var, count, batch_mean, batch_var, batch_count):
+    """Updates the mean, var and count using the previous mean, var, count and batch values."""
+    delta = batch_mean - mean
+    tot_count = count + batch_count
+
+    new_mean = mean + delta * batch_count / tot_count
+    m_a = var * count
+    m_b = batch_var * batch_count
+    M2 = m_a + m_b + torch.square(delta) * count * batch_count / tot_count
+    new_var = M2 / tot_count
+    new_count = tot_count
+
+    return new_mean, new_var, new_count
+
+
+def create_running_meanstd_for_dict(
+    ob_space: gym.spaces.Dict,
+) -> Dict[str, RunningMeanStd]:
+    dict_shape = {k: v.shape for k, v in ob_space.items()}
+    return {k: RunningMeanStd(shape=v) for k, v in dict_shape.items()}
+
+
+def update_rms_dict(rms_dict: Dict[str, RunningMeanStd], data: Dict[str, torch.Tensor]):
+    for k, v in data.items():
+        rms_dict[k].update(torch.tensor(v, dtype=torch.float))
+    return rms_dict
+
+
+def normalize_obs(
+    observations: Dict[str, torch.Tensor],
+    obs_rms: Dict[str, RunningMeanStd],
+    device: torch.device = torch.device("cpu"),
+) -> Dict[str, torch.Tensor]:
+    for k, v in observations.items():
+        obs_rms[k].update(v)
+        mean = obs_rms[k].mean
+        std = torch.sqrt(obs_rms[k].var)
+        v_shape = v.shape
+        mean = mean.repeat(v_shape[0], 1)
+        std = std.repeat(v_shape[0], 1)
+        observations[k] = (v - mean) / (std + 1e-8)
+        observations[k] = observations[k].to(device)
+    return observations
+
+
+def denormalize_obs(
+    observations: Dict[str, torch.Tensor],
+    obs_rms: Dict[str, RunningMeanStd],
+    device: torch.device = torch.device("cpu"),
+) -> Dict[str, torch.Tensor]:
+    for k, v in observations.items():
+        mean = obs_rms[k].mean
+        std = torch.sqrt(obs_rms[k].var)
+        observations[k] = v * (std + 1e-8) + mean
+        observations[k] = observations[k].to(device)
+    return observations
 
 
 def save_checkpoint(
