@@ -98,7 +98,7 @@ class Agent(nn.Module):
         _, _, mean = self.actor.get_actions(obs)
         return mean
 
-    def get_trainable_action(self, obs: dict[str, torch.Tensor]):
+    def get_trainable_actions(self, obs: dict[str, torch.Tensor]):
         action, log_prob, mean = self.actor.get_actions(obs)
         return action, log_prob, mean
 
@@ -236,10 +236,10 @@ class DictActor(nn.Module):
         normal = torch.distributions.Normal(mean, std)
         x_t = normal.rsample()  # for reparameterization trick (mean + std * N(0,1))
         y_t = torch.tanh(x_t)
-        action = y_t * self.action_scale + self.action_bias
-        log_prob = normal.log_prob(x_t)
+        actions = y_t * self.action_scale + self.action_bias
+        log_probs = normal.log_prob(x_t)
         # Enforcing Action Bound
-        log_prob -= torch.log(self.action_scale * (1 - y_t.pow(2)) + 1e-6)
-        log_prob = log_prob.sum(1, keepdim=True)
+        log_probs -= torch.log(self.action_scale * (1 - y_t.pow(2)) + 1e-6)
+        log_probs = log_probs.sum(1, keepdim=True)
         mean = torch.tanh(mean) * self.action_scale + self.action_bias
-        return action, log_prob, mean
+        return actions, log_probs, mean

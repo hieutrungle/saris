@@ -63,14 +63,12 @@ mkdir -p ${TMP_DIR}
 
 # Configuration files
 SIONNA_CONFIG_FILE=${SOURCE_DIR}/configs/sionna_L_hallway_1.yaml
-DRL_CONFIG_FILE=${SOURCE_DIR}/configs/drl_L_hallway_1.yaml
 
 export BLENDER_APP
 export BLENDER_DIR
 export SOURCE_DIR
 export ASSETS_DIR
 export SIONNA_CONFIG_FILE
-export DRL_CONFIG_FILE
 export TMP_DIR
 export OPTIX_CACHE_PATH=${TMP_DIR}/optix_cache_1
 mkdir -p ${OPTIX_CACHE_PATH}
@@ -78,7 +76,7 @@ mkdir -p ${OPTIX_CACHE_PATH}
 ##############################
 # DRL run
 ##############################
-poetry run train_sac --sionna_config_file ${SIONNA_CONFIG_FILE} --seed 100 --verbose
+poetry run train_sac --sionna_config_file ${SIONNA_CONFIG_FILE} --seed 10 --verbose
 
 # export OPTIX_CACHE_PATH=${TMP_DIR}/optix_cache_1
 # poetry run main --command eval -dcfg ${DRL_CONFIG_FILE} -scfg ${SIONNA_CONFIG_FILE} -v --seed 100

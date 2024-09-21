@@ -23,6 +23,7 @@ from stable_baselines3.common import buffers
 from torch.utils.tensorboard import SummaryWriter
 import time
 import copy
+import tqdm
 
 register_envs()
 
@@ -49,9 +50,9 @@ class Args:
     """whether to capture videos of the agent performances (check out `videos` folder)"""
     capture_video: bool = False
     """Log interval"""
-    log_interval: int = 2
+    log_interval: int = 5
     """Save interval"""
-    save_interval: int = 2
+    save_interval: int = 10
     """Verbose level"""
     verbose: bool = False
 
@@ -60,6 +61,8 @@ class Args:
     resume: bool = False
     """Load step"""
     load_step: int = 0
+    """Retrain the model"""
+    retrain: bool = False
 
     # Environment specific arguments
     """the id of the environment"""
@@ -71,11 +74,11 @@ class Args:
     """Config file for the wireless simulation"""
     sionna_config_file: str = "sionna_config.yaml"
     """the number of parallel game environments"""
-    num_envs: int = 2
+    num_envs: int = 6
 
     # Algorithm specific arguments
-    """total timesteps of the experiments"""
-    total_timesteps: int = 16000
+    """total timesteps of the experiments, this will be divided by the number of parallel environments"""
+    total_timesteps: int = 60000
     """the replay memory buffer size"""
     buffer_size: int = int(4000)
     """the discount factor gamma"""
@@ -83,9 +86,9 @@ class Args:
     """target smoothing coefficient (default: 0.005)"""
     tau: float = 0.005
     """the batch size of sample from the reply memory"""
-    batch_size: int = 2
+    batch_size: int = 256
     """timestep to start learning"""
-    learning_starts: int = 2
+    learning_starts: int = 1000
     """the learning rate of the policy network optimizer"""
     policy_lr: float = 3e-4
     """the learning rate of the Q network network optimizer"""
@@ -209,29 +212,66 @@ def train(args: argparse.Namespace, envs: gym.vector.VectorEnv):
     else:
         alpha = args.alpha
 
-    envs.single_observation_space.dtype = np.float32
+    # Load checkpoint if needed
+    if args.resume and args.load_step > 0:
+        checkpoint_path = os.path.join(log_path, f"checkpoint_{args.load_step}.pt")
+        optimizer_dict = {
+            "q_optimizer": q_optimizer,
+            "actor_optimizer": actor_optimizer,
+        }
+        if args.autotune:
+            optimizer_dict["a_optimizer"] = a_optimizer
 
+        scheduler_dict = {
+            "q_scheduler": q_scheduler,
+            "actor_scheduler": actor_scheduler,
+        }
+
+        agent, optimizer_dict, scheduler_dict, global_step = load_checkpoint(
+            agent, optimizer_dict, scheduler_dict, checkpoint_path
+        )
+        q_optimizer = optimizer_dict["q_optimizer"]
+        actor_optimizer = optimizer_dict["actor_optimizer"]
+        if args.autotune:
+            a_optimizer = optimizer_dict["a_optimizer"]
+        if not args.retrain:
+            print(
+                f"Loaded checkpoint from {checkpoint_path} at step {global_step} and continue training"
+            )
+            q_scheduler = scheduler_dict["q_scheduler"]
+            actor_scheduler = scheduler_dict["actor_scheduler"]
+        else:
+            print(f"Loaded checkpoint from {checkpoint_path} at step {global_step} and retrain")
+    else:
+        global_step = 0
+
+    envs.single_observation_space.dtype = np.float32
     rb = buffers.DictReplayBuffer(
         args.buffer_size,
         envs.single_observation_space,
         envs.single_action_space,
-        torch.device("cpu"),
+        args.device,
         n_envs=envs.num_envs,
         handle_timeout_termination=False,
     )
-    # Create replay buffer
+
+    # Create save directory for buffer
     local_assets_dir = utils.get_dir(args.source_dir, "local_assets")
     buffer_saved_name = os.path.join("replay_buffer", args.log_string)
     buffer_saved_dir = utils.get_dir(local_assets_dir, buffer_saved_name)
 
     start_time = time.time()
 
+    # Create running meanstd for normalization
     obs_rms = create_running_meanstd_for_dict(envs.single_observation_space)
     rewards_rms = RunningMeanStd(shape=(1,))
 
     obs, _ = envs.reset(seed=args.seed)
     # TODO: use some new data + old data from the replay buffer. Mix both offline and online data.
-    for global_step in range(args.total_timesteps):
+    t = tqdm.tqdm(
+        range(global_step, args.total_timesteps), total=args.total_timesteps, initial=global_step
+    )
+    for global_step in t:
         # ALGO LOGIC: put action logic here
         if global_step < args.learning_starts:
             actions = np.array([envs.single_action_space.sample() for _ in range(envs.num_envs)])
@@ -310,29 +350,24 @@ def train(args: argparse.Namespace, envs: gym.vector.VectorEnv):
         if global_step > args.learning_starts:
             for _ in range(args.num_updates_per_step):
                 data = rb.sample(args.batch_size)
-                torch_obs = normalize_obs(copy.deepcopy(data.observations), obs_rms, args.device)
-                torch_next_obs = normalize_obs(
-                    copy.deepcopy(data.next_observations), obs_rms, args.device
-                )
-                torch_actions = data.actions.to(args.device)
-                torch_rewards = data.rewards / (rewards_rms.var + 1e-8)
-                torch_rewards = torch_rewards.to(args.device)
-                torch_dones = data.dones.to(args.device)
+                normalized_obs = normalize_obs(data.observations, obs_rms)
+                normalized_next_obs = normalize_obs(data.next_observations, obs_rms)
+                normalized_rews = data.rewards / ((rewards_rms.var).to(args.device) + 1e-8)
                 with torch.no_grad():
                     next_state_actions, next_state_log_pi, _ = agent.actor.get_actions(
-                        torch_next_obs
+                        normalized_next_obs
                     )
-                    next_q1s = agent.target_qf1(torch_next_obs, next_state_actions)
-                    next_q2s = agent.target_qf2(torch_next_obs, next_state_actions)
-                    print(f"next_q1s={next_q1s.shape}, next_q2s={next_q2s.shape}")
-                    min_next_qs, _ = torch.min(next_q1s, next_q2s) - alpha * next_state_log_pi
-                    min_next_qs = min_next_qs.view(-1)
-                    flat_rews = torch_rewards.flatten()
-                    flat_dones = torch_dones.flatten()
-                    target_q_values = flat_rews + (1 - flat_dones) * args.gamma * min_next_qs
+                    next_q1s = agent.target_qf1(normalized_next_obs, next_state_actions)
+                    next_q2s = agent.target_qf2(normalized_next_obs, next_state_actions)
+                    min_next_qs = torch.min(next_q1s, next_q2s)
+                    next_qs = min_next_qs - alpha * next_state_log_pi
+                    next_qs = next_qs.view(-1)
+                    flat_rews = normalized_rews.flatten()
+                    flat_dones = data.dones.flatten()
+                    target_q_values = flat_rews + (1 - flat_dones) * args.gamma * next_qs
 
-                qf1_values = agent.qf1(torch_obs, torch_actions).view(-1)
-                qf2_values = agent.qf2(torch_obs, torch_actions).view(-1)
+                qf1_values = agent.qf1(normalized_obs, data.actions).view(-1)
+                qf2_values = agent.qf2(normalized_obs, data.actions).view(-1)
                 qf1_loss = F.mse_loss(qf1_values, target_q_values)
                 qf2_loss = F.mse_loss(qf2_values, target_q_values)
                 qf_loss = qf1_loss + qf2_loss
@@ -352,9 +387,9 @@ def train(args: argparse.Namespace, envs: gym.vector.VectorEnv):
                 if global_step % args.policy_frequency == 0:
                     # compensate for the delay by doing 'actor_update_interval' instead of 1
                     for _ in range(args.policy_frequency):
-                        pi, log_pi, _ = agent.actor.get_actions(torch_obs)
-                        qf1_pi = agent.qf1(torch_obs, pi)
-                        qf2_pi = agent.qf2(torch_obs, pi)
+                        pi, log_pi, _ = agent.actor.get_actions(normalized_obs)
+                        qf1_pi = agent.qf1(normalized_obs, pi)
+                        qf2_pi = agent.qf2(normalized_obs, pi)
                         min_qf_pi = torch.min(qf1_pi, qf2_pi)
                         actor_loss = ((alpha * log_pi) - min_qf_pi).mean()
 
@@ -367,6 +402,8 @@ def train(args: argparse.Namespace, envs: gym.vector.VectorEnv):
                         actor_scheduler.step()
 
                         if args.autotune:
+                            with torch.no_grad():
+                                _, log_pi, _ = agent.actor.get_actions(normalized_obs)
                             alpha_loss = (-log_alpha.exp() * (log_pi + target_entropy)).mean()
 
                             a_optimizer.zero_grad()
@@ -399,13 +436,20 @@ def train(args: argparse.Namespace, envs: gym.vector.VectorEnv):
                     writer.add_scalar("losses/alpha_loss", alpha_loss.item(), global_step)
 
             if global_step % args.save_interval == 0:
-                optimizer_state_dicts = {
-                    "q_optimizer": q_optimizer.state_dict(),
-                    "actor_optimizer": actor_optimizer.state_dict(),
+                optimizer_dict = {
+                    "q_optimizer": q_optimizer,
+                    "actor_optimizer": actor_optimizer,
                 }
                 if args.autotune:
-                    optimizer_state_dicts["a_optimizer"] = a_optimizer.state_dict()
-                save_checkpoint(args, agent, optimizer_state_dicts, log_path, global_step)
+                    optimizer_dict["a_optimizer"] = a_optimizer
+
+                scheduler_dict = {
+                    "q_scheduler": q_scheduler,
+                    "actor_scheduler": actor_scheduler,
+                }
+
+                checkpoint_path = os.path.join(log_path, f"checkpoint_{global_step}.pt")
+                save_checkpoint(agent, optimizer_dict, scheduler_dict, checkpoint_path, global_step)
 
 
 # From gymnasium/wrappers/normalize.py
@@ -464,58 +508,62 @@ def update_rms_dict(rms_dict: Dict[str, RunningMeanStd], data: Dict[str, torch.T
 def normalize_obs(
     observations: Dict[str, torch.Tensor],
     obs_rms: Dict[str, RunningMeanStd],
-    device: torch.device = torch.device("cpu"),
 ) -> Dict[str, torch.Tensor]:
     for k, v in observations.items():
-        obs_rms[k].update(v)
-        mean = obs_rms[k].mean
-        std = torch.sqrt(obs_rms[k].var)
-        v_shape = v.shape
-        mean = mean.repeat(v_shape[0], 1)
-        std = std.repeat(v_shape[0], 1)
+        device = v.device
+        obs_rms[k].update(v.detach().cpu())
+        mean = (obs_rms[k].mean).to(device)
+        std = torch.sqrt(obs_rms[k].var).to(device)
+        mean = mean.repeat(v.shape[0], 1)
+        std = std.repeat(v.shape[0], 1)
         observations[k] = (v - mean) / (std + 1e-8)
-        observations[k] = observations[k].to(device)
     return observations
 
 
 def denormalize_obs(
     observations: Dict[str, torch.Tensor],
     obs_rms: Dict[str, RunningMeanStd],
-    device: torch.device = torch.device("cpu"),
 ) -> Dict[str, torch.Tensor]:
     for k, v in observations.items():
-        mean = obs_rms[k].mean
-        std = torch.sqrt(obs_rms[k].var)
-        observations[k] = v * (std + 1e-8) + mean
-        observations[k] = observations[k].to(device)
+        device = v.device
+        mean = (obs_rms[k].mean).to(device)
+        std = torch.sqrt(obs_rms[k].var).to(device)
+        mean = mean.repeat(v.shape[0], 1)
+        std = std.repeat(v.shape[0], 1)
+        observations[k] = (v * (std + 1e-8)) + mean
     return observations
 
 
 def save_checkpoint(
     agent: sac.Agent,
-    optimizers: Dict[str, optim.Optimizer],
+    optimizer_dict: Dict[str, optim.Optimizer],
+    scheduler_dict: Dict[str, optim.lr_scheduler._LRScheduler],
     checkpoint_path: str,
     global_step: int,
 ):
-    optimizer_state_dicts = {name: opt.state_dict() for name, opt in optimizers.items()}
+    optimizer_state_dicts = {name: opt.state_dict() for name, opt in optimizer_dict.items()}
     checkpoint = {
         "agent_state_dict": agent.state_dict(),
         "global_step": global_step,
     }
     checkpoint.update(optimizer_state_dicts)
+    checkpoint.update(scheduler_dict)
     torch.save(checkpoint, checkpoint_path)
 
 
 def load_checkpoint(
     agent: sac.Agent,
-    optimizers: Dict[str, optim.Optimizer],
+    optimizer_dict: Dict[str, optim.Optimizer],
+    scheduler_dict: Dict[str, optim.lr_scheduler._LRScheduler],
     checkpoint_path: str,
 ) -> Tuple[sac.Agent, Dict[str, optim.Optimizer], int]:
     checkpoint = torch.load(checkpoint_path)
     agent.load_state_dict(checkpoint["agent_state_dict"])
-    for name, opt in optimizers.items():
+    for name, opt in optimizer_dict.items():
         opt.load_state_dict(checkpoint[name])
-    return agent, optimizers, checkpoint["global_step"]
+    for name, scheduler in scheduler_dict.items():
+        scheduler_dict[name] = checkpoint[name]
+    return agent, optimizer_dict, scheduler_dict, checkpoint["global_step"]
 
 
 def main():
@@ -562,6 +610,8 @@ def parse_agrs():
     lib_dir = importlib.resources.files(saris)
     source_dir = os.path.dirname(lib_dir)
     args.source_dir = source_dir
+
+    args.total_timesteps = args.total_timesteps // args.num_envs
 
     device = pytorch_utils.init_gpu()
     args.device = device
