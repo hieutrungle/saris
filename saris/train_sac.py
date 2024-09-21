@@ -83,9 +83,9 @@ class Args:
     """target smoothing coefficient (default: 0.005)"""
     tau: float = 0.005
     """the batch size of sample from the reply memory"""
-    batch_size: int = 256
+    batch_size: int = 2
     """timestep to start learning"""
-    learning_starts: int = 500
+    learning_starts: int = 2
     """the learning rate of the policy network optimizer"""
     policy_lr: float = 3e-4
     """the learning rate of the Q network network optimizer"""
@@ -310,30 +310,21 @@ def train(args: argparse.Namespace, envs: gym.vector.VectorEnv):
         if global_step > args.learning_starts:
             for _ in range(args.num_updates_per_step):
                 data = rb.sample(args.batch_size)
-                print(f"global_step={global_step}, data={data}")
                 torch_obs = normalize_obs(copy.deepcopy(data.observations), obs_rms, args.device)
                 torch_next_obs = normalize_obs(
                     copy.deepcopy(data.next_observations), obs_rms, args.device
                 )
                 torch_actions = data.actions.to(args.device)
-                print(f"reward mean={rewards_rms.mean}, reward var={rewards_rms.var}")
                 torch_rewards = data.rewards / (rewards_rms.var + 1e-8)
                 torch_rewards = torch_rewards.to(args.device)
                 torch_dones = data.dones.to(args.device)
-                print(f"global_step={global_step}, torch_obs={torch_obs}")
-                print(f"global_step={global_step}, torch_actions={torch_actions}")
-                print(f"global_step={global_step}, torch_next_obs={torch_next_obs}")
-                print(f"global_step={global_step}, torch_rewards={torch_rewards}")
-                print(f"global_step={global_step}, torch_dones={torch_dones}")
-                print()
-                print(f"global_step={global_step}, data={data}")
-                print()
                 with torch.no_grad():
                     next_state_actions, next_state_log_pi, _ = agent.actor.get_actions(
                         torch_next_obs
                     )
                     next_q1s = agent.target_qf1(torch_next_obs, next_state_actions)
                     next_q2s = agent.target_qf2(torch_next_obs, next_state_actions)
+                    print(f"next_q1s={next_q1s.shape}, next_q2s={next_q2s.shape}")
                     min_next_qs, _ = torch.min(next_q1s, next_q2s) - alpha * next_state_log_pi
                     min_next_qs = min_next_qs.view(-1)
                     flat_rews = torch_rewards.flatten()
