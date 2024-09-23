@@ -74,11 +74,11 @@ class Args:
     """Config file for the wireless simulation"""
     sionna_config_file: str = "sionna_config.yaml"
     """the number of parallel game environments"""
-    num_envs: int = 6
+    num_envs: int = 7
 
     # Algorithm specific arguments
     """total timesteps of the experiments, this will be divided by the number of parallel environments"""
-    total_timesteps: int = 30000
+    total_timesteps: int = 32009
     """the replay memory buffer size"""
     buffer_size: int = int(4000)
     """the discount factor gamma"""
@@ -94,7 +94,7 @@ class Args:
     """the learning rate of the Q network network optimizer"""
     q_lr: float = 1e-3
     """The number of agent updates per environment step"""
-    num_updates_per_step: int = 5
+    num_updates_per_step: int = 6
     """the frequency of training policy (delayed)"""
     policy_frequency: int = 2
     """the frequency of updates for the target nerworks"""

@@ -18,6 +18,15 @@ import bl_utils, bl_parser, shared_utils
 def export_drl_hallway_angle(args):
 
     lead_follow_dict, init_angles, angle_deltas = shared_utils.set_up_reflector()
+    theta = init_angles[0]
+    theta_low = math.radians(theta + angle_deltas[0])
+    theta_high = math.radians(theta + angle_deltas[1])
+    delta_theta = (theta_low, theta_high)
+
+    phi = init_angles[1]
+    phi_low = math.radians(phi + angle_deltas[0])
+    phi_high = math.radians(phi + angle_deltas[1])
+    delta_phi = (phi_low, phi_high)
 
     # Each device has multiple tiles
     devices = []
@@ -36,8 +45,8 @@ def export_drl_hallway_angle(args):
     for i, (lead_idx, follow_idxs) in enumerate(lead_follow_dict.items()):
         theta = thetas[i]
         phi = phis[i]
-        theta = shared_utils.constraint_angle(theta, angle_deltas)
-        phi = shared_utils.constraint_angle(phi, angle_deltas)
+        theta = shared_utils.constraint_angle(theta, delta_theta)
+        phi = shared_utils.constraint_angle(phi, delta_phi)
 
         devices[0][lead_idx].rotation_euler = [0, theta, phi]
         devices[0][lead_idx].scale = [0.1, 0.1, 0.01]
