@@ -68,8 +68,6 @@ def constraint_angle(angle: float, angle_delta: Sequence[float]) -> float:
     """
     min_angle = angle_delta[0]
     max_angle = angle_delta[1]
-    if angle < min_angle:
-        angle = min_angle
-    if angle > max_angle:
-        angle = max_angle
+    angle = min(angle, max_angle)
+    angle = max(angle, min_angle)
     return angle

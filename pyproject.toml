@@ -62,3 +62,4 @@ profile = "black"
 [tool.poetry.scripts]
 main = 'saris.cli:main'
 train_sac = 'saris.train_sac:main'
+examine_focal = 'saris.examine_focal:main'

@@ -7,3 +7,9 @@ def register_envs():
         entry_point="saris.drl.envs.wireless:WirelessEnvV0",
         max_episode_steps=250,
     )
+
+    register(
+        id="focal-v0",
+        entry_point="saris.drl.envs.focal:WirelessFocalEnvV0",
+        max_episode_steps=250,
+    )

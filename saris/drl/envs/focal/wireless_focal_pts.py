@@ -31,7 +31,7 @@ import importlib
 import tensorflow as tf
 
 
-class WirelessEnvV0(Env):
+class WirelessFocalEnvV0(Env):
 
     def __init__(
         self,
@@ -41,7 +41,7 @@ class WirelessEnvV0(Env):
         seed: int = 0,
         **kwargs,
     ):
-        super(WirelessEnvV0, self).__init__()
+        super().__init__()
 
         self.idx = idx
         self.log_string = log_string
@@ -91,6 +91,28 @@ class WirelessEnvV0(Env):
         self.use_cmap = False
         self.eval_mode = False
 
+        # Modify rx_pos
+        rx_pos = self.sionna_config["rx_position"]
+        rx_pos[1] = -3.2
+        self.sionna_config["rx_position"] = rx_pos
+
+        tx_pos = self.sionna_config["tx_position"]
+        rx_pos = self.sionna_config["rx_position"]
+        focal_pt1 = np.array([tx_pos[0], tx_pos[1], tx_pos[2]])
+
+        focal_pt_xs = np.arange(-16.5, -2.0, 0.5)
+        focal_pt_ys = np.arange(-2.5, -4.6, -0.5)
+        focal_pt_zs = np.array([rx_pos[2]])
+        focal_pt2s = np.array(np.meshgrid(focal_pt_xs, focal_pt_ys, focal_pt_zs))
+        focal_pt2s = focal_pt2s.T.reshape(-1, 3)
+
+        # focal_pt2s = [[1.0, 5.0, 10.0], [1.0, 5.0, 11.0], [1.0, 5.0, 12.0], [1.0, 5.0, 13.0]]
+        self.focal_pts = []
+        for focal_pt2 in focal_pt2s:
+            self.focal_pts.append(np.concatenate([focal_pt1, focal_pt2]))
+
+        self.current_pts = None
+
     def _get_observation_space(self) -> spaces.Box:
         observation_space = spaces.Dict(
             {
@@ -115,18 +137,11 @@ class WirelessEnvV0(Env):
     def reset(self, seed: int = None, options: dict = None) -> Tuple[dict, dict]:
         super().reset(seed=seed, options=options)
 
-        self.angles = self.np_rng.uniform(low=self.angle_space.low, high=self.angle_space.high)
-        self.angles = np.clip(self.angles, self.angle_space.low, self.angle_space.high)
-
+        self.current_pts = self.focal_pts.pop()
         self.cur_gain = self._cal_path_gain_dB(use_cmap=self.use_cmap)
         self.next_gain = self.cur_gain
 
-        observation = OrderedDict(
-            {
-                "angles": np.array(self.angles, dtype=np.float32),
-                "gain": np.array([self.cur_gain], dtype=np.float32),
-            }
-        )
+        observation = self.observation_space.sample()
 
         self.taken_steps = 0.0
 
@@ -137,10 +152,12 @@ class WirelessEnvV0(Env):
         self.taken_steps += 1.0
         self.cur_gain = self.next_gain
 
-        self.angles = np.clip(self.angles + action, self.angle_space.low, self.angle_space.high)
+        self.current_pts = self.focal_pts.pop()
 
         truncated = False
         terminated = False
+        if len(self.focal_pts) == 0:
+            terminated = True
 
         self.next_gain = 0.0
         self.next_gain = self._cal_path_gain_dB(use_cmap=self.use_cmap)
@@ -169,6 +186,7 @@ class WirelessEnvV0(Env):
 
     def _cal_path_gain_dB(self, use_cmap: bool = False) -> float:
 
+        # set focal_pts
         self._prepare_geometry()
         path_gain = self._cal_path_gain_sionna(use_cmap=use_cmap)
         path_gain_dB = utils.linear2dB(path_gain)
@@ -188,16 +206,14 @@ class WirelessEnvV0(Env):
         tmp_dir = utils.get_os_dir("TMP_DIR")
         scene_name = f"{self.sionna_config['scene_name']}_{self.idx}"
         blender_output_dir = os.path.join(assets_dir, "blender", scene_name)
-        # // ! TODO: Need to convert from degrees to radians
-        angles = np.deg2rad(self.angles)
-        angles = (angles[: len(angles) // 2], angles[len(angles) // 2 :])
-        angle_path = os.path.join(
-            tmp_dir, f"angles-{self.log_string}-{self.current_time}-{self.idx}.pkl"
-        )
-        with open(angle_path, "wb") as f:
-            pickle.dump(angles, f)
 
-        blender_script = os.path.join(source_dir, "saris", "blender_script", "bl_drl.py")
+        focal_name = f"focal_pts-{self.log_string}-{self.current_time}-{self.idx}.pkl"
+        focal_path = os.path.join(tmp_dir, focal_name)
+        print(f"focal_pts: {self.current_pts.reshape(-1, 3)}")
+        with open(focal_path, "wb") as f:
+            pickle.dump(self.current_pts, f)
+
+        blender_script = os.path.join(source_dir, "saris", "blender_script", "bl_focal_pts.py")
 
         blender_cmd = [
             blender_app,
@@ -207,12 +223,13 @@ class WirelessEnvV0(Env):
             blender_script,
             "--",
             "-i",
-            angle_path,
+            focal_path,
             "-o",
             blender_output_dir,
         ]
         try:
             bl_output_txt = os.path.join(tmp_dir, "bl_outputs.txt")
+            # subprocess.run(blender_cmd, check=True)
             subprocess.run(blender_cmd, check=True, stdout=open(bl_output_txt, "w"))
         except subprocess.CalledProcessError as e:
             raise Exception(f"Error running Blender command: {e}")
