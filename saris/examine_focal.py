@@ -73,7 +73,7 @@ class Args:
     """Replay buffer capacity"""
     replay_buffer_capacity: int = 1000
     """the length of the episode"""
-    ep_len: int = 100
+    ep_len: int = 500
     """Config file for the wireless simulation"""
     sionna_config_file: str = "sionna_config.yaml"
     """the number of parallel game environments"""
@@ -101,7 +101,6 @@ def make_env(
             # max_episode_steps=args.ep_len,
         )
         env = gym.wrappers.RecordEpisodeStatistics(env)
-        env = gym.wrappers.TimeLimit(env, max_episode_steps=args.ep_len)
         env.action_space.seed(args.seed)
         env.observation_space.seed(args.seed)
 
