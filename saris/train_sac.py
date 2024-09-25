@@ -35,6 +35,8 @@ class Args:
     """
 
     # General arguments
+    """the command to run the experiment"""
+    command: str = "train"
     """the name of this experiment"""
     exp_name: str = os.path.basename(__file__)[: -len(".py")]
     """seed of the experiment"""
@@ -50,7 +52,7 @@ class Args:
     """whether to capture videos of the agent performances (check out `videos` folder)"""
     capture_video: bool = False
     """Log interval"""
-    log_interval: int = 5
+    log_interval: int = 2
     """Save interval"""
     save_interval: int = 10
     """Verbose level"""
@@ -74,9 +76,11 @@ class Args:
     """Config file for the wireless simulation"""
     sionna_config_file: str = "sionna_config.yaml"
     """the number of parallel game environments"""
-    num_envs: int = 7
+    num_envs: int = 6
 
     # Algorithm specific arguments
+    # TODO: decrease gamma to 0.9 since the episode length is 100, which is short
+    # TODO: decrease buffer size to 1000 since old data are not useful
     """total timesteps of the experiments, this will be divided by the number of parallel environments"""
     total_timesteps: int = 32009
     """the replay memory buffer size"""
@@ -240,6 +244,7 @@ def train(args: argparse.Namespace, envs: gym.vector.VectorEnv):
             )
             q_scheduler = scheduler_dict["q_scheduler"]
             actor_scheduler = scheduler_dict["actor_scheduler"]
+            global_step += 1
         else:
             print(f"Loaded checkpoint from {checkpoint_path} at step {global_step} and retrain")
     else:
@@ -269,7 +274,10 @@ def train(args: argparse.Namespace, envs: gym.vector.VectorEnv):
     obs, _ = envs.reset(seed=args.seed)
     # TODO: use some new data + old data from the replay buffer. Mix both offline and online data.
     t = tqdm.tqdm(
-        range(global_step, args.total_timesteps), total=args.total_timesteps, initial=global_step
+        range(global_step, args.total_timesteps),
+        total=args.total_timesteps,
+        initial=global_step,
+        dynamic_ncols=True,
     )
     for global_step in t:
         # ALGO LOGIC: put action logic here
@@ -452,6 +460,145 @@ def train(args: argparse.Namespace, envs: gym.vector.VectorEnv):
                 save_checkpoint(agent, optimizer_dict, scheduler_dict, checkpoint_path, global_step)
 
 
+def eval(args: argparse.Namespace, envs: gym.vector.VectorEnv):
+    import matplotlib.pyplot as plt
+
+    log_dir = os.path.join(args.source_dir, "local_assets", "logs")
+    log_name = os.path.join("SARIS_SAC_" + args.log_string)
+    log_path = os.path.join(log_dir, log_name)
+    writer = SummaryWriter(log_path)
+    writer.add_text(
+        "hyperparameters",
+        "|param|value|\n|-|-|\n%s"
+        % ("\n".join([f"|{key}|{value}|" for key, value in vars(args).items()])),
+    )
+
+    agent = sac.Agent(envs.single_observation_space, envs.single_action_space)
+    agent = agent.to(args.device)
+
+    # Load checkpoint if needed
+    if args.resume and args.load_step > 0:
+        checkpoint_path = os.path.join(log_path, f"checkpoint_{args.load_step}.pt")
+        optimizer_dict = {}
+        scheduler_dict = {}
+
+        agent, optimizer_dict, scheduler_dict, global_step = load_checkpoint(
+            agent, optimizer_dict, scheduler_dict, checkpoint_path
+        )
+        print(f"Loaded checkpoint from {checkpoint_path} at step {global_step} and Evaluate")
+    else:
+        raise ValueError("Evaluation requires a checkpoint to load")
+
+    trajs = eval_trajectories(agent, envs, args)
+
+    returns = []
+    for rews, done in zip(trajs["rews"], trajs["dones"]):
+        # calculate the return for each index
+        return_ = 0
+        traj_return = np.zeros_like(rews)
+        for i in range(len(rews)):
+            return_ = rews[i] + return_ * (1 - done[i])
+            traj_return[i] = return_
+        returns.append(traj_return)
+    returns = np.array(returns)
+    print(f"return: {returns}")
+    mean_return = np.mean(returns, axis=0)
+    std_return = np.std(returns, axis=0)
+    for i, (mean_return_, std_return_) in enumerate(zip(mean_return, std_return)):
+        writer.add_scalar(f"eval/mean_return", mean_return_, global_step)
+        writer.add_scalar(f"eval/std_return", std_return_, global_step)
+
+    # Plot the returns
+    plt.figure()
+    plt.plot(mean_return)
+    plt.fill_between(
+        range(len(mean_return)),
+        mean_return - std_return,
+        mean_return + std_return,
+        alpha=0.3,
+    )
+    plt.xlabel("Step")
+    plt.ylabel("Return")
+    plt.title("Return")
+    plt.savefig(os.path.join(log_path, "return.png"))
+    plt.close()
+
+    mean_path_gains = np.mean(trajs["path_gains"], axis=0)
+    std_path_gains = np.std(trajs["path_gains"], axis=0)
+    for i, (mean_path_gain, std_path_gain) in enumerate(zip(mean_path_gains, std_path_gains)):
+        writer.add_scalar(f"eval/mean_path_gain", mean_path_gain, global_step)
+        writer.add_scalar(f"eval/std_path_gain", std_path_gain, global_step)
+    print(f"path_gain: {trajs['path_gains']}")
+
+    mean_rewards = np.mean(trajs["rews"], axis=0)
+    std_rewards = np.std(trajs["rews"], axis=0)
+    for i, (mean_reward, std_reward) in enumerate(zip(mean_rewards, std_rewards)):
+        writer.add_scalar(f"eval/mean_reward", mean_reward, global_step)
+        writer.add_scalar(f"eval/std_reward", std_reward, global_step)
+    print(f"reward: {trajs['rews']}")
+
+    # Plot the path gains
+    plt.figure()
+    plt.plot(mean_path_gains)
+    plt.fill_between(
+        range(len(mean_path_gains)),
+        mean_path_gains - std_path_gains,
+        mean_path_gains + std_path_gains,
+        alpha=0.3,
+    )
+    plt.xlabel("Step")
+    plt.ylabel("Path Gain (dB)")
+    plt.title("Path Gain")
+    plt.savefig(os.path.join(log_path, "path_gain.png"))
+    plt.close()
+
+
+def eval_trajectories(agent: sac.Agent, envs: gym.vector.VectorEnv, args: argparse.Namespace):
+    num_envs = envs.num_envs
+    ac_shape = envs.single_action_space.shape
+
+    obs = []
+    acts = np.full((num_envs, args.ep_len, *ac_shape), np.nan)
+    rews = np.full((num_envs, args.ep_len), np.nan)
+    next_obs = []
+    dones = np.full((num_envs, args.ep_len), np.nan)
+    path_gains = np.full((num_envs, args.ep_len), np.nan)
+
+    (observations, infos) = envs.reset()
+
+    for step in tqdm.tqdm(range(args.ep_len)):
+        observations = pytorch_utils.from_numpy(observations, args.device)
+        _, _, actions = agent.actor.get_actions(observations)
+        actions = pytorch_utils.to_numpy(actions)
+        next_observations, rewards, terminations, truncations, infos = envs.step(actions)
+
+        rewards = np.asarray(rewards, dtype=np.float32)
+        obs.append(observations)
+        acts[:, step] = actions
+        rews[:, step] = rewards
+        next_obs.append(next_observations)
+        dones[:, step] = np.logical_or(terminations, truncations)
+
+        if "final_info" in infos:
+            path_gain = [info["path_gain_dB"] for info in infos["final_info"]]
+            next_path_gain = [info["next_path_gain_dB"] for info in infos["final_info"]]
+        else:
+            path_gain = infos["path_gain_dB"]
+            next_path_gain = infos["next_path_gain_dB"]
+        path_gains[:, step] = path_gain
+
+        observations = next_observations
+
+    return {
+        "obs": obs,
+        "acts": acts,
+        "rews": rews,
+        "next_obs": next_obs,
+        "dones": dones,
+        "path_gains": path_gains,
+    }
+
+
 # From gymnasium/wrappers/normalize.py
 class RunningMeanStd:
     """Tracks the mean, variance and count of values."""
@@ -599,7 +746,10 @@ def main():
             save_code=True,
         )
 
-    train(args, envs)
+    if args.command == "train":
+        train(args, envs)
+    elif args.command == "eval":
+        eval(args, envs)
 
     envs.close()
 

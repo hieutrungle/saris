@@ -91,6 +91,30 @@ class WirelessEnvV0(Env):
         self.use_cmap = False
         self.eval_mode = False
 
+        rx_pos = self.sionna_config["rx_position"]
+        rx_pos_xs = np.arange(-11.0, -14.0, -0.5)
+        rx_pos_ys = np.arange(-2.5, -4.6, -0.5)
+        rx_pos_zs = np.array([rx_pos[2]])
+
+        print(f"env_idx: {self.idx}")
+        self.rx_poss = []
+        for rx_pos_x in rx_pos_xs:
+            rx_pos_ys = rx_pos_ys[::-1]
+            for rx_pos_y in rx_pos_ys:
+                for rx_pos_z in rx_pos_zs:
+                    self.rx_poss.append([rx_pos_x, rx_pos_y, rx_pos_z])
+                    print(f"rx_pos: {rx_pos_x}, {rx_pos_y}, {rx_pos_z}")
+        print(f"Number of rx positions: {len(self.rx_poss)}")
+        self.rx_idx = 0
+
+        # for i in range(100):
+        #     print(f"i: {i} - rx_idx: {self.rx_idx} - rx_pos: {self.rx_poss[self.rx_idx]}")
+        #     self.rx_idx = self.rx_idx + 1
+        #     if self.rx_idx % len(self.rx_poss) == 0:
+        #         self.rx_idx = 0
+        #         self.rx_poss = self.rx_poss[::-1]
+        #         print()
+
     def _get_observation_space(self) -> spaces.Box:
         observation_space = spaces.Dict(
             {
@@ -114,6 +138,12 @@ class WirelessEnvV0(Env):
 
     def reset(self, seed: int = None, options: dict = None) -> Tuple[dict, dict]:
         super().reset(seed=seed, options=options)
+
+        self.sionna_config["rx_position"] = self.rx_poss[self.rx_idx]
+        self.rx_idx = self.rx_idx + 1
+        if self.rx_idx % len(self.rx_poss) == 0:
+            self.rx_idx = 0
+            self.rx_poss = self.rx_poss[::-1]
 
         self.angles = self.np_rng.uniform(low=self.angle_space.low, high=self.angle_space.high)
         self.angles = np.clip(self.angles, self.angle_space.low, self.angle_space.high)
