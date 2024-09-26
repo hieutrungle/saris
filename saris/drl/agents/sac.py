@@ -129,7 +129,7 @@ class DictSoftQNetwork(nn.Module):
         assert isinstance(ob_space, gym.spaces.Dict)
         assert isinstance(ac_space, gym.spaces.Box)
         angle_shape = ob_space["angles"].shape
-        gain_shape = ob_space["gain"].shape
+        gain_shape = ob_space["gains"].shape
 
         self.angle_fc1 = nn.Linear(np.prod(angle_shape), 256)
         self.angle_fc2 = nn.Linear(256, 256)
@@ -151,7 +151,7 @@ class DictSoftQNetwork(nn.Module):
         angle = F.gelu(self.angle_fc2(angle))
         angle = self.angle_layer_norm(angle)
 
-        gain = obs["gain"]
+        gain = obs["gains"]
         gain = F.gelu(self.gain_fc1(gain))
         gain = F.gelu(self.gain_fc2(gain))
         gain = self.gain_layer_norm(gain)
@@ -177,7 +177,7 @@ class DictActor(nn.Module):
         assert isinstance(ob_space, gym.spaces.Dict)
         assert isinstance(ac_space, gym.spaces.Box)
         angle_shape = ob_space["angles"].shape
-        gain_shape = ob_space["gain"].shape
+        gain_shape = ob_space["gains"].shape
 
         self.log_std_min = log_std_min
         self.log_std_max = log_std_max
@@ -214,7 +214,7 @@ class DictActor(nn.Module):
         angle = F.gelu(self.angle_fc2(angle))
         angle = self.angle_layer_norm(angle)
 
-        gain = obs["gain"]
+        gain = obs["gains"]
         gain = F.gelu(self.gain_fc1(gain))
         gain = F.gelu(self.gain_fc2(gain))
         gain = self.gain_layer_norm(gain)

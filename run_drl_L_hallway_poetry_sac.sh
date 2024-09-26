@@ -62,7 +62,7 @@ TMP_DIR=${SOURCE_DIR}/tmp
 mkdir -p ${TMP_DIR}
 
 # Configuration files
-SIONNA_CONFIG_FILE=${SOURCE_DIR}/configs/sionna_L_hallway_1.yaml
+SIONNA_CONFIG_FILE=${SOURCE_DIR}/configs/sionna_L_multi_users.yaml
 
 export BLENDER_APP
 export BLENDER_DIR

@@ -2,9 +2,9 @@
 # https://arxiv.org/pdf/2303.05479.pdf
 import os
 
-os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
-os.environ["TF_GPU_ALLOCATOR"] = "cuda_malloc_async"  # to avoid memory fragmentation
-os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
+# os.environ["TF_GPU_ALLOCATOR"] = "cuda_malloc_async"  # to avoid memory fragmentation
+# os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
 
 import random
 import uuid
@@ -866,10 +866,15 @@ def train(config: TrainConfig, env: gym.Env, eval_env: gym.Env) -> None:
 
     log_dir = os.path.join(config.source_dir, "local_assets", "logs")
     log_path = os.path.join(log_dir, config.name)
+
+    a = torch.tensor([1, 2, 3])
+    a = a.to("cpu")
+
     print(f"Checkpoints path: {log_path}")
     os.makedirs(log_path, exist_ok=True)
     with open(os.path.join(log_path, "config.yaml"), "w") as f:
         pyrallis.dump(config, f)
+    print(f"config.device: {config.device}")
 
     critic_1 = calql.FullyConnectedQFunction(
         state_dim,
@@ -877,12 +882,14 @@ def train(config: TrainConfig, env: gym.Env, eval_env: gym.Env) -> None:
         config.orthogonal_init,
         config.q_n_hidden_layers,
     ).to(config.device)
+    print(f"config.device: {config.device}")
     critic_2 = calql.FullyConnectedQFunction(
         state_dim,
         action_dim,
         config.orthogonal_init,
         config.q_n_hidden_layers,
     ).to(config.device)
+    print(f"config.device: {config.device}")
     critic_1_optimizer = torch.optim.AdamW(list(critic_1.parameters()), config.qf_lr)
     critic_2_optimizer = torch.optim.AdamW(list(critic_2.parameters()), config.qf_lr)
 
