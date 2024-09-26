@@ -509,8 +509,8 @@ def eval(args: argparse.Namespace, envs: gym.vector.VectorEnv):
     mean_return = np.mean(returns, axis=0)
     std_return = np.std(returns, axis=0)
     for i, (mean_return_, std_return_) in enumerate(zip(mean_return, std_return)):
-        writer.add_scalar(f"eval/mean_return", mean_return_, global_step)
-        writer.add_scalar(f"eval/std_return", std_return_, global_step)
+        writer.add_scalar(f"eval/mean_return", mean_return_, i)
+        writer.add_scalar(f"eval/std_return", std_return_, i)
 
     # Plot the returns
     plt.figure()
@@ -530,15 +530,15 @@ def eval(args: argparse.Namespace, envs: gym.vector.VectorEnv):
     mean_path_gains = np.mean(trajs["path_gains"], axis=0)
     std_path_gains = np.std(trajs["path_gains"], axis=0)
     for i, (mean_path_gain, std_path_gain) in enumerate(zip(mean_path_gains, std_path_gains)):
-        writer.add_scalar(f"eval/mean_path_gain", mean_path_gain, global_step)
-        writer.add_scalar(f"eval/std_path_gain", std_path_gain, global_step)
+        writer.add_scalar(f"eval/mean_path_gain", mean_path_gain, i)
+        writer.add_scalar(f"eval/std_path_gain", std_path_gain, i)
     print(f"path_gain: {trajs['path_gains']}")
 
     mean_rewards = np.mean(trajs["rews"], axis=0)
     std_rewards = np.std(trajs["rews"], axis=0)
     for i, (mean_reward, std_reward) in enumerate(zip(mean_rewards, std_rewards)):
-        writer.add_scalar(f"eval/mean_reward", mean_reward, global_step)
-        writer.add_scalar(f"eval/std_reward", std_reward, global_step)
+        writer.add_scalar(f"eval/mean_reward", mean_reward, i)
+        writer.add_scalar(f"eval/std_reward", std_reward, i)
     print(f"reward: {trajs['rews']}")
 
     # Plot the path gains

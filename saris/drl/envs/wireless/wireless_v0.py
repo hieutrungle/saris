@@ -44,7 +44,7 @@ class WirelessEnvV0(Env):
     ):
         super(WirelessEnvV0, self).__init__()
 
-        policy = tf.keras.mixed_precision.Policy("mixed_float16")
+        policy = tf.keras.mixed_precision.Policy("mixed_bfloat16")
         tf.keras.mixed_precision.set_global_policy(policy)
 
         self.idx = idx
