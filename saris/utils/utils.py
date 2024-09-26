@@ -200,11 +200,11 @@ def read_n_to_last_line(filename, n=1) -> str:
 
 # Conversion
 def linear2dB(x: float) -> float:
-    return float(10 * np.log10(x))
+    return 10 * np.log10(x)
 
 
 def dB2linear(x: float) -> float:
-    return float(10 ** (x / 10))
+    return 10 ** (x / 10)
 
 
 def cartesian2spherical(x: float, y: float, z: float) -> Tuple[float, float, float]:
@@ -214,9 +214,7 @@ def cartesian2spherical(x: float, y: float, z: float) -> Tuple[float, float, flo
     return r, theta, phi
 
 
-def spherical2cartesian(
-    r: float, theta: float, phi: float
-) -> Tuple[float, float, float]:
+def spherical2cartesian(r: float, theta: float, phi: float) -> Tuple[float, float, float]:
     x = r * np.sin(theta) * np.cos(phi)
     y = r * np.sin(theta) * np.sin(phi)
     z = r * np.cos(theta)
