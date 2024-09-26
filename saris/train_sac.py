@@ -468,12 +468,6 @@ def eval(args: argparse.Namespace, envs: gym.vector.VectorEnv):
     log_dir = os.path.join(args.source_dir, "local_assets", "logs")
     log_name = os.path.join("SARIS_SAC_" + args.log_string)
     log_path = os.path.join(log_dir, log_name)
-    writer = SummaryWriter(log_path)
-    writer.add_text(
-        "hyperparameters",
-        "|param|value|\n|-|-|\n%s"
-        % ("\n".join([f"|{key}|{value}|" for key, value in vars(args).items()])),
-    )
 
     agent = sac.Agent(envs.single_observation_space, envs.single_action_space)
     agent = agent.to(args.device)
@@ -492,6 +486,14 @@ def eval(args: argparse.Namespace, envs: gym.vector.VectorEnv):
         raise ValueError("Evaluation requires a checkpoint to load")
 
     trajs = eval_trajectories(agent, envs, args)
+
+    log_path += f"_eval_{global_step}"
+    writer = SummaryWriter(log_path)
+    writer.add_text(
+        "hyperparameters",
+        "|param|value|\n|-|-|\n%s"
+        % ("\n".join([f"|{key}|{value}|" for key, value in vars(args).items()])),
+    )
 
     returns = []
     for rews, done in zip(trajs["rews"], trajs["dones"]):
@@ -522,7 +524,7 @@ def eval(args: argparse.Namespace, envs: gym.vector.VectorEnv):
     plt.xlabel("Step")
     plt.ylabel("Return")
     plt.title("Return")
-    plt.savefig(os.path.join(log_path, "return.png"))
+    plt.savefig(os.path.join(log_path, f"return.png"))
     plt.close()
 
     mean_path_gains = np.mean(trajs["path_gains"], axis=0)

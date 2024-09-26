@@ -79,4 +79,13 @@ mkdir -p ${OPTIX_CACHE_PATH}
 # poetry run train_sac --command train --sionna_config_file ${SIONNA_CONFIG_FILE} --seed 100 --verbose --resume --load_step 1710
 
 export OPTIX_CACHE_PATH=${TMP_DIR}/optix_cache_1
+poetry run train_sac --command eval --sionna_config_file ${SIONNA_CONFIG_FILE} --seed 100 --verbose --resume --load_step 2500
+
+export OPTIX_CACHE_PATH=${TMP_DIR}/optix_cache_1
+poetry run train_sac --command eval --sionna_config_file ${SIONNA_CONFIG_FILE} --seed 100 --verbose --resume --load_step 3600
+
+export OPTIX_CACHE_PATH=${TMP_DIR}/optix_cache_1
 poetry run train_sac --command eval --sionna_config_file ${SIONNA_CONFIG_FILE} --seed 100 --verbose --resume --load_step 3800
+
+export OPTIX_CACHE_PATH=${TMP_DIR}/optix_cache_1
+poetry run train_sac --command eval --sionna_config_file ${SIONNA_CONFIG_FILE} --seed 100 --verbose --resume --load_step 4200
