@@ -18,7 +18,7 @@ import glob
 import json
 from saris.blender_script import shared_utils
 
-from saris import sigmap
+from saris.sigmap import signal_cmap
 from sionna.channel import (
     cir_to_ofdm_channel,
     subcarrier_frequencies,
@@ -80,8 +80,7 @@ class WirelessEnvV0(Env):
         self.angle_space = spaces.Box(low=angle_low, high=angle_high, dtype=np.float32)
 
         # Power average of the equivalent channel
-        num_rxs = len(self.sionna_config["rx_positions"])
-        self.gain_space = spaces.Box(low=-np.inf, high=np.inf, shape=(num_rxs,), dtype=np.float32)
+        self.gain_space = spaces.Box(low=-np.inf, high=np.inf, shape=(1,), dtype=np.float32)
 
         self.angles = None
 
@@ -95,11 +94,36 @@ class WirelessEnvV0(Env):
         self.info = {}
         self.eval_mode = eval_mode
 
+        # rx_pos = self.sionna_config["rx_position"]
+        # print(f"rx_pos: {rx_pos}")
+        # rx_pos_xs = np.arange(-11.0, -14.0, -0.5)
+        # rx_pos_ys = np.arange(-2.5, -4.6, -0.5)
+        # rx_pos_zs = np.array([rx_pos[2]])
+
+        # print(f"env_idx: {self.idx}")
+        # self.rx_poss = []
+        # for rx_pos_x in rx_pos_xs:
+        #     rx_pos_ys = rx_pos_ys[::-1]
+        #     for rx_pos_y in rx_pos_ys:
+        #         for rx_pos_z in rx_pos_zs:
+        #             self.rx_poss.append([rx_pos_x, rx_pos_y, rx_pos_z])
+        #             print(f"rx_pos: {rx_pos_x}, {rx_pos_y}, {rx_pos_z}")
+        # print(f"Number of rx positions: {len(self.rx_poss)}")
+        # self.rx_idx = 0
+
+        # for i in range(100):
+        #     print(f"i: {i} - rx_idx: {self.rx_idx} - rx_pos: {self.rx_poss[self.rx_idx]}")
+        #     self.rx_idx = self.rx_idx + 1
+        #     if self.rx_idx % len(self.rx_poss) == 0:
+        #         self.rx_idx = 0
+        #         self.rx_poss = self.rx_poss[::-1]
+        #         print()
+
     def _get_observation_space(self) -> spaces.Box:
         observation_space = spaces.Dict(
             {
                 "angles": self.angle_space,
-                "gains": self.gain_space,
+                "gain": self.gain_space,
             }
         )
         return observation_space
@@ -111,6 +135,12 @@ class WirelessEnvV0(Env):
     def reset(self, seed: int = None, options: dict = None) -> Tuple[dict, dict]:
         super().reset(seed=seed, options=options)
 
+        self.sionna_config["rx_position"] = self.rx_poss[self.rx_idx]
+        self.rx_idx = self.rx_idx + 1
+        if self.rx_idx % len(self.rx_poss) == 0:
+            self.rx_idx = 0
+            self.rx_poss = self.rx_poss[::-1]
+
         self.angles = self.np_rng.uniform(low=self.angle_space.low, high=self.angle_space.high)
         self.angles = np.clip(self.angles, self.angle_space.low, self.angle_space.high)
 
@@ -120,7 +150,7 @@ class WirelessEnvV0(Env):
         observation = OrderedDict(
             {
                 "angles": np.array(self.angles, dtype=np.float32),
-                "gains": np.array(self.cur_gain, dtype=np.float32),
+                "gain": np.array([self.cur_gain], dtype=np.float32),
             }
         )
 
@@ -142,41 +172,30 @@ class WirelessEnvV0(Env):
         self.next_gain = self._cal_path_gain_dB(eval_mode=self.eval_mode)
         next_observation = {
             "angles": np.asarray(self.angles, dtype=np.float32),
-            "gains": np.asarray(self.next_gain, dtype=np.float32),
+            "gain": np.asarray([self.next_gain], dtype=np.float32),
         }
 
         reward = self._cal_reward(self.cur_gain, self.next_gain, self.taken_steps)
 
         step_info = {
-            "path_gain": self.cur_gain,
-            "next_path_gain": self.next_gain,
+            "path_gain_dB": self.cur_gain,
+            "next_path_gain_dB": self.next_gain,
             "reward": reward,
         }
 
         return next_observation, reward, terminated, truncated, step_info
 
     def _cal_reward(self, cur_gain: float, next_gain: float, time_taken: float) -> float:
-
-        # multiplication in linear is addition in dB
         threshold = -90.0  # dB
-        fairness = np.sum(cur_gain - threshold) / len(cur_gain)
-
-        # total gain
-        cur_gain_linear = utils.dB2linear(cur_gain - threshold)
-        total_gain_linear = np.sum(cur_gain_linear) / len(cur_gain)
-        total_gain = utils.linear2dB(total_gain_linear)  # dB
-
-        gain_diff = 0.1 * np.mean(next_gain - cur_gain)
-
+        scaled_gain = 0.8 * (cur_gain - threshold)
+        gain_diff = 0.1 * (next_gain - cur_gain)
         cost_time = -0.1 * time_taken
-
-        reward = 5 * (0.4 * fairness + 0.6 * total_gain) + gain_diff + cost_time
+        reward = scaled_gain + gain_diff + cost_time
         return reward
 
-    def _cal_path_gain_dB(self, eval_mode: bool = False) -> np.ndarray[float]:
+    def _cal_path_gain_dB(self, eval_mode: bool = False) -> float:
 
         self._prepare_geometry()
-        # path gain shape: [num_rx]
         path_gain = self._cal_path_gain_sionna(eval_mode=eval_mode)
         path_gain_dB = utils.linear2dB(path_gain)
 
@@ -235,7 +254,7 @@ class WirelessEnvV0(Env):
         viz_scene_dir = os.path.join(blender_output_dir, "idx")
         viz_scene_path = glob.glob(os.path.join(viz_scene_dir, "*.xml"))[0]
 
-        sig_cmap = sigmap.engine.SignalCoverageMap(
+        sig_cmap = signal_cmap.SignalCoverageMap(
             self.sionna_config, compute_scene_path, viz_scene_path
         )
 
@@ -243,18 +262,11 @@ class WirelessEnvV0(Env):
         if not eval_mode:
             paths = sig_cmap.compute_paths()
             cir = paths.cir()
-            # a: [batch_size, num_rx, num_rx_ant, num_tx, num_tx_ant, max_num_paths, num_time_steps], tf.complex
             a, tau = cir
             (l_min, l_max) = time_lag_discrete_time_channel(bandwidth)
-            # [batch size, num_rx, num_rx_ant, num_tx, num_tx_ant, num_time_steps, l_max - l_min + 1], tf.complex
             h_time = cir_to_time_channel(bandwidth, a, tau, l_min, l_max)
-            h_time = h_time[0]
-            # [num_rx, num_rx_ant, num_tx, num_tx_ant, num_time_steps]
-            h_time_sum_power = tf.reduce_sum(tf.abs(h_time) ** 2, axis=-1)
-            # [num_rx, num_rx_ant]
-            h_time_avg_power = tf.reduce_mean(h_time_sum_power, axis=(1, 2, 3, 4))
-            # h_time_avg_power shape: [num_rx]
-            path_gain = h_time_avg_power.numpy()
+            h_time_avg_power = tf.reduce_mean(tf.reduce_sum(tf.abs(h_time) ** 2, axis=-1)).numpy()
+            path_gain = h_time_avg_power
         else:
             # Path for outputing iamges if we want to visualize the coverage map
             img_dir = os.path.join(
