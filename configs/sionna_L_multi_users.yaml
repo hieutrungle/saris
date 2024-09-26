@@ -1,0 +1,40 @@
+base_config: hallway
+scene_name: hallway_L
+resolution: [1920, 1080]
+cm_vmin: -120
+cm_vmax: -60
+verbose: true
+cam_position: [-7.5, -4.0, 50.0]
+cam_orientation: [0.0, 0.0, 0.0]
+cam_look_at: [-7.5, -4.0, 0.0]
+frequency: 28e9
+synthetic_array: true
+
+# RIS parameters
+ris_locations: [[5.855, 17.24, 0.9594]]
+
+# Transmitter and receiver parameters
+tx_num_rows: 4
+tx_num_cols: 4
+tx_vertical_spacing: 0.5
+tx_horizontal_spacing: 0.5
+tx_pattern: iso
+tx_polarization: V
+tx_positions: [[1.0, 0.0, 1.5]]
+tx_orientations: [[0.0, 0.0, 0.0]]
+rx_num_rows: 1
+rx_num_cols: 1
+rx_vertical_spacing: 0.5
+rx_horizontal_spacing: 0.5
+rx_pattern: iso
+rx_polarization: V
+rx_positions: [[-10.75, -2.75, 1.5], [-7.2, -4.25, 1.5], [-13.5, -3.25, 1.5]]
+rx_orientations: [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]]
+
+# Path tracing parameters
+cm_max_depth: 15
+cm_cell_size: [0.2, 0.2]
+cm_num_samples: 1e6
+path_max_depth: 15
+path_num_samples: 1e6
+diffraction: true
