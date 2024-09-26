@@ -157,8 +157,7 @@ class SignalCoverageMap:
     def get_path_gain(self, coverage_map: sionna.rt.CoverageMap) -> float:
         coverage_map_tensor = coverage_map.as_tensor()
         coverage_map_centers = coverage_map.cell_centers
-        rx_position = tf.convert_to_tensor(self.config["rx_position"])
-
+        rx_position = tf.convert_to_tensor(self.config["rx_position"], dtype=tf.float32)
         top_left_pos = coverage_map_centers[0, 0, 0:2] - (coverage_map.cell_size / 2)
         x_distance_to_top_left = rx_position[0] - top_left_pos[0]
         y_distance_to_top_left = rx_position[1] - top_left_pos[1]

@@ -122,11 +122,13 @@ def make_env(
 
     def thunk():
 
+        eval_mode = True if args.command == "eval" else False
         env = gym.make(
             env_id,
             idx=idx,
             sionna_config_file=args.sionna_config_file,
             log_string=args.log_string,
+            eval_mode=eval_mode,
             seed=args.seed,
             max_episode_steps=args.ep_len,
         )

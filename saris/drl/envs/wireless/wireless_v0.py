@@ -38,10 +38,14 @@ class WirelessEnvV0(Env):
         idx: int,
         sionna_config_file: str,
         log_string: str = "WirelessEnvV0",
+        eval_mode: bool = False,
         seed: int = 0,
         **kwargs,
     ):
         super(WirelessEnvV0, self).__init__()
+
+        policy = tf.keras.mixed_precision.Policy("mixed_float16")
+        tf.keras.mixed_precision.set_global_policy(policy)
 
         self.idx = idx
         self.log_string = log_string
@@ -88,8 +92,7 @@ class WirelessEnvV0(Env):
         self.next_gain = 0.0
 
         self.info = {}
-        self.use_cmap = False
-        self.eval_mode = False
+        self.eval_mode = eval_mode
 
         rx_pos = self.sionna_config["rx_position"]
         rx_pos_xs = np.arange(-11.0, -14.0, -0.5)
@@ -128,14 +131,6 @@ class WirelessEnvV0(Env):
         action_space = spaces.Box(low=-1, high=1, shape=self.angle_space.shape)
         return action_space
 
-    def eval(self):
-        self.eval_mode = True
-        self.use_cmap = True
-
-    def train(self):
-        self.eval_mode = False
-        self.use_cmap = False
-
     def reset(self, seed: int = None, options: dict = None) -> Tuple[dict, dict]:
         super().reset(seed=seed, options=options)
 
@@ -148,7 +143,7 @@ class WirelessEnvV0(Env):
         self.angles = self.np_rng.uniform(low=self.angle_space.low, high=self.angle_space.high)
         self.angles = np.clip(self.angles, self.angle_space.low, self.angle_space.high)
 
-        self.cur_gain = self._cal_path_gain_dB(use_cmap=self.use_cmap)
+        self.cur_gain = self._cal_path_gain_dB(eval_mode=self.eval_mode)
         self.next_gain = self.cur_gain
 
         observation = OrderedDict(
@@ -173,7 +168,7 @@ class WirelessEnvV0(Env):
         terminated = False
 
         self.next_gain = 0.0
-        self.next_gain = self._cal_path_gain_dB(use_cmap=self.use_cmap)
+        self.next_gain = self._cal_path_gain_dB(eval_mode=self.eval_mode)
         next_observation = {
             "angles": np.asarray(self.angles, dtype=np.float32),
             "gain": np.asarray([self.next_gain], dtype=np.float32),
@@ -197,10 +192,10 @@ class WirelessEnvV0(Env):
         reward = scaled_gain + gain_diff + cost_time
         return reward
 
-    def _cal_path_gain_dB(self, use_cmap: bool = False) -> float:
+    def _cal_path_gain_dB(self, eval_mode: bool = False) -> float:
 
         self._prepare_geometry()
-        path_gain = self._cal_path_gain_sionna(use_cmap=use_cmap)
+        path_gain = self._cal_path_gain_sionna(eval_mode=eval_mode)
         path_gain_dB = utils.linear2dB(path_gain)
 
         return path_gain_dB
@@ -247,7 +242,7 @@ class WirelessEnvV0(Env):
         except subprocess.CalledProcessError as e:
             raise Exception(f"Error running Blender command: {e}")
 
-    def _cal_path_gain_sionna(self, use_cmap: bool = False) -> float:
+    def _cal_path_gain_sionna(self, eval_mode: bool = False) -> float:
 
         # Set up geometry paths for Sionna script
         assets_dir = utils.get_os_dir("ASSETS_DIR")
@@ -263,7 +258,7 @@ class WirelessEnvV0(Env):
         )
 
         bandwidth = 20e6
-        if not use_cmap:
+        if not eval_mode:
             paths = sig_cmap.compute_paths()
             cir = paths.cir()
             a, tau = cir
