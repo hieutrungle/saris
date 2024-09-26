@@ -187,8 +187,8 @@ class WirelessEnvV0(Env):
     def _cal_reward(self, cur_gain: float, next_gain: float, time_taken: float) -> float:
         threshold = -90.0  # dB
         scaled_gain = 0.8 * (cur_gain - threshold)
-        gain_diff = 0.2 * (next_gain - cur_gain)
-        cost_time = -0.2 * time_taken
+        gain_diff = 0.1 * (next_gain - cur_gain)
+        cost_time = -0.1 * time_taken
         reward = scaled_gain + gain_diff + cost_time
         return reward
 
