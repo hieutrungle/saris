@@ -4,10 +4,8 @@ os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
 os.environ["TF_GPU_ALLOCATOR"] = "cuda_malloc_async"  # to avoid memory fragmentation
 
-# import orderdict
 from collections import OrderedDict
 from typing import Tuple
-import re
 import subprocess
 import time
 import numpy as np
@@ -15,7 +13,6 @@ from gymnasium import Env, spaces
 from saris.utils import utils
 import pickle
 import glob
-import json
 from saris.blender_script import shared_utils
 
 from saris import sigmap
@@ -26,9 +23,8 @@ from sionna.channel import (
     cir_to_time_channel,
     time_to_ofdm_channel,
 )
-
-import importlib
 import tensorflow as tf
+from saris.utils import mp_imp
 
 
 class WirelessEnvV0(Env):
@@ -155,32 +151,34 @@ class WirelessEnvV0(Env):
 
         return next_observation, reward, terminated, truncated, step_info
 
-    def _cal_reward(self, cur_gain: float, next_gain: float, time_taken: float) -> float:
+    def _cal_reward(
+        self, cur_gains: np.ndarray, next_gains: np.ndarray, time_taken: float
+    ) -> float:
 
         # multiplication in linear is addition in dB
         threshold = -90.0  # dB
-        fairness = np.sum(cur_gain - threshold) / len(cur_gain)
+        fairness = np.sum(cur_gains - threshold) / len(cur_gains)
 
         # total gain
-        cur_gain_linear = utils.dB2linear(cur_gain - threshold)
-        total_gain_linear = np.sum(cur_gain_linear) / len(cur_gain)
+        cur_gain_linear = utils.dB2linear(cur_gains - threshold)
+        total_gain_linear = np.sum(cur_gain_linear) / len(cur_gains)
         total_gain = utils.linear2dB(total_gain_linear)  # dB
 
-        gain_diff = 0.1 * np.mean(next_gain - cur_gain)
-
+        gain_diff = 0.1 * np.mean(next_gains - cur_gains)
         cost_time = -0.1 * time_taken
 
-        reward = 5 * (0.4 * fairness + 0.6 * total_gain) + gain_diff + cost_time
-        return reward
+        reward = 2.5 * (0.4 * fairness + 0.6 * total_gain) + gain_diff + cost_time
+
+        return float(reward)
 
     def _cal_path_gain_dB(self, eval_mode: bool = False) -> np.ndarray[float]:
 
         self._prepare_geometry()
         # path gain shape: [num_rx]
-        path_gain = self._cal_path_gain_sionna(eval_mode=eval_mode)
-        path_gain_dB = utils.linear2dB(path_gain)
+        path_gains = self._cal_path_gain_sionna(eval_mode=eval_mode)
+        path_gain_dBs = utils.linear2dB(path_gains)
 
-        return path_gain_dB
+        return path_gain_dBs
 
     def _prepare_geometry(self) -> None:
         """
