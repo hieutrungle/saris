@@ -207,17 +207,21 @@ class SignalCoverageMap:
     def get_path_gain(self, coverage_map: sionna.rt.CoverageMap) -> float:
         coverage_map_tensor = coverage_map.as_tensor()
         coverage_map_centers = coverage_map.cell_centers
-        rx_position = tf.convert_to_tensor(self.config["rx_position"], dtype=tf.float32)
+        rx_positions = tf.convert_to_tensor(self.config["rx_positions"], dtype=tf.float32)
+        # Get the top left position of the coverage map
         top_left_pos = coverage_map_centers[0, 0, 0:2] - (coverage_map.cell_size / 2)
-        x_distance_to_top_left = rx_position[0] - top_left_pos[0]
-        y_distance_to_top_left = rx_position[1] - top_left_pos[1]
+        path_gains = []
+        for rx_position in rx_positions:
+            x_distance_to_top_left = rx_position[0] - top_left_pos[0]
+            y_distance_to_top_left = rx_position[1] - top_left_pos[1]
 
-        ind_y = int(y_distance_to_top_left / coverage_map.cell_size[1])
-        ind_x = int(x_distance_to_top_left / coverage_map.cell_size[0])
+            ind_y = int(y_distance_to_top_left / coverage_map.cell_size[1])
+            ind_x = int(x_distance_to_top_left / coverage_map.cell_size[0])
 
-        path_gain: tf.Tensor = coverage_map_tensor[0, ind_y, ind_x]
-        path_gain = float(path_gain.numpy())
-        return path_gain
+            path_gain: tf.Tensor = coverage_map_tensor[0, ind_y, ind_x]
+            path_gain = float(path_gain.numpy())
+            path_gains.append(path_gain)
+        return path_gains
 
     def get_viz_scene(self) -> sionna.rt.Scene:
         scene = prepare_scene(self.config, self._viz_scene_path, self.cam)

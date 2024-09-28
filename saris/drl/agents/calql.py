@@ -70,6 +70,21 @@ class ReparameterizedTanhGaussian(nn.Module):
         return action_sample, log_prob
 
 
+class Fourier(nn.Module):
+    """Fourier features for encoding the input signal."""
+
+    def __init__(self, in_features: int, out_features: int):
+        super().__init__()
+        assert out_features % 2 == 0, "The number of output features must be even."
+        self.fourier = nn.Linear(in_features, out_features // 2, bias=False)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = self.fourier(x)
+        x = 2 * np.pi * x
+        x = torch.cat([torch.sin(x), torch.cos(x)], axis=-1)
+        return x
+
+
 class TanhGaussianPolicy(nn.Module):
     def __init__(
         self,
@@ -88,13 +103,15 @@ class TanhGaussianPolicy(nn.Module):
         self.orthogonal_init = orthogonal_init
         self.no_tanh = no_tanh
 
+        self.fourier = Fourier(state_dim, 256)
         self.base_network = nn.Sequential(
-            nn.Linear(state_dim, 256),
-            nn.ReLU(),
             nn.Linear(256, 256),
-            nn.ReLU(),
+            nn.GELU(),
             nn.Linear(256, 256),
-            nn.ReLU(),
+            nn.LayerNorm(256),
+            nn.GELU(),
+            nn.Linear(256, 256),
+            nn.GELU(),
             nn.Linear(256, 2 * action_dim),
         )
 
@@ -110,10 +127,11 @@ class TanhGaussianPolicy(nn.Module):
     def log_prob(self, observations: torch.Tensor, actions: torch.Tensor) -> torch.Tensor:
         if actions.ndim == 3:
             observations = extend_and_repeat(observations, 1, actions.shape[1])
-        base_network_output = self.base_network(observations)
+        fourier = self.fourier(observations)
+        base_network_output = self.base_network(fourier)
         mean, log_std = torch.split(base_network_output, self.action_dim, dim=-1)
         log_std = self.log_std_multiplier() * log_std + self.log_std_offset()
-        _, log_probs = self.tanh_gaussian(mean, log_std, False)
+        log_probs = self.tanh_gaussian.log_prob(mean, log_std, actions)
         return log_probs
 
     def forward(
@@ -124,18 +142,18 @@ class TanhGaussianPolicy(nn.Module):
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         if repeat is not None:
             observations = extend_and_repeat(observations, 1, repeat)
-        base_network_output = self.base_network(observations)
+        fourier = self.fourier(observations)
+        base_network_output = self.base_network(fourier)
         mean, log_std = torch.split(base_network_output, self.action_dim, dim=-1)
         log_std = self.log_std_multiplier() * log_std + self.log_std_offset()
         actions, log_probs = self.tanh_gaussian(mean, log_std, deterministic)
         return self.action_scale * actions, log_probs
 
     @torch.no_grad()
-    def act(self, state: np.ndarray, device: str = "cpu"):
-        state = torch.tensor(state.reshape(1, -1), device=device, dtype=torch.float32)
+    def act(self, ob: np.ndarray):
         with torch.no_grad():
-            actions, _ = self(state, not self.training)
-        return actions.cpu().data.numpy().flatten()
+            actions, _ = self(ob, not self.training)
+        return actions
 
 
 class FullyConnectedQFunction(nn.Module):
