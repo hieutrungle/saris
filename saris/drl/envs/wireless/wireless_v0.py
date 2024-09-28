@@ -162,9 +162,9 @@ class WirelessEnvV0(Env):
         fairness = np.sum(cur_gain - threshold) / len(cur_gain)
 
         # total gain
-        cur_gain_linear = utils.dB2linear(cur_gain)
+        cur_gain_linear = utils.dB2linear(cur_gain - threshold)
         total_gain_linear = np.sum(cur_gain_linear) / len(cur_gain)
-        total_gain = utils.linear2dB(total_gain_linear) - threshold  # dB
+        total_gain = utils.linear2dB(total_gain_linear)  # dB
 
         gain_diff = 0.1 * np.mean(next_gain - cur_gain)
 
