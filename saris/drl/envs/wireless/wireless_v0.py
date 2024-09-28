@@ -24,7 +24,6 @@ from sionna.channel import (
     time_to_ofdm_channel,
 )
 import tensorflow as tf
-from saris.utils import mp_imp
 
 
 class WirelessEnvV0(Env):
