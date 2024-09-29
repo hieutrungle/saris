@@ -423,8 +423,10 @@ class CalQL:
         critic_1: calql.FullyConnectedQFunction,
         critic_2: calql.FullyConnectedQFunction,
         critic_optimizer: torch.optim.Optimizer,
+        critic_scheduler: torch.optim.lr_scheduler._LRScheduler,
         actor: calql.TanhGaussianPolicy,
         actor_optimizer: torch.optim.Optimizer,
+        actor_scheduler: torch.optim.lr_scheduler._LRScheduler,
         target_entropy: float,
         discount: float = 0.99,
         alpha_multiplier: float = 1.0,
@@ -479,17 +481,13 @@ class CalQL:
 
         self.actor = actor
 
-        self.actor_optimizer = actor_optimizer
-        self.actor_scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
-            self.actor_optimizer, 10, eta_min=1e-6
-        )
         self.actor_scaler = torch.cuda.amp.GradScaler()
+        self.actor_optimizer = actor_optimizer
+        self.actor_scheduler = actor_scheduler
 
-        self.critic_optimizer = critic_optimizer
-        self.critic_scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
-            self.critic_optimizer, 10, eta_min=3e-6
-        )
         self.critic_scaler = torch.cuda.amp.GradScaler()
+        self.critic_optimizer = critic_optimizer
+        self.critic_scheduler = critic_scheduler
 
         if self.use_automatic_entropy_tuning:
             self.log_alpha = calql.Scalar(0.0)
@@ -769,7 +767,6 @@ class CalQL:
             observations, actions, next_observations, rewards, dones, mc_returns, alpha, log_dict
         )
 
-        # TODO: add scheduler
         if self.use_automatic_entropy_tuning:
             self.alpha_optimizer.zero_grad(set_to_none=True)
             alpha_loss.backward()
@@ -960,7 +957,13 @@ def train(trainer: CalQL, config: TrainConfig, envs: gym.vector.VectorEnv) -> No
                 torch.tensor(dones, dtype=torch.float32).unsqueeze(-1),
                 torch.zeros_like(torch.tensor(rews, dtype=torch.float32)).unsqueeze(-1),
             )
-            online_buffer.add_batch_transition(current_batch[0], current_batch[1], current_batch[2], current_batch[3], current_batch[4])
+            online_buffer.add_batch_transition(
+                current_batch[0],
+                current_batch[1],
+                current_batch[2],
+                current_batch[3],
+                current_batch[4],
+            )
 
             if "final_info" in env_infos:
                 returns = [info["episode"]["r"] for info in env_infos["final_info"]]
@@ -1220,6 +1223,11 @@ def main(config: TrainConfig):
     critic_optimizer = torch.optim.AdamW(
         list(critic_1.parameters()) + list(critic_2.parameters()), config.qf_lr
     )
+    critic_scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
+        critic_optimizer,
+        config.ep_len * config.n_updates,
+        eta_min=config.qf_lr / 10,
+    )
 
     actor = calql.TanhGaussianPolicy(
         ob_dim,
@@ -1227,13 +1235,20 @@ def main(config: TrainConfig):
         orthogonal_init=config.orthogonal_init,
     ).to(config.device)
     actor_optimizer = torch.optim.AdamW(actor.parameters(), config.policy_lr)
+    actor_scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
+        actor_optimizer,
+        config.ep_len * config.n_updates,
+        eta_min=config.policy_lr / 10,
+    )
 
     kwargs = {
         "critic_1": critic_1,
         "critic_2": critic_2,
         "critic_optimizer": critic_optimizer,
+        "critic_scheduler": critic_scheduler,
         "actor": actor,
         "actor_optimizer": actor_optimizer,
+        "actor_scheduler": actor_scheduler,
         "discount": config.discount,
         "soft_target_update_rate": config.soft_target_update_rate,
         "device": config.device,
