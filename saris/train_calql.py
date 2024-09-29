@@ -50,7 +50,7 @@ class TrainConfig:
     # Environment
     ep_len: int = 75  # Max length of episode
     eval_ep_len: int = 50  # Max length of evaluation episode
-    num_envs: int = 6  # Number of parallel environments
+    num_envs: int = 4  # Number of parallel environments
     seed: int = 10  # Sets Gym, PyTorch and Numpy seeds
     eval_seed: int = 100  # Eval environment seed
 
@@ -64,8 +64,7 @@ class TrainConfig:
     backup_entropy: bool = False  # Use backup entropy
     policy_lr: float = 1e-4  # Policy learning rate
     qf_lr: float = 3e-4  # Critics learning rate
-    soft_target_update_rate: float = 5e-3  # Target network update rate
-    bc_steps: int = int(0)  # Number of BC steps at start
+    tau: float = 5e-3  # Target network update rate
     target_update_period: int = 1  # Frequency of target nets updates
     cql_alpha: float = 5.0  # CQL offline regularization parameter
     cql_alpha_online: float = 5.0  # CQL online regularization parameter
@@ -261,8 +260,7 @@ class CalQL:
         backup_entropy: bool = False,
         policy_lr: bool = 3e-4,
         qf_lr: bool = 3e-4,
-        soft_target_update_rate: float = 5e-3,
-        bc_steps=100000,
+        tau: float = 5e-3,
         target_update_period: int = 1,
         cql_n_actions: int = 10,
         cql_importance_sample: bool = True,
@@ -284,8 +282,7 @@ class CalQL:
         self.backup_entropy = backup_entropy
         self.policy_lr = policy_lr
         self.qf_lr = qf_lr
-        self.soft_target_update_rate = soft_target_update_rate
-        self.bc_steps = bc_steps
+        self.tau = tau
         self.target_update_period = target_update_period
         self.cql_n_actions = cql_n_actions
         self.cql_importance_sample = cql_importance_sample
@@ -334,13 +331,16 @@ class CalQL:
         self._calibration_enabled = True
         self.total_it = 0
 
-    def _soft_update(self, target: nn.Module, source: nn.Module, tau: float):
-        for target_param, source_param in zip(target.parameters(), source.parameters()):
-            target_param.data.copy_((1 - tau) * target_param.data + tau * source_param.data)
+    def update_target_network(self, tau: float):
+        for target_param, param in zip(
+            self.target_critic_1.parameters(), self.critic_1.parameters()
+        ):
+            target_param.data.copy_((1 - tau) * target_param.data + tau * param.data)
 
-    def update_target_network(self, soft_target_update_rate: float):
-        self._soft_update(self.target_critic_1, self.critic_1, soft_target_update_rate)
-        self._soft_update(self.target_critic_2, self.critic_2, soft_target_update_rate)
+        for target_param, param in zip(
+            self.target_critic_2.parameters(), self.critic_2.parameters()
+        ):
+            target_param.data.copy_((1 - tau) * target_param.data + tau * param.data)
 
     def switch_calibration(self):
         self._calibration_enabled = not self._calibration_enabled
@@ -357,20 +357,15 @@ class CalQL:
     def _policy_loss(
         self,
         observations: torch.Tensor,
-        actions: torch.Tensor,
         new_actions: torch.Tensor,
         alpha: torch.Tensor,
         log_pi: torch.Tensor,
     ) -> torch.Tensor:
-        if self.total_it <= self.bc_steps:
-            log_probs = self.actor.log_prob(observations, actions)
-            policy_loss = (alpha * log_pi - log_probs).mean()
-        else:
-            q_new_actions = torch.min(
-                self.critic_1(observations, new_actions),
-                self.critic_2(observations, new_actions),
-            )
-            policy_loss = (alpha * log_pi - q_new_actions).mean()
+        q_new_actions = torch.min(
+            self.critic_1(observations, new_actions),
+            self.critic_2(observations, new_actions),
+        )
+        policy_loss = (alpha * log_pi - q_new_actions).mean()
         return policy_loss
 
     def _q_loss(
@@ -584,7 +579,7 @@ class CalQL:
         alpha, alpha_loss = self._alpha_and_alpha_loss(observations, log_pi)
 
         """ Policy loss """
-        policy_loss = self._policy_loss(observations, actions, new_actions, alpha, log_pi)
+        policy_loss = self._policy_loss(observations, new_actions, alpha, log_pi)
 
         log_dict = dict(
             log_pi=log_pi.mean().item(),
@@ -622,7 +617,7 @@ class CalQL:
         self.critic_scheduler.step()
 
         if self.total_it % self.target_update_period == 0:
-            self.update_target_network(self.soft_target_update_rate)
+            self.update_target_network(self.tau)
 
         lr_dict = {
             "actor_lr": self.actor_optimizer.param_groups[0]["lr"],
@@ -1057,7 +1052,7 @@ def main(config: TrainConfig):
         "actor_optimizer": actor_optimizer,
         "actor_scheduler": actor_scheduler,
         "discount": config.discount,
-        "soft_target_update_rate": config.soft_target_update_rate,
+        "tau": config.tau,
         "device": config.device,
         # CQL
         "target_entropy": -np.prod(envs.single_action_space.shape).item(),
@@ -1066,7 +1061,6 @@ def main(config: TrainConfig):
         "backup_entropy": config.backup_entropy,
         "policy_lr": config.policy_lr,
         "qf_lr": config.qf_lr,
-        "bc_steps": config.bc_steps,
         "target_update_period": config.target_update_period,
         "cql_n_actions": config.cql_n_actions,
         "cql_importance_sample": config.cql_importance_sample,

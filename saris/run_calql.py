@@ -49,8 +49,7 @@ class TrainConfig:
     backup_entropy: bool = False  # Use backup entropy
     policy_lr: float = 1e-4  # Policy learning rate
     qf_lr: float = 3e-4  # Critics learning rate
-    soft_target_update_rate: float = 5e-3  # Target network update rate
-    bc_steps: int = int(0)  # Number of BC steps at start
+    tau: float = 5e-3  # Target network update rate
     target_update_period: int = 1  # Frequency of target nets updates
     cql_alpha: float = 5.0  # CQL offline regularization parameter
     cql_alpha_online: float = 5.0  # CQL online regularization parameter
@@ -139,10 +138,8 @@ def main(config: TrainConfig):
         str(config.policy_lr),
         "--qf_lr",
         str(config.qf_lr),
-        "--soft_target_update_rate",
-        str(config.soft_target_update_rate),
-        "--bc_steps",
-        str(config.bc_steps),
+        "--tau",
+        str(config.tau),
         "--target_update_period",
         str(config.target_update_period),
         "--cql_alpha",
