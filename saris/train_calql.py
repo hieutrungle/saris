@@ -440,10 +440,10 @@ class CalQL:
         lower_bounds = mc_returns.reshape(-1, 1).repeat(1, cql_q1_current_acts.shape[1])
 
         num_vals = torch.sum(lower_bounds == lower_bounds)
-        bound_rate_cql_q1_current_actions = torch.sum(cql_q1_current_acts < lower_bounds) / num_vals
-        bound_rate_cql_q2_current_actions = torch.sum(cql_q2_current_acts < lower_bounds) / num_vals
-        bound_rate_cql_q1_next_actions = torch.sum(cql_q1_next_acts < lower_bounds) / num_vals
-        bound_rate_cql_q2_next_actions = torch.sum(cql_q2_next_acts < lower_bounds) / num_vals
+        bound_rate_q1_current_actions = torch.sum(cql_q1_current_acts < lower_bounds) / num_vals
+        bound_rate_q2_current_actions = torch.sum(cql_q2_current_acts < lower_bounds) / num_vals
+        bound_rate_q1_next_actions = torch.sum(cql_q1_next_acts < lower_bounds) / num_vals
+        bound_rate_q2_next_actions = torch.sum(cql_q2_next_acts < lower_bounds) / num_vals
 
         """ Cal-QL: bound Q-values with MC return-to-go """
         if self._calibration_enabled:
@@ -487,14 +487,10 @@ class CalQL:
 
         """Subtract the log likelihood of data"""
         cql_qf1_diff = torch.clamp(
-            cql_qf1_ood - q1_predicted,
-            self.cql_clip_diff_min,
-            self.cql_clip_diff_max,
+            cql_qf1_ood - q1_predicted, self.cql_clip_diff_min, self.cql_clip_diff_max
         ).mean()
         cql_qf2_diff = torch.clamp(
-            cql_qf2_ood - q2_predicted,
-            self.cql_clip_diff_min,
-            self.cql_clip_diff_max,
+            cql_qf2_ood - q2_predicted, self.cql_clip_diff_min, self.cql_clip_diff_max
         ).mean()
 
         if self.cql_lagrange:
@@ -545,10 +541,10 @@ class CalQL:
                 cql_q2_next_acts=cql_q2_next_acts.mean().item(),
                 alpha_prime_loss=alpha_prime_loss.item(),
                 alpha_prime=alpha_prime.item(),
-                bound_rate_cql_q1_current_actions=bound_rate_cql_q1_current_actions.item(),  # noqa
-                bound_rate_cql_q2_current_actions=bound_rate_cql_q2_current_actions.item(),  # noqa
-                bound_rate_cql_q1_next_actions=bound_rate_cql_q1_next_actions.item(),
-                bound_rate_cql_q2_next_actions=bound_rate_cql_q2_next_actions.item(),
+                bound_rate_q1_current_actions=bound_rate_q1_current_actions.item(),  # noqa
+                bound_rate_q2_current_actions=bound_rate_q2_current_actions.item(),  # noqa
+                bound_rate_q1_next_actions=bound_rate_q1_next_actions.item(),
+                bound_rate_q2_next_actions=bound_rate_q2_next_actions.item(),
             )
         )
 
