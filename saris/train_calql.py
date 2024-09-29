@@ -206,7 +206,7 @@ class ReplayBuffer:
         self._device = device
 
     def _to_tensor(self, data: np.ndarray) -> torch.Tensor:
-        return torch.tensor(data, dtype=torch.float32, device=self._device)
+        return torch.tensor(data, dtype=torch.float32).to(self._device)
 
     # # Loads data in d4rl format, i.e. from Dict[str, np.array].
     # def load_d4rl_dataset(self, data: Dict[str, np.ndarray]):
@@ -951,15 +951,16 @@ def train(trainer: CalQL, config: TrainConfig, envs: gym.vector.VectorEnv) -> No
             obs_rms.update(torch.tensor(obs, dtype=torch.float))
             rewards_rms.update(torch.tensor(rews, dtype=torch.float))
 
-            online_buffer.add_batch_transition(obs, acts, rews, next_obs, dones)
+            # online_buffer.add_batch_transition(obs, acts, rews, next_obs, dones)
             current_batch = (
                 torch.tensor(obs, dtype=torch.float32),
                 torch.tensor(acts, dtype=torch.float32),
-                torch.tensor(rews, dtype=torch.float32),
+                torch.tensor(rews, dtype=torch.float32).unsqueeze(-1),
                 torch.tensor(real_next_obs, dtype=torch.float32),
-                torch.tensor(dones, dtype=torch.float32),
-                torch.zeros_like(torch.tensor(rews, dtype=torch.float32)),
+                torch.tensor(dones, dtype=torch.float32).unsqueeze(-1),
+                torch.zeros_like(torch.tensor(rews, dtype=torch.float32)).unsqueeze(-1),
             )
+            online_buffer.add_batch_transition(current_batch[0], current_batch[1], current_batch[2], current_batch[3], current_batch[4])
 
             if "final_info" in env_infos:
                 returns = [info["episode"]["r"] for info in env_infos["final_info"]]
