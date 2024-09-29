@@ -277,17 +277,21 @@ class ReplayBuffer:
         self._size = min(self._size + batch_size, self._buffer_size)
 
 
-def wandb_init(config: dict) -> None:
+def wandb_init(config: TrainConfig) -> None:
+    key_filename = os.path.join(config.source_dir, "tmp_wandb_api_key.txt")
+    with open(key_filename, "r") as f:
+        key_api = f.read().strip()
+    wandb.login(relogin=True, key=key_api, host="https://api.wandb.ai")
     wandb.init(
         config=config,
-        dir=config["checkpoint_path"],
-        project=config["project"],
-        group=config["group"],
-        name=config["name"],
+        dir=config.checkpoint_path,
+        project=config.project,
+        group=config.group,
+        name=config.name,
         id=str(uuid.uuid4())[:5],
     )
-    # save_name = os.path.join(config["checkpoint_path"], "run")
-    # wandb.run.save(save_name, base_path=config["checkpoint_path"])
+    save_name = os.path.join(config["checkpoint_path"], "run")
+    wandb.run.save(save_name, base_path=config["checkpoint_path"])
 
 
 # def is_goal_reached(reward: float, info: Dict) -> bool:
@@ -1254,7 +1258,7 @@ def main(config: TrainConfig):
 
     # Initialize actor
     trainer = CalQL(**kwargs)
-    wandb_init(asdict(config))
+    wandb_init(config)
 
     if config.command.lower() == "train":
         train(trainer, config, envs)
