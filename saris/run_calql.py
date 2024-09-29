@@ -42,7 +42,7 @@ class TrainConfig:
     # CQL
     n_updates: int = 10  # Number of updates per step
     buffer_size: int = 10_000  # Replay buffer size
-    batch_size: int = 256  # Batch size for all networks
+    batch_size: int = 2  # Batch size for all networks
     discount: float = 0.85  # Discount factor
     alpha_multiplier: float = 1.0  # Multiplier for alpha in loss
     use_automatic_entropy_tuning: bool = True  # Tune entropy
@@ -52,15 +52,15 @@ class TrainConfig:
     tau: float = 5e-3  # Target network update rate
     target_update_period: int = 1  # Frequency of target nets updates
     cql_alpha: float = 5.0  # CQL offline regularization parameter
-    cql_alpha_online: float = 5.0  # CQL online regularization parameter
+    cql_alpha_online: float = 2.0  # CQL online regularization parameter
     cql_n_actions: int = 10  # Number of sampled actions
     cql_importance_sample: bool = True  # Use importance sampling
     cql_lagrange: bool = True  # Use Lagrange version of CQL
-    cql_target_action_gap: float = -1.0  # Action gap
+    cql_target_action_gap: float = 0.8  # Action gap
     cql_temp: float = 1.0  # CQL temperature
     cql_max_target_backup: bool = True  # Use max target backup
-    cql_clip_diff_min: float = -200  # Q-function lower loss clipping
-    cql_clip_diff_max: float = 200  # Q-function upper loss clipping
+    cql_clip_diff_min: float = -100  # Q-function lower loss clipping
+    cql_clip_diff_max: float = 100  # Q-function upper loss clipping
     orthogonal_init: bool = True  # Orthogonal initialization
     normalize: bool = True  # Normalize states
     normalize_reward: bool = True  # Normalize reward
@@ -185,8 +185,8 @@ def main(config: TrainConfig):
     train_cmd = base_cmd + ["--command", "train"]
     subprocess.run(train_cmd, check=True)
 
-    train_cmd = base_cmd + ["--command", "eval"]
-    subprocess.run(train_cmd, check=True)
+    # train_cmd = base_cmd + ["--command", "eval"]
+    # subprocess.run(train_cmd, check=True)
 
 
 if __name__ == "__main__":
