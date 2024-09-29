@@ -96,16 +96,8 @@ class TrainConfig:
         source_dir = os.path.dirname(lib_dir)
         self.source_dir = source_dir
 
-        # self.name = f"{self.name}__{self.env_id}__{str(uuid.uuid4())[:8]}"
         if self.checkpoint_path is None:
             raise ValueError("Checkpoints path is required for training")
-
-        # if self.checkpoint_path is not None:
-        #     self.checkpoint_path = os.path.join(self.checkpoint_path, self.name)
-        # else:
-        #     log_dir = os.path.join(self.source_dir, "local_assets", "logs")
-        #     log_path = os.path.join(log_dir, self.name)
-        #     self.checkpoint_path = log_path
 
         device = pytorch_utils.init_gpu()
         self.device = device
@@ -146,42 +138,6 @@ def make_env(
     return thunk
 
 
-def soft_update(target: nn.Module, source: nn.Module, tau: float):
-    for target_param, source_param in zip(target.parameters(), source.parameters()):
-        target_param.data.copy_((1 - tau) * target_param.data + tau * source_param.data)
-
-
-def compute_mean_std(states: np.ndarray, eps: float = 1e-6) -> Tuple[np.ndarray, np.ndarray]:
-    mean = states.mean(0)
-    std = states.std(0) + eps
-    return mean, std
-
-
-def normalize_states(states: np.ndarray, mean: np.ndarray, std: np.ndarray):
-    return (states - mean) / std
-
-
-def wrap_env(
-    env: gym.Env,
-    state_mean: Union[np.ndarray, float] = 0.0,
-    state_std: Union[np.ndarray, float] = 1.0,
-    reward_scale: float = 1.0,
-) -> gym.Env:
-    # PEP 8: E731 do not assign a lambda expression, use a def
-    def normalize_state(state):
-        return (state - state_mean) / state_std  # epsilon should be already added in std.
-
-    def scale_reward(reward):
-        # Please be careful, here reward is multiplied by scale!
-        return reward_scale * reward
-
-    env = gym.wrappers.TransformObservation(env, normalize_state)
-    env = gym.wrappers.FlattenObservation(env)
-    if reward_scale != 1.0:
-        env = gym.wrappers.TransformReward(env, scale_reward)
-    return env
-
-
 def wandb_init(config: TrainConfig) -> None:
     key_filename = os.path.join(config.source_dir, "tmp_wandb_api_key.txt")
     with open(key_filename, "r") as f:
@@ -195,14 +151,6 @@ def wandb_init(config: TrainConfig) -> None:
         name=config.name,
         id=str(uuid.uuid4())[:5],
     )
-    # save_name = os.path.join(config["checkpoint_path"], "run")
-    # wandb.run.save(save_name, base_path=config["checkpoint_path"])
-
-
-# def is_goal_reached(reward: float, info: Dict) -> bool:
-#     if "goal_achieved" in info:
-#         return info["goal_achieved"]
-#     return reward > 0  # Assuming that reaching target is a positive reward
 
 
 # def return_reward_range(dataset: Dict, max_episode_steps: int) -> Tuple[float, float]:
@@ -386,9 +334,13 @@ class CalQL:
         self._calibration_enabled = True
         self.total_it = 0
 
+    def _soft_update(self, target: nn.Module, source: nn.Module, tau: float):
+        for target_param, source_param in zip(target.parameters(), source.parameters()):
+            target_param.data.copy_((1 - tau) * target_param.data + tau * source_param.data)
+
     def update_target_network(self, soft_target_update_rate: float):
-        soft_update(self.target_critic_1, self.critic_1, soft_target_update_rate)
-        soft_update(self.target_critic_2, self.critic_2, soft_target_update_rate)
+        self._soft_update(self.target_critic_1, self.critic_1, soft_target_update_rate)
+        self._soft_update(self.target_critic_2, self.critic_2, soft_target_update_rate)
 
     def switch_calibration(self):
         self._calibration_enabled = not self._calibration_enabled
@@ -760,12 +712,11 @@ def train(trainer: CalQL, config: TrainConfig, envs: gym.vector.VectorEnv) -> No
     # dataset["next_observations"] = normalize_states(
     #     dataset["next_observations"], state_mean, state_std
     # )
-    # offline_buffer = ReplayBuffer(
-    #     ob_dim,
-    #     action_dim,
-    #     config.buffer_size,
-    #     config.device,
-    # )
+    offline_buffer = buffers.ReplayBuffer(
+        ob_dim,
+        action_dim,
+        config.buffer_size,
+    )
     online_buffer = buffers.ReplayBuffer(
         ob_dim,
         action_dim,
@@ -815,8 +766,6 @@ def train(trainer: CalQL, config: TrainConfig, envs: gym.vector.VectorEnv) -> No
             acts = pytorch_utils.to_numpy(acts)
             next_obs, rews, terminations, truncations, env_infos = envs.step(acts)
             dones = terminations
-            # if not goal_achieved:
-            #     goal_achieved = is_goal_reached(reward, env_infos)
 
             # TRY NOT TO MODIFY: save data to reply buffer; handle `final_observation`
             real_next_obs = copy.deepcopy(next_obs)
@@ -898,9 +847,8 @@ def train(trainer: CalQL, config: TrainConfig, envs: gym.vector.VectorEnv) -> No
 
         for j in range(config.n_updates):
             if step < config.offline_iterations:
-                pass
-                # batch = offline_buffer.sample(config.batch_size)
-                # batch = [b.to(config.device) for b in batch]
+                batch = offline_buffer.sample(config.batch_size)
+                batch = [b.to(config.device) for b in batch]
             else:
                 # offline_batch = offline_buffer.sample(batch_size_offline)
                 online_batch = online_buffer.sample(batch_size_online)
