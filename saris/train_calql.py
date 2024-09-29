@@ -20,7 +20,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import saris
 from saris.drl.agents import calql
-from saris.utils import utils, pytorch_utils, buffers
+from saris.utils import utils, pytorch_utils, buffers, running_mean
 import importlib
 import wandb
 import gymnasium as gym
@@ -203,32 +203,6 @@ def wandb_init(config: TrainConfig) -> None:
 #     if "goal_achieved" in info:
 #         return info["goal_achieved"]
 #     return reward > 0  # Assuming that reaching target is a positive reward
-
-
-@torch.no_grad()
-def eval_actor(
-    envs: gym.vector.VectorEnv, actor: calql.TanhGaussianPolicy, config: TrainConfig
-) -> Tuple[np.ndarray, np.ndarray]:
-    actor.eval()
-    episode_rewards = []
-    eval_infos = []
-    obs, info = envs.reset()
-    episode_reward = np.zeros(envs.num_envs)
-    rms = torch.load(config.checkpoint_path + "/rms.pt")
-    obs_rms = rms["obs_rms"]
-    t = tqdm.tqdm(range(config.eval_ep_len), dynamic_ncols=True)
-    for _ in t:
-        obs = torch.tensor(obs, device=config.device, dtype=torch.float32)
-        obs = normalize_obs(obs, obs_rms)
-        acts = actor.act(obs)
-        acts = pytorch_utils.to_numpy(acts)
-        obs, rews, terminations, truncations, env_info = envs.step(acts)
-        episode_reward += rews
-        eval_infos.append(env_info)
-    episode_rewards.append(episode_reward)
-
-    actor.train()
-    return np.asarray(episode_rewards), eval_infos
 
 
 # def return_reward_range(dataset: Dict, max_episode_steps: int) -> Tuple[float, float]:
@@ -821,8 +795,8 @@ def train(trainer: CalQL, config: TrainConfig, envs: gym.vector.VectorEnv) -> No
         print(f"No offline pretraining, starting online training")
 
     # Create running meanstd for normalization
-    obs_rms = RunningMeanStd(shape=envs.single_observation_space.shape)
-    rewards_rms = RunningMeanStd(shape=(1,))
+    obs_rms = running_mean.RunningMeanStd(shape=envs.single_observation_space.shape)
+    rewards_rms = running_mean.RunningMeanStd(shape=(1,))
 
     # Training loop
     wandb.define_metric("train/step")
@@ -964,6 +938,32 @@ def train(trainer: CalQL, config: TrainConfig, envs: gym.vector.VectorEnv) -> No
     wandb.finish()
 
 
+@torch.no_grad()
+def eval_actor(
+    envs: gym.vector.VectorEnv, actor: calql.TanhGaussianPolicy, config: TrainConfig
+) -> Tuple[np.ndarray, np.ndarray]:
+    actor.eval()
+    episode_rewards = []
+    eval_infos = []
+    obs, info = envs.reset()
+    episode_reward = np.zeros(envs.num_envs)
+    rms = torch.load(config.checkpoint_path + "/rms.pt")
+    obs_rms = rms["obs_rms"]
+    t = tqdm.tqdm(range(config.eval_ep_len), dynamic_ncols=True)
+    for _ in t:
+        obs = torch.tensor(obs, device=config.device, dtype=torch.float32)
+        obs = normalize_obs(obs, obs_rms)
+        acts = actor.act(obs)
+        acts = pytorch_utils.to_numpy(acts)
+        obs, rews, terminations, truncations, env_info = envs.step(acts)
+        episode_reward += rews
+        eval_infos.append(env_info)
+    episode_rewards.append(episode_reward)
+
+    actor.train()
+    return np.asarray(episode_rewards), eval_infos
+
+
 def eval(trainer: CalQL, config: TrainConfig, envs: gym.vector.VectorEnv) -> None:
 
     print("---------------------------------------")
@@ -1016,55 +1016,9 @@ def eval(trainer: CalQL, config: TrainConfig, envs: gym.vector.VectorEnv) -> Non
     print("---------------------------------------\n")
 
 
-# From gymnasium/wrappers/normalize.py
-class RunningMeanStd:
-    """Tracks the mean, variance and count of values."""
-
-    # https://en.wikipedia.org/wiki/Algorithms_for_calculating_variance#Parallel_algorithm
-    def __init__(self, epsilon=1e-4, shape=()):
-        """Tracks the mean, variance and count of values."""
-        self.mean = torch.zeros(shape, dtype=torch.float)
-        self.var = torch.ones(shape, dtype=torch.float)
-        self.count = epsilon
-
-    def update(self, x):
-        """Updates the mean, var and count from a batch of samples."""
-        batch_count = x.shape[0]
-        batch_mean = torch.mean(x, axis=0)
-        if batch_count == 1:
-            batch_var = torch.zeros_like(batch_mean)
-        else:
-            batch_var = torch.var(x, axis=0)
-        self.update_from_moments(batch_mean, batch_var, batch_count)
-
-    def update_from_moments(self, batch_mean, batch_var, batch_count):
-        """Updates from batch mean, variance and count moments."""
-        self.mean, self.var, self.count = update_mean_var_count_from_moments(
-            self.mean, self.var, self.count, batch_mean, batch_var, batch_count
-        )
-
-    def __repr__(self):
-        return f"RunningMeanStd(mean={self.mean}, var={self.var}, count={self.count})"
-
-
-def update_mean_var_count_from_moments(mean, var, count, batch_mean, batch_var, batch_count):
-    """Updates the mean, var and count using the previous mean, var, count and batch values."""
-    delta = batch_mean - mean
-    tot_count = count + batch_count
-
-    new_mean = mean + delta * batch_count / tot_count
-    m_a = var * count
-    m_b = batch_var * batch_count
-    M2 = m_a + m_b + torch.square(delta) * count * batch_count / tot_count
-    new_var = M2 / tot_count
-    new_count = tot_count
-
-    return new_mean, new_var, new_count
-
-
 def normalize_obs(
     observations: torch.Tensor,
-    obs_rms: RunningMeanStd,
+    obs_rms: running_mean.RunningMeanStd,
     epsilon: float = 1e-8,
 ) -> torch.Tensor:
     mean = obs_rms.mean.to(observations.device)
@@ -1074,7 +1028,7 @@ def normalize_obs(
 
 def normalize_reward(
     rewards: torch.Tensor,
-    rewards_rms: RunningMeanStd,
+    rewards_rms: running_mean.RunningMeanStd,
     epsilon: float = 1e-8,
 ) -> torch.Tensor:
     return rewards / ((rewards_rms.var).to(rewards.device) + epsilon)
