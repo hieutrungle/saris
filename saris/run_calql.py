@@ -42,7 +42,7 @@ class TrainConfig:
     # CQL
     n_updates: int = 10  # Number of updates per step
     buffer_size: int = 10_000  # Replay buffer size
-    batch_size: int = 2  # Batch size for all networks
+    batch_size: int = 256  # Batch size for all networks
     discount: float = 0.85  # Discount factor
     alpha_multiplier: float = 1.0  # Multiplier for alpha in loss
     use_automatic_entropy_tuning: bool = True  # Tune entropy
@@ -59,8 +59,8 @@ class TrainConfig:
     cql_target_action_gap: float = 0.8  # Action gap
     cql_temp: float = 1.0  # CQL temperature
     cql_max_target_backup: bool = True  # Use max target backup
-    cql_clip_diff_min: float = -100  # Q-function lower loss clipping
-    cql_clip_diff_max: float = 100  # Q-function upper loss clipping
+    cql_clip_diff_min: float = -200  # Q-function lower loss clipping
+    cql_clip_diff_max: float = 200  # Q-function upper loss clipping
     orthogonal_init: bool = True  # Orthogonal initialization
     normalize: bool = True  # Normalize states
     normalize_reward: bool = True  # Normalize reward
