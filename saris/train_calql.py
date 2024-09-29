@@ -290,8 +290,8 @@ def wandb_init(config: TrainConfig) -> None:
         name=config.name,
         id=str(uuid.uuid4())[:5],
     )
-    save_name = os.path.join(config["checkpoint_path"], "run")
-    wandb.run.save(save_name, base_path=config["checkpoint_path"])
+    # save_name = os.path.join(config["checkpoint_path"], "run")
+    # wandb.run.save(save_name, base_path=config["checkpoint_path"])
 
 
 # def is_goal_reached(reward: float, info: Dict) -> bool:
