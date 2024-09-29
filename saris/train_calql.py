@@ -1057,18 +1057,6 @@ def main(config: TrainConfig):
     trainer = CalQL(**kwargs)
     wandb_init(config)
 
-    random_samples = (
-        torch.randn(config.batch_size, ob_dim).to(config.device),
-        torch.randn(config.batch_size, action_dim).to(config.device),
-        torch.randn(config.batch_size, 1).to(config.device),
-        torch.randn(config.batch_size, ob_dim).to(config.device),
-        torch.randint(0, 2, (config.batch_size, 1)).to(config.device),
-        torch.zeros_like(torch.randn(config.batch_size, 1)).to(config.device),
-    )
-
-    trainer.train(random_samples)
-    exit()
-
     if config.command.lower() == "train":
         train(trainer, config, envs)
     elif config.command.lower() == "eval" and config.checkpoint_path != "":
