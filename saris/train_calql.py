@@ -149,7 +149,6 @@ def wandb_init(config: TrainConfig) -> None:
         group=config.group,
         name=config.name,
         id=str(uuid.uuid4())[:5],
-        mode="offline",
     )
 
 
