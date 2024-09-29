@@ -24,24 +24,23 @@ class TrainConfig:
     command: str = "train"  # Command for "train" or "eval"
     env_id: str = "wireless-sigmap-v0"  # environment name
     offline_iterations: int = int(0)  # Number of offline updates
-    # offline_iterations: int = int(1e6)  # Number of offline updates
-    online_iterations: int = int(15)  # Number of online updates
-    learning_starts: int = int(2)  # Number of steps before learning starts
+    online_iterations: int = int(5_001)  # Number of online updates
+    learning_starts: int = int(900)  # Number of steps before learning starts
     checkpoint_path: Optional[str] = None  # Save path
     load_model: str = ""  # Model load file name for resume training, "" doesn't load
     sionna_config_file: str = ""  # Sionna config file
     verbose: bool = False  # Print debug information
-    save_freq: int = int(10)  # How often (time steps) we save
+    save_freq: int = int(100)  # How often (time steps) we save
 
     # Environment
-    ep_len: int = 50  # Max length of episode
-    eval_ep_len: int = 3  # Max length of evaluation episode
-    num_envs: int = 2  # Number of parallel environments
+    ep_len: int = 75  # Max length of episode
+    eval_ep_len: int = 50  # Max length of evaluation episode
+    num_envs: int = 6  # Number of parallel environments
     seed: int = 10  # Sets Gym, PyTorch and Numpy seeds
     eval_seed: int = 100  # Eval environment seed
 
     # CQL
-    n_updates: int = 20  # Number of updates per step
+    n_updates: int = 10  # Number of updates per step
     buffer_size: int = 10_000  # Replay buffer size
     batch_size: int = 256  # Batch size for all networks
     discount: float = 0.85  # Discount factor

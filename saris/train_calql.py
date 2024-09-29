@@ -39,24 +39,23 @@ class TrainConfig:
     command: str = "train"  # Command for "train" or "eval"
     env_id: str = "wireless-sigmap-v0"  # environment name
     offline_iterations: int = int(0)  # Number of offline updates
-    # offline_iterations: int = int(1e6)  # Number of offline updates
-    online_iterations: int = int(24000)  # Number of online updates
-    learning_starts: int = int(2)  # Number of steps before learning starts
+    online_iterations: int = int(5_001)  # Number of online updates
+    learning_starts: int = int(900)  # Number of steps before learning starts
     checkpoint_path: Optional[str] = None  # Save path
     load_model: str = ""  # Model load file name for resume training, "" doesn't load
     sionna_config_file: str = ""  # Sionna config file
     verbose: bool = False  # Print debug information
-    save_freq: int = int(3)  # How often (time steps) we save
+    save_freq: int = int(100)  # How often (time steps) we save
 
     # Environment
-    ep_len: int = 50  # Max length of episode
+    ep_len: int = 75  # Max length of episode
     eval_ep_len: int = 50  # Max length of evaluation episode
-    num_envs: int = 4  # Number of parallel environments
+    num_envs: int = 6  # Number of parallel environments
     seed: int = 10  # Sets Gym, PyTorch and Numpy seeds
     eval_seed: int = 100  # Eval environment seed
 
     # CQL
-    n_updates: int = 20  # Number of updates per step
+    n_updates: int = 10  # Number of updates per step
     buffer_size: int = 10_000  # Replay buffer size
     batch_size: int = 256  # Batch size for all networks
     discount: float = 0.85  # Discount factor
@@ -308,7 +307,7 @@ def eval_actor(
     episode_reward = np.zeros(envs.num_envs)
     rms = torch.load(config.checkpoint_path + "/rms.pt")
     obs_rms = rms["obs_rms"]
-    t = tqdm.tqdm(range(config.eval_ep_len))
+    t = tqdm.tqdm(range(config.eval_ep_len), dynamic_ncols=True)
     for _ in t:
         obs = torch.tensor(obs, device=config.device, dtype=torch.float32)
         obs = normalize_obs(obs, obs_rms)
@@ -922,7 +921,9 @@ def train(trainer: CalQL, config: TrainConfig, envs: gym.vector.VectorEnv) -> No
     # Training loop
     wandb.define_metric("train/step")
     wandb.define_metric("train/*", step_metric="train/step")
-    t = tqdm.tqdm(range(int(config.offline_iterations) + int(config.online_iterations)))
+    t = tqdm.tqdm(
+        range(int(config.offline_iterations) + int(config.online_iterations)), dynamic_ncols=True
+    )
     for step in t:
         if step == config.offline_iterations:
             print("Online tuning")
