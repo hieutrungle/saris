@@ -32,9 +32,9 @@ rx_positions: [[-10.75, -2.75, 1.5], [-7.2, -4.25, 1.5], [-13.5, -3.25, 1.5]]
 rx_orientations: [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]]
 
 # Path tracing parameters
-cm_max_depth: 15
+cm_max_depth: 10
 cm_cell_size: [0.2, 0.2]
-cm_num_samples: 1e6
-path_max_depth: 15
-path_num_samples: 1e6
+cm_num_samples: 5e5
+path_max_depth: 10
+path_num_samples: 5e5
 diffraction: true
