@@ -15,6 +15,56 @@ if cmd_folder not in sys.path:
 import bl_utils, bl_parser, shared_utils
 
 
+def export_drl_hallway_hex(args):
+
+    # unit: degrees
+    theta_config, phi_config = shared_utils.get_reflector_config()
+    theta_range = (theta_config[1], theta_config[2])
+    phi_range = (phi_config[1], phi_config[2])
+
+    devices_names = []
+    object_dict = {}
+    for k, v in bpy.data.collections.items():
+        if "Reflector" in k:
+            devices_names.append(k)
+            sorted_objects = sorted(v.objects, key=lambda x: x.name)
+            for object in sorted_objects:
+                concat_name = object.name.strip().split(".")
+                group_name = concat_name[0]
+
+                tmp = object_dict.get(group_name, [])
+                tmp.append(object)
+                object_dict[group_name] = tmp
+
+    with open(args.input_path, "rb") as f:
+        # angles: Tuple[List[float], List[float]]
+        angles = pickle.load(f)
+        (thetas, phis) = angles
+
+    for i, (group_name, objects) in enumerate(object_dict.items()):
+        theta = thetas[i]
+        phi = phis[i]
+        theta = shared_utils.constraint_angle(theta, theta_range)
+        phi = shared_utils.constraint_angle(phi, phi_range)
+
+        for obj in objects:
+            obj.rotation_euler = [0, theta, phi]
+
+    # Save files without ceiling
+    folder_dir = os.path.join(args.output_dir, f"idx")
+    bl_utils.mkdir_with_replacement(folder_dir)
+    bl_utils.save_mitsuba_xml(folder_dir, "hallway", [*devices_names, "Wall", "Floor"])
+
+    # Save files with ceiling
+    folder_dir = os.path.join(args.output_dir, f"ceiling_idx")
+    bl_utils.mkdir_with_replacement(folder_dir)
+    bl_utils.save_mitsuba_xml(
+        folder_dir,
+        "hallway",
+        [*devices_names, "Wall", "Floor", "Ceiling"],
+    )
+
+
 def export_drl_hallway_angle(args):
 
     lead_follow_dict, init_angles, angle_deltas = shared_utils.set_up_reflector()
@@ -72,7 +122,8 @@ def export_drl_hallway_angle(args):
 
 def main():
     args = create_argparser().parse_args()
-    export_drl_hallway_angle(args)
+    # export_drl_hallway_angle(args)
+    export_drl_hallway_hex(args)
 
 
 def create_argparser() -> bl_parser.ArgumentParserForBlender:
