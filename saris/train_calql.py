@@ -774,7 +774,7 @@ def train(trainer: CalQL, config: TrainConfig, envs: gym.vector.VectorEnv) -> No
                 train_return_log["train_return/return_mean"] = return_mean
                 train_return_log["train_return/return_std"] = return_std
                 wandb.log(train_return_log)
-                train_return_log["train_return/step"] += 1
+                train_return_log["train_return/step"] = step
 
                 print(f"step={step}, return_mean={return_mean}, return_std={return_std}\n")
 
