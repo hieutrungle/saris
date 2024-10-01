@@ -191,6 +191,22 @@ class SignalCoverageMap:
         )
         scene.render_to_file(**render_config)
 
+    def render(
+        self, coverage_map: sionna.rt.CoverageMap = None, paths: sionna.rt.Paths = None
+    ) -> sionna.rt.Scene:
+        scene = prepare_scene(self.config, self._viz_scene_path, self.cam)
+        render_config = dict(
+            camera=self.cam,
+            paths=paths,
+            coverage_map=coverage_map,
+            cm_vmin=self.config["cm_vmin"],
+            cm_vmax=self.config["cm_vmax"],
+            resolution=self.config["resolution"],
+            show_devices=True,
+        )
+        scene.render(**render_config)
+        return scene
+
     def get_path_gain_slow(self, coverage_map: sionna.rt.CoverageMap) -> float:
 
         coverage_map_tensor = coverage_map.as_tensor()
