@@ -242,12 +242,7 @@ class WirelessEnvV0(Env):
             str(self.taken_steps),
         ]
         bl_output_txt = os.path.join(tmp_dir, "bl_outputs.txt")
-        # subprocess.run(blender_cmd, check=True)
         subprocess.run(blender_cmd, check=True, stdout=open(bl_output_txt, "w"))
-        # try:
-        #     subprocess.run(blender_cmd, check=True, stdout=open(bl_output_txt, "w"))
-        # except subprocess.CalledProcessError as e:
-        #     raise Exception(f"Error running Blender command: {e}")
 
     def _cal_path_gain_sionna(self, eval_mode: bool = False) -> float:
 
