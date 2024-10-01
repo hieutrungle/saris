@@ -14,7 +14,7 @@ from saris.utils import utils
 import pickle
 import glob
 from saris.blender_script import shared_utils
-
+import math
 from saris import sigmap
 from sionna.channel import (
     cir_to_ofdm_channel,
@@ -39,37 +39,62 @@ class WirelessEnvV0(Env):
     ):
         super(WirelessEnvV0, self).__init__()
 
-        policy = tf.keras.mixed_precision.Policy("mixed_bfloat16")
-        tf.keras.mixed_precision.set_global_policy(policy)
-
         self.idx = idx
         self.log_string = log_string
         self.seed = seed + idx
         self.np_rng = np.random.default_rng(self.seed)
 
+        policy = tf.keras.mixed_precision.Policy("mixed_bfloat16")
+        tf.keras.mixed_precision.set_global_policy(policy)
         tf.config.experimental.set_memory_growth(
             tf.config.experimental.list_physical_devices("GPU")[0], True
         )
         tf.random.set_seed(self.seed)
 
         self.sionna_config = utils.load_config(sionna_config_file)
+
+        # Modify config for tx orientation
+        def sign(num):
+            return -1 if num < 0 else 1
+
+        def compute_rot_angle(tile_center: list, pt: list):
+            """Compute the rotation angles for the tile.
+            return: (r, theta, phi)
+                `r`: distance from the tile center to a point
+                `theta`: rotation in y-axis
+                `phi`: rotation in z-axis
+            """
+            x = tile_center[0] - pt[0]
+            y = tile_center[1] - pt[1]
+            z = tile_center[2] - pt[2]
+
+            r = math.sqrt(x**2 + y**2 + z**2)
+            theta = math.acos(z / r)  # rotation in y-axis
+            phi = sign(y) * math.acos(x / math.sqrt(x**2 + y**2))  # rotation in z-axis
+
+            return (r, theta, phi)
+
+        ris_pos = self.sionna_config["ris_positions"][0]
+        tx_pos = self.sionna_config["tx_positions"][0]
+        r, theta, phi = compute_rot_angle(ris_pos, tx_pos)
+        self.sionna_config["tx_orientations"] = [[phi, math.pi / 2 - theta, 0.0]]
+
+        # Set up logging
         self.current_time = "_" + time.strftime("%d-%m-%Y_%H-%M-%S")
 
         # Set up action and observation space
-        reflector_config = shared_utils.set_up_reflector()
-        self.lead_follow_dict, self.init_angles, self.angle_deltas = reflector_config
-        self.num_lead_tiles = len(self.lead_follow_dict.keys())
+        reflector_config = shared_utils.get_reflector_config()
+        self.theta_config, self.phi_config, self.num_groups = reflector_config
+
         # angles = [theta, phi] for each tile
         # theta: azimuth angle, phi: elevation angle
-        init_theta, init_phi = self.init_angles
-        min_delta, max_delta = self.angle_deltas
 
-        theta_high = [init_theta + max_delta] * self.num_lead_tiles
-        phi_high = [init_phi + max_delta] * self.num_lead_tiles
+        theta_high = [self.theta_config[2]] * self.num_groups
+        phi_high = [self.phi_config[2]] * self.num_groups
         angle_high = np.concatenate([theta_high, phi_high])
 
-        theta_low = [init_theta + min_delta] * self.num_lead_tiles
-        phi_low = [init_phi + min_delta] * self.num_lead_tiles
+        theta_low = [self.theta_config[1]] * self.num_groups
+        phi_low = [self.phi_config[1]] * self.num_groups
         angle_low = np.concatenate([theta_low, phi_low])
 
         self.angle_space = spaces.Box(low=angle_low, high=angle_high, dtype=np.float32)
@@ -118,6 +143,7 @@ class WirelessEnvV0(Env):
                 "gains": np.array(self.cur_gain, dtype=np.float32),
             }
         )
+        print(f"observation: {observation}")
 
         self.taken_steps = 0.0
 
@@ -139,6 +165,7 @@ class WirelessEnvV0(Env):
             "angles": np.asarray(self.angles, dtype=np.float32),
             "gains": np.asarray(self.next_gain, dtype=np.float32),
         }
+        print(f"next_observation: {next_observation}")
 
         reward = self._cal_reward(self.cur_gain, self.next_gain, self.taken_steps)
 
@@ -214,12 +241,16 @@ class WirelessEnvV0(Env):
             angle_path,
             "-o",
             blender_output_dir,
+            "--index",
+            str(self.taken_steps),
         ]
-        try:
-            bl_output_txt = os.path.join(tmp_dir, "bl_outputs.txt")
-            subprocess.run(blender_cmd, check=True, stdout=open(bl_output_txt, "w"))
-        except subprocess.CalledProcessError as e:
-            raise Exception(f"Error running Blender command: {e}")
+        bl_output_txt = os.path.join(tmp_dir, "bl_outputs.txt")
+        # subprocess.run(blender_cmd, check=True)
+        subprocess.run(blender_cmd, check=True, stdout=open(bl_output_txt, "w"))
+        # try:
+        #     subprocess.run(blender_cmd, check=True, stdout=open(bl_output_txt, "w"))
+        # except subprocess.CalledProcessError as e:
+        #     raise Exception(f"Error running Blender command: {e}")
 
     def _cal_path_gain_sionna(self, eval_mode: bool = False) -> float:
 
