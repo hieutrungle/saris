@@ -39,14 +39,13 @@ class WirelessEnvV0(Env):
     ):
         super(WirelessEnvV0, self).__init__()
 
-        policy = tf.keras.mixed_precision.Policy("mixed_bfloat16")
-        tf.keras.mixed_precision.set_global_policy(policy)
-
         self.idx = idx
         self.log_string = log_string
         self.seed = seed + idx
         self.np_rng = np.random.default_rng(self.seed)
 
+        policy = tf.keras.mixed_precision.Policy("mixed_bfloat16")
+        tf.keras.mixed_precision.set_global_policy(policy)
         tf.config.experimental.set_memory_growth(
             tf.config.experimental.list_physical_devices("GPU")[0], True
         )
