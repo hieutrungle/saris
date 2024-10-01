@@ -140,7 +140,6 @@ class WirelessEnvV0(Env):
         observation = OrderedDict(
             {
                 "angles": np.array(self.angles, dtype=np.float32),
-                "gains": np.array(self.cur_gain, dtype=np.float32),
             }
         )
         print(f"observation: {observation}")
@@ -163,7 +162,6 @@ class WirelessEnvV0(Env):
         self.next_gain = self._cal_path_gain_dB(eval_mode=self.eval_mode)
         next_observation = {
             "angles": np.asarray(self.angles, dtype=np.float32),
-            "gains": np.asarray(self.next_gain, dtype=np.float32),
         }
         print(f"next_observation: {next_observation}")
 
