@@ -142,7 +142,6 @@ class WirelessEnvV0(Env):
                 "angles": np.array(self.angles, dtype=np.float32),
             }
         )
-        print(f"observation: {observation}")
 
         self.taken_steps = 0.0
 
@@ -163,7 +162,6 @@ class WirelessEnvV0(Env):
         next_observation = {
             "angles": np.asarray(self.angles, dtype=np.float32),
         }
-        print(f"next_observation: {next_observation}")
 
         reward = self._cal_reward(self.cur_gain, self.next_gain, self.taken_steps)
 
