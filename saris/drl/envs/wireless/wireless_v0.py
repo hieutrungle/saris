@@ -183,17 +183,16 @@ class WirelessEnvV0(Env):
 
         # multiplication in linear is addition in dB
         threshold = -90.0  # dB
-        fairness = np.sum(cur_gains - threshold) / len(cur_gains)
+        avg_fairness = np.mean(cur_gains - threshold)
 
         # total gain
         cur_gain_linear = utils.dB2linear(cur_gains - threshold)
-        total_gain_linear = np.sum(cur_gain_linear) / len(cur_gains)
-        total_gain = utils.linear2dB(total_gain_linear)  # dB
+        avg_gain = utils.linear2dB(np.mean(cur_gain_linear))  # dB
 
-        gain_diff = 0.1 * np.mean(next_gains - cur_gains)
+        gain_diff = 0.25 * np.mean(next_gains - cur_gains)
         cost_time = -0.1 * time_taken
 
-        reward = 2.5 * (0.4 * fairness + 0.6 * total_gain) + gain_diff + cost_time
+        reward = 0.3 * avg_fairness + 0.7 * avg_gain + gain_diff + cost_time
 
         return float(reward)
 
