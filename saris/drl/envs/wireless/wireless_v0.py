@@ -4,7 +4,6 @@ os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
 os.environ["TF_GPU_ALLOCATOR"] = "cuda_malloc_async"  # to avoid memory fragmentation
 
-from collections import OrderedDict
 from typing import Tuple
 import subprocess
 import time
@@ -103,6 +102,14 @@ class WirelessEnvV0(Env):
         num_rxs = len(self.sionna_config["rx_positions"])
         self.gain_space = spaces.Box(low=-np.inf, high=np.inf, shape=(num_rxs,), dtype=np.float32)
 
+        # position space
+        rx_positions = np.array(self.sionna_config["rx_positions"]).flatten()
+        ris_positions = np.array(self.sionna_config["ris_positions"]).flatten()
+        self.positions = np.concatenate([rx_positions, ris_positions], dtype=np.float32)
+        self.position_space = spaces.Box(
+            low=-np.inf, high=np.inf, shape=(len(self.positions),), dtype=np.float32
+        )
+
         self.angles = None
 
         self.observation_space = self._get_observation_space()
@@ -119,7 +126,7 @@ class WirelessEnvV0(Env):
         observation_space = spaces.Dict(
             {
                 "angles": self.angle_space,
-                "gains": self.gain_space,
+                "positions": self.position_space,
             }
         )
         return observation_space
@@ -137,11 +144,10 @@ class WirelessEnvV0(Env):
         self.cur_gain = self._cal_path_gain_dB(eval_mode=self.eval_mode)
         self.next_gain = self.cur_gain
 
-        observation = OrderedDict(
-            {
-                "angles": np.array(self.angles, dtype=np.float32),
-            }
-        )
+        observation = {
+            "angles": np.array(self.angles, dtype=np.float32),
+            "positions": self.positions,
+        }
 
         self.taken_steps = 0.0
 
@@ -156,11 +162,11 @@ class WirelessEnvV0(Env):
 
         truncated = False
         terminated = False
-
         self.next_gain = 0.0
         self.next_gain = self._cal_path_gain_dB(eval_mode=self.eval_mode)
         next_observation = {
             "angles": np.asarray(self.angles, dtype=np.float32),
+            "positions": self.positions,
         }
 
         reward = self._cal_reward(self.cur_gain, self.next_gain, self.taken_steps)
