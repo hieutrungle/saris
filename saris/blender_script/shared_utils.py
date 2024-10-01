@@ -43,7 +43,9 @@ def get_reflector_config():
     phi_max = init_phi + max_delta
     phi_config = (init_phi, phi_min, phi_max)
 
-    return theta_config, phi_config
+    num_groups = 9
+
+    return theta_config, phi_config, num_groups
 
 
 def set_up_reflector() -> Tuple[Dict[int, List[int]], Tuple[float], Tuple[float]]:

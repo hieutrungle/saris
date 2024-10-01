@@ -18,23 +18,21 @@ import bl_utils, bl_parser, shared_utils
 def export_drl_hallway_hex(args):
 
     # unit: degrees
-    theta_config, phi_config = shared_utils.get_reflector_config()
-    theta_range = (theta_config[1], theta_config[2])
-    phi_range = (phi_config[1], phi_config[2])
+    theta_config, phi_config, num_groups = shared_utils.get_reflector_config()
+    theta_range = (math.radians(theta_config[1]), math.radians(theta_config[2]))
+    phi_range = (math.radians((phi_config[1])), math.radians(phi_config[2]))
 
     devices_names = []
-    object_dict = {}
+    object_dict = {f"Group{i:02d}": [] for i in range(1, num_groups + 1)}
+
     for k, v in bpy.data.collections.items():
         if "Reflector" in k:
             devices_names.append(k)
             sorted_objects = sorted(v.objects, key=lambda x: x.name)
-            for object in sorted_objects:
-                concat_name = object.name.strip().split(".")
+            for obj in sorted_objects:
+                concat_name = obj.name.strip().split(".")
                 group_name = concat_name[0]
-
-                tmp = object_dict.get(group_name, [])
-                tmp.append(object)
-                object_dict[group_name] = tmp
+                object_dict[group_name].append(obj)
 
     with open(args.input_path, "rb") as f:
         # angles: Tuple[List[float], List[float]]
@@ -47,8 +45,8 @@ def export_drl_hallway_hex(args):
         theta = shared_utils.constraint_angle(theta, theta_range)
         phi = shared_utils.constraint_angle(phi, phi_range)
 
-        for obj in objects:
-            obj.rotation_euler = [0, theta, phi]
+        for j, obj in enumerate(objects):
+            object_dict[group_name][j].rotation_euler = [0, theta, phi]
 
     # Save files without ceiling
     folder_dir = os.path.join(args.output_dir, f"idx")
