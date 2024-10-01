@@ -24,7 +24,7 @@ class TrainConfig:
     command: str = "train"  # Command for "train" or "eval"
     env_id: str = "wireless-sigmap-v0"  # environment name
     offline_iterations: int = int(0)  # Number of offline updates
-    online_iterations: int = int(5_001)  # Number of online updates
+    online_iterations: int = int(10_001)  # Number of online updates
     learning_starts: int = int(900)  # Number of steps before learning starts
     checkpoint_path: Optional[str] = None  # Save path
     load_model: str = ""  # Model load file name for resume training, "" doesn't load
@@ -41,7 +41,7 @@ class TrainConfig:
 
     # CQL
     n_updates: int = 20  # Number of updates per step
-    buffer_size: int = 25_000  # Replay buffer size
+    buffer_size: int = 75_000  # Replay buffer size
     batch_size: int = 256  # Batch size for all networks
     discount: float = 0.85  # Discount factor
     alpha_multiplier: float = 1.0  # Multiplier for alpha in loss
@@ -185,8 +185,8 @@ def main(config: TrainConfig):
     train_cmd = base_cmd + ["--command", "train"]
     subprocess.run(train_cmd, check=True)
 
-    train_cmd = base_cmd + ["--command", "eval"]
-    subprocess.run(train_cmd, check=True)
+    # train_cmd = base_cmd + ["--command", "eval"]
+    # subprocess.run(train_cmd, check=True)
 
 
 if __name__ == "__main__":
