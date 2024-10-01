@@ -87,20 +87,21 @@ class WirelessEnvV0(Env):
 
         # angles = [theta, phi] for each tile
         # theta: azimuth angle, phi: elevation angle
+        self.init_theta = [self.theta_config[0]] * self.num_groups
+        self.init_phi = [self.phi_config[0]] * self.num_groups
 
+        # angles space
         theta_high = [self.theta_config[2]] * self.num_groups
         phi_high = [self.phi_config[2]] * self.num_groups
         angle_high = np.concatenate([theta_high, phi_high])
-
         theta_low = [self.theta_config[1]] * self.num_groups
         phi_low = [self.phi_config[1]] * self.num_groups
         angle_low = np.concatenate([theta_low, phi_low])
-
         self.angle_space = spaces.Box(low=angle_low, high=angle_high, dtype=np.float32)
 
-        # Power average of the equivalent channel
-        num_rxs = len(self.sionna_config["rx_positions"])
-        self.gain_space = spaces.Box(low=-np.inf, high=np.inf, shape=(num_rxs,), dtype=np.float32)
+        # # Power average of the equivalent channel
+        # num_rxs = len(self.sionna_config["rx_positions"])
+        # self.gain_space = spaces.Box(low=-np.inf, high=np.inf, shape=(num_rxs,), dtype=np.float32)
 
         # position space
         rx_positions = np.array(self.sionna_config["rx_positions"]).flatten()
@@ -138,7 +139,8 @@ class WirelessEnvV0(Env):
     def reset(self, seed: int = None, options: dict = None) -> Tuple[dict, dict]:
         super().reset(seed=seed, options=options)
 
-        self.angles = self.np_rng.uniform(low=self.angle_space.low, high=self.angle_space.high)
+        # self.angles = self.np_rng.uniform(low=self.angle_space.low, high=self.angle_space.high)
+        self.angles = np.concatenate([self.init_theta, self.init_phi])
         self.angles = np.clip(self.angles, self.angle_space.low, self.angle_space.high)
 
         self.cur_gain = self._cal_path_gain_dB(eval_mode=self.eval_mode)

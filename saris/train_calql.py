@@ -806,8 +806,12 @@ def train(trainer: CalQL, config: TrainConfig, envs: gym.vector.VectorEnv) -> No
                 os.path.join(buffer_saved_dir, "next_obs.txt"),
             )
             utils.save_data(
-                {f"{step}": dones},
-                os.path.join(buffer_saved_dir, "dones.txt"),
+                {f"{step}": terminations},
+                os.path.join(buffer_saved_dir, "terminations.txt"),
+            )
+            utils.save_data(
+                {f"{step}": truncations},
+                os.path.join(buffer_saved_dir, "truncations.txt"),
             )
             utils.save_data(
                 {f"{step}": rews},
