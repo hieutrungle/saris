@@ -35,13 +35,13 @@ class TrainConfig:
     # Environment
     ep_len: int = 75  # Max length of episode
     eval_ep_len: int = 50  # Max length of evaluation episode
-    num_envs: int = 4  # Number of parallel environments
+    num_envs: int = 12  # Number of parallel environments
     seed: int = 10  # Sets Gym, PyTorch and Numpy seeds
     eval_seed: int = 100  # Eval environment seed
 
     # CQL
-    n_updates: int = 10  # Number of updates per step
-    buffer_size: int = 10_000  # Replay buffer size
+    n_updates: int = 20  # Number of updates per step
+    buffer_size: int = 25_000  # Replay buffer size
     batch_size: int = 256  # Batch size for all networks
     discount: float = 0.85  # Discount factor
     alpha_multiplier: float = 1.0  # Multiplier for alpha in loss
@@ -185,8 +185,8 @@ def main(config: TrainConfig):
     train_cmd = base_cmd + ["--command", "train"]
     subprocess.run(train_cmd, check=True)
 
-    # train_cmd = base_cmd + ["--command", "eval"]
-    # subprocess.run(train_cmd, check=True)
+    train_cmd = base_cmd + ["--command", "eval"]
+    subprocess.run(train_cmd, check=True)
 
 
 if __name__ == "__main__":
