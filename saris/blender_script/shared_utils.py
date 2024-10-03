@@ -30,22 +30,23 @@ def get_reflector_config():
     """
     Set up reflector configuration.
     """
-    max_delta = 30.0
-    min_delta = -30.0
+    max_delta = math.radians(30.0)
+    min_delta = math.radians(-30.0)
 
-    init_theta = 90.0
+    init_theta = math.radians(90.0)
     theta_min = init_theta + min_delta
     theta_max = init_theta + max_delta
     theta_config = (init_theta, theta_min, theta_max)
 
-    init_phi = -45.0
+    init_phi = math.radians(-45.0)
     phi_min = init_phi + min_delta
     phi_max = init_phi + max_delta
     phi_config = (init_phi, phi_min, phi_max)
 
     num_groups = 9
+    num_elements_per_group = 7
 
-    return theta_config, phi_config, num_groups
+    return theta_config, phi_config, num_groups, num_elements_per_group
 
 
 def set_up_reflector() -> Tuple[Dict[int, List[int]], Tuple[float], Tuple[float]]:
