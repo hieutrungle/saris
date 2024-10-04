@@ -7,7 +7,7 @@ PyYAML==6.0.2
 PyYAML==6.0.2
 sionna==0.18.0
 stable_baselines3==2.3.2
-tensorflow[and-cuda]==2.14.1
+tensorflow[and-cuda]
 torch==2.1.2
 torchinfo==1.8.0
 tqdm==4.66.5
