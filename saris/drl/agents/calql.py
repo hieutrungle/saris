@@ -147,7 +147,14 @@ class TanhGaussianPolicy(nn.Module):
         mean, log_std = torch.split(base_network_output, self.action_dim, dim=-1)
         log_std = self.log_std_multiplier() * log_std + self.log_std_offset()
         actions, log_probs = self.tanh_gaussian(mean, log_std, deterministic)
-        return self.action_scale * actions, log_probs
+        actions: torch.Tensor = self.action_scale * actions
+
+        batch_size = observations.shape[0]
+        actions = actions.reshape(batch_size, -1, 3)
+        actions[:, :, 1] = torch.deg2rad(actions[:, :, 1])
+        actions[:, :, 2] = torch.deg2rad(actions[:, :, 2])
+        actions = actions.reshape(batch_size, -1)
+        return actions, log_probs
 
     @torch.no_grad()
     def act(self, ob: np.ndarray):
