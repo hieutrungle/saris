@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import Optional
 import pyrallis
 import saris
-import importlib
+import importlib.resources
 import subprocess
 
 

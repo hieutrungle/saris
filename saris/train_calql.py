@@ -21,7 +21,7 @@ import torch.nn.functional as F
 import saris
 from saris.drl.agents import calql
 from saris.utils import utils, pytorch_utils, buffers, running_mean
-import importlib
+import importlib.resources
 import wandb
 import gymnasium as gym
 from saris.drl.envs import register_envs
