@@ -76,4 +76,4 @@ mkdir -p ${OPTIX_CACHE_PATH}
 ##############################
 # DRL run
 ##############################
-python ./saris/cli.py --sionna_config_file ${SIONNA_CONFIG_FILE} --seed 0 --eval_seed 10 --verbose True
+python ./saris/run_calql.py --sionna_config_file ${SIONNA_CONFIG_FILE} --seed 0 --eval_seed 10 --verbose True
