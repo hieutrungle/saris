@@ -146,7 +146,7 @@ class WirelessEnvV0(Env):
         self.angles = np.clip(self.angles, self.angle_space.low, self.angle_space.high)
 
         self.cur_gain = self._cal_path_gain_dB(eval_mode=self.eval_mode)
-        print(f"Initial path gain: {self.cur_gain}")
+        # print(f"Initial path gain: {self.cur_gain}")
         self.next_gain = self.cur_gain
 
         observation = {
@@ -165,6 +165,10 @@ class WirelessEnvV0(Env):
 
         # action: [num_groups * 3]: num_groups * [phi, theta, r]
         self.spherical_focal_vecs = self.spherical_focal_vecs + action
+        self.spherical_focal_vecs = np.clip(
+            self.spherical_focal_vecs, self.focal_vec_space.low, self.focal_vec_space.high
+        )
+
         self.angles = self._blender_step(self.spherical_focal_vecs)
         self.angles = np.clip(self.angles, self.angle_space.low, self.angle_space.high)
 
@@ -192,7 +196,7 @@ class WirelessEnvV0(Env):
     ) -> float:
 
         # multiplication in linear is addition in dB
-        threshold = -90.0  # dB
+        threshold = -80.0  # dB
         avg_fairness = np.mean(cur_gains - threshold)
 
         # total gain
@@ -245,7 +249,8 @@ class WirelessEnvV0(Env):
 
         with open(data_path, "rb") as f:
             angles = pickle.load(f)
-        return np.asarray(angles, dtype=np.float32)
+        angles = np.asarray(angles, dtype=np.float32)
+        return angles
 
     def _cal_path_gain_dB(self, eval_mode: bool = False) -> np.ndarray[float]:
 
