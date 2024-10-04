@@ -33,12 +33,14 @@ def get_reflector_config():
     max_delta = math.radians(30.0)
     min_delta = math.radians(-30.0)
 
-    init_theta = math.radians(90.0)
+    # Rotation in x-y plane
+    init_theta = math.radians(135.0)
     theta_min = init_theta + min_delta
     theta_max = init_theta + max_delta
     theta_config = (init_theta, theta_min, theta_max)
 
-    init_phi = math.radians(-45.0)
+    # Rotation in x-z plane
+    init_phi = math.radians(90.0)
     phi_min = init_phi + min_delta
     phi_max = init_phi + max_delta
     phi_config = (init_phi, phi_min, phi_max)
@@ -47,36 +49,6 @@ def get_reflector_config():
     num_elements_per_group = 7
 
     return theta_config, phi_config, num_groups, num_elements_per_group
-
-
-def set_up_reflector() -> Tuple[Dict[int, List[int]], Tuple[float], Tuple[float]]:
-    """
-    Set up reflector.
-
-
-    Returns:
-    lead_follow_dict: Dict[int, List[int]]
-        A dictionary, where the key is the index of the lead, and the value is the list of the index of the follow.
-    init_angles: Tuple[float] in degrees
-        Initial angles for the reflector.
-    angle_deltas: Tuple[float] in degrees
-        The maximum and minimum angle deltas from the init angles for the reflector.
-    """
-
-    max_delta = 30.0
-    min_delta = -30.0
-    angle_deltas = (min_delta, max_delta)
-
-    init_theta = 90.0
-    init_phi = -45.0
-    init_angles = (init_theta, init_phi)
-
-    num_rows = 12
-    num_cols = 6
-    follow_range = 1
-    lead_follow_dict = get_lead_follow_dict(num_rows, num_cols, follow_range)
-
-    return lead_follow_dict, init_angles, angle_deltas
 
 
 def constraint_angle(angle: float, angle_delta: Sequence[float]) -> float:
