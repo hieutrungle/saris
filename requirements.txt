@@ -8,10 +8,9 @@ PyYAML==6.0.2
 sionna==0.18.0
 stable_baselines3==2.3.2
 tensorflow[and-cuda]
-torch==2.1.2
-torchinfo==1.8.0
+torch
+torchinfo
 tqdm==4.66.5
-tyro==0.8.11
 wandb==0.18.3
 ipykernel
 bumpversion
