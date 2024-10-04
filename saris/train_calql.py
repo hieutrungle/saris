@@ -983,6 +983,39 @@ def main(config: TrainConfig):
     else:
         raise ValueError(f"Invalid command: {config.command}, available commands: train, eval")
 
+    obs, _ = envs.reset()
+    print(f"Observation space: {envs.single_observation_space}")
+    print(f"Action space: {envs.single_action_space}")
+    print(f"obs: {obs}")
+
+    batch_action_shape = [1] + list(envs.single_action_space.shape)
+    actions = np.random.uniform(-1, 1, size=batch_action_shape)
+    print(f"\nactions: {actions}")
+    # TODO: post-processing actions [r, theta, phi] in degrees to radians
+    actions = actions.reshape(-1, 9, 3)
+    actions[:, :, 1] = np.deg2rad(actions[:, :, 1])
+    actions[:, :, 2] = np.deg2rad(actions[:, :, 2])
+    print(f"actions: {actions}\n")
+    actions = actions.flatten()
+    print(f"actions: {actions}\n")
+
+    next_obs, rewards, terminations, truncations, env_info = envs.step(actions)
+
+    print(f"next_obs: {next_obs}")
+    print(f"rewards: {rewards}")
+    print(f"terminations: {terminations}")
+    print(f"truncations: {truncations}")
+    print(f"env_info: {env_info}")
+
+    print(f"shape of next_obs: {next_obs.shape}")
+    print(f"shape of rewards: {rewards.shape}")
+    print(f"shape of terminations: {terminations.shape}")
+    print(f"shape of truncations: {truncations.shape}")
+    print(f"shape of env_info: {env_info}")
+
+    envs.close()
+    exit()
+
     # Init checkpoints
     print(f"Checkpoints path: {config.checkpoint_path}")
     os.makedirs(config.checkpoint_path, exist_ok=True)
