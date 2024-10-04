@@ -18,7 +18,73 @@ import bl_utils, bl_parser, shared_utils
 def export_drl_hallway_hex(args):
 
     # unit: degrees
-    theta_config, phi_config, num_groups = shared_utils.get_reflector_config()
+    theta_config, phi_config, num_groups, num_elements_per_group = (
+        shared_utils.get_reflector_config()
+    )
+    theta_range = (theta_config[1], theta_config[2])
+    phi_range = (phi_config[1], phi_config[2])
+
+    devices_names = []
+    object_dict = {f"Group{i:02d}": [] for i in range(1, num_groups + 1)}
+
+    for k, v in bpy.data.collections.items():
+        if "Reflector" in k:
+            devices_names.append(k)
+            sorted_objects = sorted(v.objects, key=lambda x: x.name)
+            for obj in sorted_objects:
+                concat_name = obj.name.strip().split(".")
+                group_name = concat_name[0]
+                object_dict[group_name].append(obj)
+
+    with open(args.input_path, "rb") as f:
+        # data: Tuple[np.ndarray[float], np.ndarray[float]]
+        spherical_focal_vecs = pickle.load(f)
+    spherical_focal_vecs = spherical_focal_vecs.reshape(num_groups, 3)
+
+    # Angle container
+    angles = [0.0 for _ in range(num_groups * (num_elements_per_group + 1))]
+
+    for i, (group_name, objects) in enumerate(object_dict.items()):
+        mid_tile = objects[num_elements_per_group // 2]
+        r_mid, theta_mid, phi_mid = spherical_focal_vecs[i]
+        focal_vec = bl_utils.spherical2cartesian(r_mid, theta_mid, phi_mid)
+        focal_pt = bl_utils.get_center_bbox(mid_tile) + Vector(focal_vec)
+        theta_mid = shared_utils.constraint_angle(theta_mid, theta_range)
+        angles[i * (num_elements_per_group + 1)] = theta_mid
+
+        for j, obj in enumerate(objects):
+            center = bl_utils.get_center_bbox(obj)
+            r, theta, phi = bl_utils.compute_rot_angle(center, focal_pt)
+            theta = shared_utils.constraint_angle(theta, theta_range)
+            phi = shared_utils.constraint_angle(phi, phi_range)
+            obj.rotation_euler = [0, phi, theta]
+            angles[i * (num_elements_per_group + 1) + j + 1] = phi
+
+    result_path = args.input_path
+    with open(result_path, "wb") as f:
+        pickle.dump(angles, f)
+
+    # Save files without ceiling
+    folder_dir = os.path.join(args.output_dir, f"idx")
+    bl_utils.mkdir_with_replacement(folder_dir)
+    bl_utils.save_mitsuba_xml(folder_dir, "hallway", [*devices_names, "Wall", "Floor"])
+
+    # Save files with ceiling
+    folder_dir = os.path.join(args.output_dir, f"ceiling_idx")
+    bl_utils.mkdir_with_replacement(folder_dir)
+    bl_utils.save_mitsuba_xml(
+        folder_dir,
+        "hallway",
+        [*devices_names, "Wall", "Floor", "Ceiling"],
+    )
+
+
+def tmp_export_drl_hallway_hex(args):
+
+    # unit: degrees
+    theta_config, phi_config, num_groups, num_elements_per_group = (
+        shared_utils.get_reflector_config()
+    )
     theta_range = (math.radians(theta_config[1]), math.radians(theta_config[2]))
     phi_range = (math.radians((phi_config[1])), math.radians(phi_config[2]))
 
