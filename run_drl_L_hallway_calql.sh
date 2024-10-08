@@ -52,7 +52,7 @@ BLENDER_APP=${BLENDER_DIR}/blender-3.3.14-linux-x64/blender
 #     wget -P ${BLENDER_DIR}/addons https://github.com/mitsuba-renderer/mitsuba-blender/releases/download/v0.3.0/mitsuba-blender.zip 
 #     # unzip mitsuba-blender.zip -d ${BLENDER_DIR}/addons
 # fi
-# ${BLENDER_APP} -b ${BLENDER_DIR}/models/hallway_L_0.blend --python ${SOURCE_DIR}/saris/blender_script/install_mitsuba_addon.py -- --blender_app ${BLENDER_APP}
+${BLENDER_APP} -b ${BLENDER_DIR}/models/hallway_L_0.blend --python ${SOURCE_DIR}/saris/blender_script/install_mitsuba_addon.py -- --blender_app ${BLENDER_APP}
 
 # get scene_name from CONFIG_FILE
 # SCENE_NAME=$(python -c "import yaml; print(yaml.safe_load(open('${CONFIG_FILE}', 'r'))['scene_name'])")
@@ -76,4 +76,4 @@ mkdir -p ${OPTIX_CACHE_PATH}
 ##############################
 # DRL run
 ##############################
-python ./saris/run_calql_python.py --sionna_config_file ${SIONNA_CONFIG_FILE} --seed 0 --eval_seed 10 --verbose True
+python ./saris/run_calql_python.py --sionna_config_file ${SIONNA_CONFIG_FILE} --verbose True
