@@ -787,6 +787,7 @@ def train(trainer: CalQL, config: TrainConfig, envs: gym.vector.VectorEnv) -> No
                     # mixing training with offline data + online data
                     # offline_batch = offline_buffer.sample(batch_size_offline)
                     batch = online_buffer.sample(config.batch_size)
+                    batch = [b.to(config.device) for b in batch]
                     # batch = [
                     #     torch.vstack(tuple(b)).to(config.device) for b in zip(offline_batch, online_batch)
                     # ]
