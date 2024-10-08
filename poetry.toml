@@ -1,0 +1,3 @@
+[virtualenvs]
+create = true     # create virtual env when run poetry cmd
+in-project = true # create .venv folder in project root dir for virtual env
