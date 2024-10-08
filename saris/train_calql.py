@@ -151,7 +151,7 @@ def wandb_init(config: TrainConfig) -> None:
         group=config.group,
         name=config.name,
         id=str(uuid.uuid4())[:5],
-        mode="offline",
+        # mode="offline",
     )
 
 
@@ -783,21 +783,25 @@ def train(trainer: CalQL, config: TrainConfig, envs: gym.vector.VectorEnv) -> No
                 batch = offline_buffer.sample(config.batch_size)
                 batch = [b.to(config.device) for b in batch]
             else:
-                # offline_batch = offline_buffer.sample(batch_size_offline)
-                online_batch = online_buffer.sample(batch_size_online)
+                if j < config.n_updates * 2 // 3:
+                    # mixing training with offline data + online data
+                    # offline_batch = offline_buffer.sample(batch_size_offline)
+                    batch = online_buffer.sample(config.batch_size)
+                    # batch = [
+                    #     torch.vstack(tuple(b)).to(config.device) for b in zip(offline_batch, online_batch)
+                    # ]
+                else:
+                    # online training with online data + current data
+                    online_batch = online_buffer.sample(batch_size_online)
 
-                batch = [
-                    torch.vstack(tuple(b)).to(config.device)
-                    for b in zip(current_batch, online_batch)
-                ]
+                    batch = [
+                        torch.vstack(tuple(b)).to(config.device)
+                        for b in zip(current_batch, online_batch)
+                    ]
 
                 batch[0] = normalize_obs(batch[0], obs_rms)
                 batch[2] = normalize_reward(batch[2], rewards_rms)
                 batch[3] = normalize_obs(batch[3], obs_rms)
-
-                # batch = [
-                #     torch.vstack(tuple(b)).to(config.device) for b in zip(offline_batch, online_batch)
-                # ]
 
             log_dict = trainer.train(batch)
 
