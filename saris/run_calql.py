@@ -15,9 +15,10 @@ class TrainConfig:
     env_id: str = "wireless-sigmap-v0"  # environment name
     offline_iterations: int = int(0)  # Number of offline updates
     online_iterations: int = int(10_001)  # Number of online updates
-    learning_starts: int = int(2)  # Number of steps before learning starts
+    learning_starts: int = int(300)  # Number of steps before learning starts
     checkpoint_path: Optional[str] = None  # Save path
-    load_model: str = ""  # Model load file name for resume training, "" doesn't load
+    load_model: str = "-1"  # Model load file name for resume training, "" doesn't load
+    offline_data_dir: str = "-1"  # Offline data directory
     sionna_config_file: str = ""  # Sionna config file
     verbose: bool = False  # Print debug information
     save_freq: int = int(100)  # How often (time steps) we save
@@ -31,7 +32,8 @@ class TrainConfig:
 
     # CQL
     n_updates: int = 20  # Number of updates per step
-    buffer_size: int = 75_000  # Replay buffer size
+    offline_buffer_size: int = 300_000  # Offline replay buffer size
+    online_buffer_size: int = 75_000  # Online replay buffer size
     batch_size: int = 256  # Batch size for all networks
     discount: float = 0.85  # Discount factor
     alpha_multiplier: float = 1.0  # Multiplier for alpha in loss
@@ -94,6 +96,10 @@ def main(config: TrainConfig):
         str(config.learning_starts),
         "--checkpoint_path",
         str(config.checkpoint_path),
+        "--load_model",
+        str(config.load_model),
+        "--offline_data_dir",
+        str(config.offline_data_dir),
         "--sionna_config_file",
         str(config.sionna_config_file),
         "--verbose",
@@ -112,8 +118,10 @@ def main(config: TrainConfig):
         str(config.eval_seed),
         "--n_updates",
         str(config.n_updates),
-        "--buffer_size",
-        str(config.buffer_size),
+        "--offline_buffer_size",
+        str(config.offline_buffer_size),
+        "--online_buffer_size",
+        str(config.online_buffer_size),
         "--batch_size",
         str(config.batch_size),
         "--discount",
