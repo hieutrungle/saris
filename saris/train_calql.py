@@ -42,7 +42,8 @@ class TrainConfig:
     online_iterations: int = int(5_001)  # Number of online updates
     learning_starts: int = int(900)  # Number of steps before learning starts
     checkpoint_path: Optional[str] = None  # Save path
-    load_model: str = ""  # Model load file name for resume training, "" doesn't load
+    load_model: str = "-1"  # Model load file name for resume training, "" doesn't load
+    offline_data_dir: str = "-1"  # Offline data directory
     sionna_config_file: str = ""  # Sionna config file
     verbose: bool = False  # Print debug information
     save_freq: int = int(100)  # How often (time steps) we save
@@ -56,7 +57,8 @@ class TrainConfig:
 
     # CQL
     n_updates: int = 10  # Number of updates per step
-    buffer_size: int = 10_000  # Replay buffer size
+    offline_buffer_size: int = 300_000  # Offline replay buffer size
+    online_buffer_size: int = 75_000  # Online replay buffer size
     batch_size: int = 256  # Batch size for all networks
     discount: float = 0.85  # Discount factor
     alpha_multiplier: float = 1.0  # Multiplier for alpha in loss
@@ -153,95 +155,42 @@ def wandb_init(config: TrainConfig) -> None:
     )
 
 
-# def return_reward_range(dataset: Dict, max_episode_steps: int) -> Tuple[float, float]:
-#     returns, lengths = [], []
-#     ep_ret, ep_len = 0.0, 0
-#     for r, d in zip(dataset["rewards"], dataset["terminals"]):
-#         ep_ret += float(r)
-#         ep_len += 1
-#         if d or ep_len == max_episode_steps:
-#             returns.append(ep_ret)
-#             lengths.append(ep_len)
-#             ep_ret, ep_len = 0.0, 0
-#     lengths.append(ep_len)  # but still keep track of number of steps
-#     assert sum(lengths) == len(dataset["rewards"])
-#     return min(returns), max(returns)
+def modify_offline_rewards(rewards: np.ndarray) -> np.ndarray:
+    var = np.var(rewards)
+    return rewards / var
 
 
-# def get_return_to_go(dataset: Dict, env: gym.Env, config: TrainConfig) -> np.ndarray:
-#     returns = []
-#     ep_ret, ep_len = 0.0, 0
-#     cur_rewards = []
-#     terminals = []
-#     N = len(dataset["rewards"])
-#     for t, (r, d) in enumerate(zip(dataset["rewards"], dataset["terminals"])):
-#         ep_ret += float(r)
-#         cur_rewards.append(float(r))
-#         terminals.append(float(d))
-#         ep_len += 1
-#         is_last_step = (
-#             (t == N - 1)
-#             or (
-#                 np.linalg.norm(dataset["observations"][t + 1] - dataset["next_observations"][t])
-#                 > 1e-6
-#             )
-#             or ep_len == env._max_episode_steps
-#         )
-
-#         if d or is_last_step:
-#             discounted_returns = [0] * ep_len
-#             prev_return = 0
-#             if (
-#                 config.is_sparse_reward
-#                 and r == env.ref_min_score * config.reward_scale + config.reward_bias
-#             ):
-#                 discounted_returns = [r / (1 - config.discount)] * ep_len
-#             else:
-#                 for i in reversed(range(ep_len)):
-#                     discounted_returns[i] = cur_rewards[i] + config.discount * prev_return * (
-#                         1 - terminals[i]
-#                     )
-#                     prev_return = discounted_returns[i]
-#             returns += discounted_returns
-#             ep_ret, ep_len = 0.0, 0
-#             cur_rewards = []
-#             terminals = []
-#     return returns
+def normalize_observations(observations: np.ndarray) -> np.ndarray:
+    return (observations - np.mean(observations, axis=0)) / (np.std(observations, axis=0) + 1e-6)
 
 
-# def modify_reward(
-#     dataset: Dict,
-#     env_name: str,
-#     max_episode_steps: int = 1000,
-#     reward_scale: float = 1.0,
-#     reward_bias: float = 0.0,
-# ) -> Dict:
-#     modification_data = {}
-#     if any(s in env_name for s in ("halfcheetah", "hopper", "walker2d")):
-#         min_ret, max_ret = return_reward_range(dataset, max_episode_steps)
-#         dataset["rewards"] /= max_ret - min_ret
-#         dataset["rewards"] *= max_episode_steps
-#         modification_data = {
-#             "max_ret": max_ret,
-#             "min_ret": min_ret,
-#             "max_episode_steps": max_episode_steps,
-#         }
-#     dataset["rewards"] = dataset["rewards"] * reward_scale + reward_bias
-#     return modification_data
+def get_return_to_go(dataset: Dict, config: TrainConfig) -> np.ndarray:
+    returns = np.full((dataset["rewards"].shape), np.nan)
+    ep_ret, ep_len = 0.0, 0
+    cur_rewards = []
+    N = dataset["rewards"].shape[0]
+    terminals = []
 
+    for t, (r, d) in enumerate(zip(dataset["rewards"], dataset["terminations"])):
+        ep_ret += float(r)
+        cur_rewards.append(float(r))
+        terminals.append(float(d))
+        ep_len += 1
+        is_last_step = (t == N - 1) or (ep_len == config.ep_len)
 
-def modify_reward_online(
-    reward: float,
-    env_name: str,
-    reward_scale: float = 1.0,
-    reward_bias: float = 0.0,
-    **kwargs,
-) -> float:
-    if any(s in env_name for s in ("halfcheetah", "hopper", "walker2d")):
-        reward /= kwargs["max_ret"] - kwargs["min_ret"]
-        reward *= kwargs["max_episode_steps"]
-    reward = reward * reward_scale + reward_bias
-    return reward
+        if d or is_last_step:
+            discounted_returns = [0] * ep_len
+            prev_return = 0
+            for i in reversed(range(ep_len)):
+                discounted_returns[i] = cur_rewards[i] + config.discount * prev_return * (
+                    1 - terminals[i]
+                )
+                prev_return = discounted_returns[i]
+            returns[t - ep_len + 1 : t + 1] = np.array(discounted_returns)[..., np.newaxis]
+            ep_ret, ep_len = 0.0, 0
+            cur_rewards = []
+            terminals = []
+    return returns
 
 
 class CalQL:
@@ -662,60 +611,51 @@ def train(trainer: CalQL, config: TrainConfig, envs: gym.vector.VectorEnv) -> No
     ob_dim = envs.single_observation_space.shape[0]
     action_dim = envs.single_action_space.shape[0]
 
-    # # Load offline data
-    # offline_buffer = buffers.ReplayBuffer(
-    #     ob_dim,
-    #     action_dim,
-    #     config.buffer_size,
-    # )
+    # Load offline data
+    if config.offline_data_dir != "-1":
+        print(f"Loading offline data from {config.offline_data_dir}")
+        offline_buffer = buffers.ReplayBuffer(
+            ob_dim,
+            action_dim,
+            config.offline_buffer_size,
+        )
 
-    # TODO: add offline buffer, start from here
-    # offline_data = load_data.load_offline_dataset(
-    #     "/home/hieule/research/saris/local_assets/replay_buffer/Cal-QL__Online-Learning__wireless-sigmap-v0__eba33184",
-    #     offline_buffer.max_size(),
-    # )
+        offline_data = load_data.load_offline_dataset(
+            config.offline_data_dir,
+            offline_buffer.max_size(),
+        )
 
-    # # TODO: Add MC returns
-    # # mc_returns = get_return_to_go(dataset, env, config)
-    # # dataset["mc_returns"] = np.array(mc_returns)
-    # # assert len(dataset["mc_returns"]) == len(dataset["rewards"])
-    # offline_data["mc_returns"] = 0.0
+        offline_data["rewards"] = modify_offline_rewards(offline_data["rewards"])
+        mc_returns = get_return_to_go(offline_data, config)
+        offline_data["mc_returns"] = np.array(mc_returns)
+        assert (
+            offline_data["mc_returns"].shape == offline_data["rewards"].shape
+        ), f"MC returns shape: {offline_data['mc_returns'].shape}, rewards shape: {offline_data['rewards'].shape}"
 
-    # TODO: Add normalization for offline data
-    # if config.normalize:
-    #     state_mean, state_std = compute_mean_std(dataset["observations"], eps=1e-3)
-    # else:
-    #     state_mean, state_std = 0, 1
+        offline_data["observations"] = normalize_observations(offline_data["observations"])
+        offline_data["next_observations"] = normalize_observations(
+            offline_data["next_observations"]
+        )
 
-    # # dataset["observations"] = normalize_states(dataset["observations"], state_mean, state_std)
-    # # dataset["next_observations"] = normalize_states(
-    # #     dataset["next_observations"], state_mean, state_std
-    # # )
+        offline_data["dones"] = offline_data["terminations"]
+        offline_batch = {
+            "observations": offline_data["observations"],
+            "actions": offline_data["actions"],
+            "rewards": offline_data["rewards"],
+            "next_observations": offline_data["next_observations"],
+            "dones": offline_data["dones"],
+            "mc_returns": offline_data["mc_returns"],
+        }
 
-    # TODO: also load stats for reward normalization
-
-    # offline_data["dones"] = offline_data["terminations"]
-    # offline_batch = {
-    #     "observations": offline_data["observations"],
-    #     "actions": offline_data["actions"],
-    #     "rewards": offline_data["rewards"],
-    #     "next_observations": offline_data["next_observations"],
-    #     "dones": offline_data["dones"],
-    #     "mc_returns": offline_data["mc_returns"],
-    # }
-    # offline_buffer.load_dataset(**offline_batch)
-
-    # exit()
-    # TODO: end offline buffer loading here
-    # dataset = d4rl.qlearning_dataset(env)
+        offline_buffer.load_dataset(**offline_batch)
 
     online_buffer = buffers.ReplayBuffer(
         ob_dim,
         action_dim,
-        config.buffer_size,
+        config.online_buffer_size,
     )
 
-    if config.load_model != "":
+    if config.load_model != "-1":
         policy_file = Path(config.load_model)
         trainer.load_state_dict(torch.load(policy_file))
 
