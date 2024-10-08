@@ -1,4 +1,4 @@
-from typing import Tuple
+from typing import Tuple, Dict
 import numpy as np
 import torch
 
@@ -17,10 +17,12 @@ class ReplayBuffer:
         self._pointer = 0
         self._size = 0
 
-        self._states = torch.zeros((buffer_size, state_dim), dtype=torch.float32, device=device)
+        self._observations = torch.zeros(
+            (buffer_size, state_dim), dtype=torch.float32, device=device
+        )
         self._actions = torch.zeros((buffer_size, action_dim), dtype=torch.float32, device=device)
         self._rewards = torch.zeros((buffer_size, 1), dtype=torch.float32, device=device)
-        self._next_states = torch.zeros(
+        self._next_observations = torch.zeros(
             (buffer_size, state_dim), dtype=torch.float32, device=device
         )
         self._dones = torch.zeros((buffer_size, 1), dtype=torch.float32, device=device)
@@ -31,70 +33,81 @@ class ReplayBuffer:
     def _to_tensor(self, data: np.ndarray) -> torch.Tensor:
         return torch.tensor(data, dtype=torch.float32).to(self._device)
 
-    # # Loads data in d4rl format, i.e. from Dict[str, np.array].
-    # def load_d4rl_dataset(self, data: Dict[str, np.ndarray]):
-    #     if self._size != 0:
-    #         raise ValueError("Trying to load data into non-empty replay buffer")
-    #     n_transitions = data["observations"].shape[0]
-    #     if n_transitions > self._buffer_size:
-    #         raise ValueError("Replay buffer is smaller than the dataset you are trying to load!")
-    #     self._states[:n_transitions] = self._to_tensor(data["observations"])
-    #     self._actions[:n_transitions] = self._to_tensor(data["actions"])
-    #     self._rewards[:n_transitions] = self._to_tensor(data["rewards"][..., None])
-    #     self._next_states[:n_transitions] = self._to_tensor(data["next_observations"])
-    #     self._dones[:n_transitions] = self._to_tensor(data["terminals"][..., None])
-    #     self._mc_returns[:n_transitions] = self._to_tensor(data["mc_returns"][..., None])
-    #     self._size += n_transitions
-    #     self._pointer = min(self._size, n_transitions)
+    # Loads data in d4rl format, i.e. from Dict[str, np.array].
+    def load_dataset(
+        self,
+        observations: np.ndarray[float],
+        actions: np.ndarray[float],
+        rewards: np.ndarray[float],
+        next_observations: np.ndarray[float],
+        dones: np.ndarray[bool],
+        mc_returns: np.ndarray[float],
+    ):
+        if self._size != 0:
+            raise ValueError("Trying to load data into non-empty replay buffer")
+        n_transitions = observations.shape[0]
+        if n_transitions > self._buffer_size:
+            raise ValueError("Replay buffer is smaller than the dataset you are trying to load!")
+        self.add_batch_transition(
+            observations, actions, rewards, next_observations, dones, mc_returns
+        )
 
-    #     print(f"Dataset size: {n_transitions}")
+        print(f"Dataset size: {len(self)}")
 
     def sample(self, batch_size: int) -> TensorBatch:
         indices = np.random.randint(0, self._size, size=batch_size)
-        states = self._states[indices]
+        observations = self._observations[indices]
         actions = self._actions[indices]
         rewards = self._rewards[indices]
-        next_states = self._next_states[indices]
+        next_observations = self._next_observations[indices]
         dones = self._dones[indices]
         mc_returns = self._mc_returns[indices]
-        return (states, actions, rewards, next_states, dones, mc_returns)
+        return (observations, actions, rewards, next_observations, dones, mc_returns)
 
     def add_transition(
         self,
-        state: np.ndarray,
-        action: np.ndarray,
-        reward: float,
-        next_state: np.ndarray,
-        done: bool,
+        observation: np.ndarray[float],
+        action: np.ndarray[float],
+        reward: np.ndarray[float],
+        next_observation: np.ndarray[float],
+        done: np.ndarray[bool],
+        mc_return: np.ndarray[float] = 0.0,
     ):
         # Use this method to add new data into the replay buffer during fine-tuning.
-        self._states[self._pointer] = self._to_tensor(state)
+        self._observations[self._pointer] = self._to_tensor(observation)
         self._actions[self._pointer] = self._to_tensor(action)
         self._rewards[self._pointer] = self._to_tensor(reward)
-        self._next_states[self._pointer] = self._to_tensor(next_state)
+        self._next_observations[self._pointer] = self._to_tensor(next_observation)
         self._dones[self._pointer] = self._to_tensor(done)
-        self._mc_returns[self._pointer] = 0.0
+        self._mc_returns[self._pointer] = self._to_tensor(mc_return)
 
         self._pointer = (self._pointer + 1) % self._buffer_size
         self._size = min(self._size + 1, self._buffer_size)
 
     def add_batch_transition(
         self,
-        states: np.ndarray,
-        actions: np.ndarray,
-        rewards: np.ndarray,
-        next_states: np.ndarray,
-        dones: np.ndarray,
+        observations: np.ndarray[float],
+        actions: np.ndarray[float],
+        rewards: np.ndarray[float],
+        next_observations: np.ndarray[float],
+        dones: np.ndarray[bool],
+        mc_returns: np.ndarray[float] = 0.0,
     ):
         # Use this method to add new data into the replay buffer during fine-tuning.
-        batch_size = states.shape[0]
+        batch_size = observations.shape[0]
         assigned_indices = np.arange(self._pointer, self._pointer + batch_size) % self._buffer_size
-        self._states[assigned_indices] = self._to_tensor(states)
+        self._observations[assigned_indices] = self._to_tensor(observations)
         self._actions[assigned_indices] = self._to_tensor(actions)
         self._rewards[assigned_indices] = self._to_tensor(rewards)
-        self._next_states[assigned_indices] = self._to_tensor(next_states)
+        self._next_observations[assigned_indices] = self._to_tensor(next_observations)
         self._dones[assigned_indices] = self._to_tensor(dones)
-        self._mc_returns[assigned_indices] = 0.0
+        self._mc_returns[assigned_indices] = self._to_tensor(mc_returns)
 
         self._pointer = (self._pointer + batch_size) % self._buffer_size
         self._size = min(self._size + batch_size, self._buffer_size)
+
+    def __len__(self):
+        return self._size
+
+    def max_size(self):
+        return self._buffer_size
