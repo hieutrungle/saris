@@ -149,11 +149,18 @@ class TanhGaussianPolicy(nn.Module):
         actions, log_probs = self.tanh_gaussian(mean, log_std, deterministic)
         actions: torch.Tensor = self.action_scale * actions
 
-        batch_size = observations.shape[0]
-        actions = actions.reshape(batch_size, -1, 3)
-        actions[:, :, 1] = torch.deg2rad(actions[:, :, 1])
-        actions[:, :, 2] = torch.deg2rad(actions[:, :, 2])
-        actions = actions.reshape(batch_size, -1)
+        batch_size = actions.shape[0]
+        if actions.ndim == 3:
+            n_actions = actions.shape[1]
+            actions = actions.reshape(batch_size, n_actions, -1, 3)
+            actions[..., 1] = torch.deg2rad(actions[..., 1])
+            actions[..., 2] = torch.deg2rad(actions[..., 2])
+            actions = actions.reshape(batch_size, n_actions, -1)
+        elif actions.ndim == 2:
+            actions = actions.reshape(batch_size, -1, 3)
+            actions[..., 1] = torch.deg2rad(actions[..., 1])
+            actions[..., 2] = torch.deg2rad(actions[..., 2])
+            actions = actions.reshape(batch_size, -1)
         return actions, log_probs
 
     @torch.no_grad()
