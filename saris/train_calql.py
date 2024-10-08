@@ -20,7 +20,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import saris
 from saris.drl.agents import calql
-from saris.utils import utils, pytorch_utils, buffers, running_mean
+from saris.utils import utils, pytorch_utils, buffers, running_mean, load_data
 import importlib.resources
 import wandb
 import gymnasium as gym
@@ -149,7 +149,7 @@ def wandb_init(config: TrainConfig) -> None:
         group=config.group,
         name=config.name,
         id=str(uuid.uuid4())[:5],
-        # mode="offline",
+        mode="offline",
     )
 
 
@@ -662,42 +662,58 @@ def train(trainer: CalQL, config: TrainConfig, envs: gym.vector.VectorEnv) -> No
     ob_dim = envs.single_observation_space.shape[0]
     action_dim = envs.single_action_space.shape[0]
 
-    # dataset = d4rl.qlearning_dataset(env)
+    # # Load offline data
+    # offline_buffer = buffers.ReplayBuffer(
+    #     ob_dim,
+    #     action_dim,
+    #     config.buffer_size,
+    # )
 
-    # Online learning running mean
+    # TODO: add offline buffer, start from here
+    # offline_data = load_data.load_offline_dataset(
+    #     "/home/hieule/research/saris/local_assets/replay_buffer/Cal-QL__Online-Learning__wireless-sigmap-v0__eba33184",
+    #     offline_buffer.max_size(),
+    # )
 
-    # reward_mod_dict = {}
-    # if config.normalize_reward:
-    #     reward_mod_dict = modify_reward(
-    #         dataset,
-    #         config.env,
-    #         reward_scale=config.reward_scale,
-    #         reward_bias=config.reward_bias,
-    #     )
-    # mc_returns = get_return_to_go(dataset, env, config)
-    # dataset["mc_returns"] = np.array(mc_returns)
-    # assert len(dataset["mc_returns"]) == len(dataset["rewards"])
+    # # TODO: Add MC returns
+    # # mc_returns = get_return_to_go(dataset, env, config)
+    # # dataset["mc_returns"] = np.array(mc_returns)
+    # # assert len(dataset["mc_returns"]) == len(dataset["rewards"])
+    # offline_data["mc_returns"] = 0.0
 
+    # TODO: Add normalization for offline data
     # if config.normalize:
     #     state_mean, state_std = compute_mean_std(dataset["observations"], eps=1e-3)
     # else:
     #     state_mean, state_std = 0, 1
 
-    # dataset["observations"] = normalize_states(dataset["observations"], state_mean, state_std)
-    # dataset["next_observations"] = normalize_states(
-    #     dataset["next_observations"], state_mean, state_std
-    # )
-    offline_buffer = buffers.ReplayBuffer(
-        ob_dim,
-        action_dim,
-        config.buffer_size,
-    )
+    # # dataset["observations"] = normalize_states(dataset["observations"], state_mean, state_std)
+    # # dataset["next_observations"] = normalize_states(
+    # #     dataset["next_observations"], state_mean, state_std
+    # # )
+
+    # TODO: also load stats for reward normalization
+
+    # offline_data["dones"] = offline_data["terminations"]
+    # offline_batch = {
+    #     "observations": offline_data["observations"],
+    #     "actions": offline_data["actions"],
+    #     "rewards": offline_data["rewards"],
+    #     "next_observations": offline_data["next_observations"],
+    #     "dones": offline_data["dones"],
+    #     "mc_returns": offline_data["mc_returns"],
+    # }
+    # offline_buffer.load_dataset(**offline_batch)
+
+    # exit()
+    # TODO: end offline buffer loading here
+    # dataset = d4rl.qlearning_dataset(env)
+
     online_buffer = buffers.ReplayBuffer(
         ob_dim,
         action_dim,
         config.buffer_size,
     )
-    # offline_buffer.load_d4rl_dataset(dataset)
 
     if config.load_model != "":
         policy_file = Path(config.load_model)
@@ -751,22 +767,20 @@ def train(trainer: CalQL, config: TrainConfig, envs: gym.vector.VectorEnv) -> No
             obs_rms.update(torch.tensor(obs, dtype=torch.float))
             rewards_rms.update(torch.tensor(rews, dtype=torch.float))
 
-            # online_buffer.add_batch_transition(obs, acts, rews, next_obs, dones)
+            rews = np.asarray(rews)[..., np.newaxis]
+            dones = np.asarray(dones)[..., np.newaxis]
+            truncations = np.asarray(truncations)[..., np.newaxis]
+            terminations = np.asarray(terminations)[..., np.newaxis]
+
             current_batch = (
                 torch.tensor(obs, dtype=torch.float32),
                 torch.tensor(acts, dtype=torch.float32),
-                torch.tensor(rews, dtype=torch.float32).unsqueeze(-1),
+                torch.tensor(rews, dtype=torch.float32),
                 torch.tensor(real_next_obs, dtype=torch.float32),
-                torch.tensor(dones, dtype=torch.float32).unsqueeze(-1),
-                torch.zeros_like(torch.tensor(rews, dtype=torch.float32)).unsqueeze(-1),
+                torch.tensor(dones, dtype=torch.float32),
+                torch.zeros_like(torch.tensor(rews, dtype=torch.float32)),
             )
-            online_buffer.add_batch_transition(
-                current_batch[0],
-                current_batch[1],
-                current_batch[2],
-                current_batch[3],
-                current_batch[4],
-            )
+            online_buffer.add_batch_transition(obs, acts, rews, real_next_obs, dones)
 
             if "final_info" in env_infos:
                 returns = [info["episode"]["r"] for info in env_infos["final_info"]]
@@ -796,7 +810,7 @@ def train(trainer: CalQL, config: TrainConfig, envs: gym.vector.VectorEnv) -> No
             )
             utils.save_data(
                 {f"{step}": obs},
-                os.path.join(buffer_saved_dir, "obs.txt"),
+                os.path.join(buffer_saved_dir, "observations.txt"),
             )
             utils.save_data(
                 {f"{step}": acts},
@@ -804,7 +818,7 @@ def train(trainer: CalQL, config: TrainConfig, envs: gym.vector.VectorEnv) -> No
             )
             utils.save_data(
                 {f"{step}": real_next_obs},
-                os.path.join(buffer_saved_dir, "next_obs.txt"),
+                os.path.join(buffer_saved_dir, "next_observations.txt"),
             )
             utils.save_data(
                 {f"{step}": terminations},
@@ -831,10 +845,12 @@ def train(trainer: CalQL, config: TrainConfig, envs: gym.vector.VectorEnv) -> No
             else:
                 # offline_batch = offline_buffer.sample(batch_size_offline)
                 online_batch = online_buffer.sample(batch_size_online)
+
                 batch = [
                     torch.vstack(tuple(b)).to(config.device)
                     for b in zip(current_batch, online_batch)
                 ]
+
                 batch[0] = normalize_obs(batch[0], obs_rms)
                 batch[2] = normalize_reward(batch[2], rewards_rms)
                 batch[3] = normalize_obs(batch[3], obs_rms)
