@@ -26,14 +26,14 @@ class TrainConfig:
     # Environment
     ep_len: int = 75  # Max length of episode
     eval_ep_len: int = 50  # Max length of evaluation episode
-    num_envs: int = 24  # Number of parallel environments
+    num_envs: int = 20  # Number of parallel environments
     seed: int = 100  # Sets Gym, PyTorch and Numpy seeds
     eval_seed: int = 1000  # Eval environment seed
 
     # CQL
     n_updates: int = 20  # Number of updates per step
-    offline_buffer_size: int = 300_000  # Offline replay buffer size
-    online_buffer_size: int = 75_000  # Online replay buffer size
+    offline_buffer_size: int = 100_000  # Offline replay buffer size
+    online_buffer_size: int = 1_000  # Online replay buffer size
     batch_size: int = 256  # Batch size for all networks
     discount: float = 0.85  # Discount factor
     alpha_multiplier: float = 1.0  # Multiplier for alpha in loss
@@ -43,7 +43,7 @@ class TrainConfig:
     qf_lr: float = 3e-4  # Critics learning rate
     tau: float = 5e-3  # Target network update rate
     target_update_period: int = 1  # Frequency of target nets updates
-    cql_alpha: float = 5.0  # CQL offline regularization parameter
+    cql_alpha: float = 2.0  # CQL offline regularization parameter
     cql_alpha_online: float = 2.0  # CQL online regularization parameter
     cql_n_actions: int = 10  # Number of sampled actions
     cql_importance_sample: bool = True  # Use importance sampling
@@ -51,8 +51,8 @@ class TrainConfig:
     cql_target_action_gap: float = 0.8  # Action gap
     cql_temp: float = 1.0  # CQL temperature
     cql_max_target_backup: bool = True  # Use max target backup
-    cql_clip_diff_min: float = -200  # Q-function lower loss clipping
-    cql_clip_diff_max: float = 200  # Q-function upper loss clipping
+    cql_clip_diff_min: float = -100  # Q-function lower loss clipping
+    cql_clip_diff_max: float = 100  # Q-function upper loss clipping
     orthogonal_init: bool = True  # Orthogonal initialization
     normalize: bool = True  # Normalize states
     normalize_reward: bool = True  # Normalize reward
