@@ -32,8 +32,8 @@ class TrainConfig:
 
     # CQL
     n_updates: int = 20  # Number of updates per step
-    offline_buffer_size: int = 100_000  # Offline replay buffer size
-    online_buffer_size: int = 1_000  # Online replay buffer size
+    offline_buffer_size: int = 10_000  # Offline replay buffer size
+    online_buffer_size: int = 100_000  # Online replay buffer size
     batch_size: int = 256  # Batch size for all networks
     discount: float = 0.85  # Discount factor
     alpha_multiplier: float = 1.0  # Multiplier for alpha in loss
