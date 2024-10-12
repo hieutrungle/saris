@@ -76,4 +76,4 @@ mkdir -p ${OPTIX_CACHE_PATH}
 ##############################
 # DRL run
 ##############################
-python ./saris/run_calql_python.py --sionna_config_file ${SIONNA_CONFIG_FILE} --verbose True
+python ./saris/run_calql.py --sionna_config_file ${SIONNA_CONFIG_FILE} --verbose True
