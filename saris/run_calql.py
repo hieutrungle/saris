@@ -10,6 +10,7 @@ import subprocess
 
 @dataclass
 class TrainConfig:
+
     # Experiment
     command: str = "train"  # Command for "train" or "eval"
     env_id: str = "wireless-sigmap-v0"  # environment name
@@ -26,7 +27,7 @@ class TrainConfig:
     # Environment
     ep_len: int = 75  # Max length of episode
     eval_ep_len: int = 50  # Max length of evaluation episode
-    num_envs: int = 20  # Number of parallel environments
+    num_envs: int = 1  # Number of parallel environments
     seed: int = 10  # Sets Gym, PyTorch and Numpy seeds
     eval_seed: int = 100  # Eval environment seed
 
@@ -55,12 +56,10 @@ class TrainConfig:
     cql_clip_diff_max: float = 100  # Q-function upper loss clipping
     orthogonal_init: bool = True  # Orthogonal initialization
     normalize: bool = True  # Normalize states
-    normalize_reward: bool = True  # Normalize reward
     q_n_hidden_layers: int = 2  # Number of hidden layers in Q networks
 
     # Cal-QL
     mixing_ratio: float = 0.0  # Data mixing ratio for online tuning, should be ~0.1
-    is_sparse_reward: bool = False  # Use sparse reward
 
     # Wandb logging
     project: str = "SARIS"  # wandb project name
@@ -82,10 +81,13 @@ class TrainConfig:
 @pyrallis.wrap()
 def main(config: TrainConfig):
 
-    base_cmd = [
-        "poetry",
-        "run",
-        "train_calql",
+    # if config.use_poetry == True:
+    #     base_cmd = ["poetry", "run", "train_calql"]
+    # else:
+    #     base_cmd = ["python", "./saris/train_calql.py"]
+    base_cmd = ["python", "./saris/train_calql.py"]
+
+    base_cmd += [
         "--env_id",
         str(config.env_id),
         "--offline_iterations",
@@ -164,14 +166,10 @@ def main(config: TrainConfig):
         str(config.orthogonal_init),
         "--normalize",
         str(config.normalize),
-        "--normalize_reward",
-        str(config.normalize_reward),
         "--q_n_hidden_layers",
         str(config.q_n_hidden_layers),
         "--mixing_ratio",
         str(config.mixing_ratio),
-        "--is_sparse_reward",
-        str(config.is_sparse_reward),
         "--project",
         str(config.project),
         "--group",

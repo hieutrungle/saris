@@ -27,7 +27,7 @@ import gymnasium as gym
 from saris.drl.envs import register_envs
 import tqdm
 import json
-
+import traceback
 
 register_envs()
 TensorBatch = Tuple[torch.Tensor]
@@ -80,12 +80,10 @@ class TrainConfig:
     cql_clip_diff_max: float = 200  # Q-function upper loss clipping
     orthogonal_init: bool = True  # Orthogonal initialization
     normalize: bool = True  # Normalize states
-    normalize_reward: bool = True  # Normalize reward
     q_n_hidden_layers: int = 2  # Number of hidden layers in Q networks
 
     # Cal-QL
     mixing_ratio: float = 0.0  # Data mixing ratio for online tuning, should be ~0.1
-    is_sparse_reward: bool = False  # Use sparse reward
 
     # Wandb logging
     project: str = "SARIS"  # wandb project name
@@ -153,11 +151,6 @@ def wandb_init(config: TrainConfig) -> None:
         id=str(uuid.uuid4())[:5],
         # mode="offline",
     )
-
-
-def modify_offline_rewards(rewards: np.ndarray) -> np.ndarray:
-    var = np.var(rewards)
-    return rewards / var
 
 
 def normalize_observations(observations: np.ndarray) -> np.ndarray:
@@ -625,7 +618,6 @@ def train(trainer: CalQL, config: TrainConfig, envs: gym.vector.VectorEnv) -> No
             offline_buffer.max_size(),
         )
 
-        offline_data["rewards"] = modify_offline_rewards(offline_data["rewards"])
         mc_returns = get_return_to_go(offline_data, config)
         offline_data["mc_returns"] = np.array(mc_returns)
         assert (
@@ -678,7 +670,6 @@ def train(trainer: CalQL, config: TrainConfig, envs: gym.vector.VectorEnv) -> No
 
     # Create running meanstd for normalization
     obs_rms = running_mean.RunningMeanStd(shape=envs.single_observation_space.shape)
-    rewards_rms = running_mean.RunningMeanStd(shape=(1,))
 
     # Training loop
     wandb.define_metric("train/step")
@@ -705,7 +696,6 @@ def train(trainer: CalQL, config: TrainConfig, envs: gym.vector.VectorEnv) -> No
                     real_next_obs[idx] = env_infos["final_observation"][idx]
 
             obs_rms.update(torch.tensor(obs, dtype=torch.float))
-            rewards_rms.update(torch.tensor(rews, dtype=torch.float))
 
             rews = np.asarray(rews)[..., np.newaxis]
             dones = np.asarray(dones)[..., np.newaxis]
@@ -801,7 +791,6 @@ def train(trainer: CalQL, config: TrainConfig, envs: gym.vector.VectorEnv) -> No
                     ]
 
                 batch[0] = normalize_obs(batch[0], obs_rms)
-                batch[2] = normalize_reward(batch[2], rewards_rms)
                 batch[3] = normalize_obs(batch[3], obs_rms)
 
             log_dict = trainer.train(batch)
@@ -821,9 +810,9 @@ def train(trainer: CalQL, config: TrainConfig, envs: gym.vector.VectorEnv) -> No
             torch.save(trainer.state_dict(), saved_path)
 
     rms_path = os.path.join(config.checkpoint_path, "rms.pt")
-    torch.save({"obs_rms": obs_rms, "rewards_rms": rewards_rms}, rms_path)
+    torch.save({"obs_rms": obs_rms}, rms_path)
 
-    wandb.finish()
+    
 
 
 @torch.no_grad()
@@ -912,14 +901,6 @@ def normalize_obs(
     mean = obs_rms.mean.to(observations.device)
     var = obs_rms.var.to(observations.device)
     return (observations - mean) / torch.sqrt(var + epsilon)
-
-
-def normalize_reward(
-    rewards: torch.Tensor,
-    rewards_rms: running_mean.RunningMeanStd,
-    epsilon: float = 1e-8,
-) -> torch.Tensor:
-    return rewards / ((rewards_rms.var).to(rewards.device) + epsilon)
 
 
 @pyrallis.wrap()
@@ -1023,14 +1004,19 @@ def main(config: TrainConfig):
     trainer = CalQL(**kwargs)
     wandb_init(config)
 
-    if config.command.lower() == "train":
-        train(trainer, config, envs)
-    elif config.command.lower() == "eval" and config.checkpoint_path != "":
-        eval(trainer, config, envs)
-    else:
-        raise ValueError(f"Invalid command: {config.command}, available commands: train, eval")
-
-    envs.close()
+    try:
+        if config.command.lower() == "train":
+            train(trainer, config, envs)
+        elif config.command.lower() == "eval" and config.checkpoint_path != "":
+            eval(trainer, config, envs)
+        else:
+            raise ValueError(f"Invalid command: {config.command}, available commands: train, eval")
+    except Exception as e:
+        print(f"Error: {e}")
+        traceback.print_exc()
+    finally:
+        wandb.finish()
+        envs.close()
 
 
 if __name__ == "__main__":
