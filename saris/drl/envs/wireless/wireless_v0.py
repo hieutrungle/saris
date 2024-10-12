@@ -195,18 +195,17 @@ class WirelessEnvV0(Env):
         self, cur_gains: np.ndarray, next_gains: np.ndarray, time_taken: float
     ) -> float:
 
-        # multiplication in linear is addition in dB
-        threshold = -80.0  # dB
-        avg_fairness = np.mean(cur_gains - threshold)
+        total_gain = np.sum(utils.dB2linear(cur_gains))
+        total_gain = utils.linear2dB(total_gain)  # dB
 
-        # total gain
-        cur_gain_linear = utils.dB2linear(cur_gains - threshold)
-        avg_gain = utils.linear2dB(np.mean(cur_gain_linear))  # dB
+        gain_diff = np.sum(next_gains - cur_gains)
+        cost_time = time_taken
 
-        gain_diff = 0.25 * np.mean(next_gains - cur_gains)
-        cost_time = -0.1 * time_taken
+        lower_ = -110
+        upper_ = -90
 
-        reward = 0.3 * avg_fairness + 0.7 * avg_gain + gain_diff + cost_time
+        reward = total_gain + 0.2 * gain_diff - 0.1 * cost_time
+        reward = (reward - lower_) / (upper_ - lower_)
 
         return float(reward)
 
