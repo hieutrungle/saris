@@ -27,7 +27,7 @@ class TrainConfig:
     # Environment
     ep_len: int = 75  # Max length of episode
     eval_ep_len: int = 50  # Max length of evaluation episode
-    num_envs: int = 1  # Number of parallel environments
+    num_envs: int = 12  # Number of parallel environments
     seed: int = 10  # Sets Gym, PyTorch and Numpy seeds
     eval_seed: int = 100  # Eval environment seed
 
