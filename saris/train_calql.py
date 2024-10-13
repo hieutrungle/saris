@@ -601,7 +601,7 @@ def train(trainer: CalQL, config: TrainConfig, envs: gym.vector.VectorEnv) -> No
 
     # is_env_with_goal = config.env.startswith(ENVS_WITH_GOAL)
     batch_size_offline = int(config.batch_size * config.mixing_ratio)
-    batch_size_online = config.batch_size - batch_size_offline - config.num_envs
+    batch_size_online = config.batch_size - batch_size_offline
     ob_dim = envs.single_observation_space.shape[0]
     action_dim = envs.single_action_space.shape[0]
 
@@ -703,14 +703,6 @@ def train(trainer: CalQL, config: TrainConfig, envs: gym.vector.VectorEnv) -> No
             truncations = np.asarray(truncations)[..., np.newaxis]
             terminations = np.asarray(terminations)[..., np.newaxis]
 
-            current_batch = (
-                torch.tensor(obs, dtype=torch.float32),
-                torch.tensor(acts, dtype=torch.float32),
-                torch.tensor(rews, dtype=torch.float32),
-                torch.tensor(real_next_obs, dtype=torch.float32),
-                torch.tensor(dones, dtype=torch.float32),
-                torch.zeros_like(torch.tensor(rews, dtype=torch.float32)),
-            )
             online_buffer.add_batch_transition(obs, acts, rews, real_next_obs, dones)
 
             if "final_info" in env_infos:
@@ -774,25 +766,21 @@ def train(trainer: CalQL, config: TrainConfig, envs: gym.vector.VectorEnv) -> No
                 batch = offline_buffer.sample(config.batch_size)
                 batch = [b.to(config.device) for b in batch]
             else:
-                if j < config.n_updates * 2 // 3:
-                    # mixing training with offline data + online data
-                    # offline_batch = offline_buffer.sample(batch_size_offline)
-                    batch = online_buffer.sample(config.batch_size)
-                    batch = [b.to(config.device) for b in batch]
-                    # batch = [
-                    #     torch.vstack(tuple(b)).to(config.device) for b in zip(offline_batch, online_batch)
-                    # ]
-                else:
-                    # online training with online data + current data
-                    online_batch = online_buffer.sample(batch_size_online)
+                # if j < config.n_updates * 2 // 3:
+                #     # mixing training with offline data + online data
+                #     offline_batch = offline_buffer.sample(batch_size_offline)
+                #     online_batch = online_buffer.sample(batch_size_online)
+                #     batch = [
+                #         torch.vstack(tuple(b)).to(config.device)
+                #         for b in zip(offline_batch, online_batch)
+                #     ]
+                # else:
+                # online training with online data
+                batch = online_buffer.sample(config.batch_size)
+                batch = [b.to(config.device) for b in batch]
 
-                    batch = [
-                        torch.vstack(tuple(b)).to(config.device)
-                        for b in zip(current_batch, online_batch)
-                    ]
-
-                batch[0] = normalize_obs(batch[0], obs_rms)
-                batch[3] = normalize_obs(batch[3], obs_rms)
+            batch[0] = normalize_obs(batch[0], obs_rms)
+            batch[3] = normalize_obs(batch[3], obs_rms)
 
             log_dict = trainer.train(batch)
 

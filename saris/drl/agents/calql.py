@@ -190,7 +190,7 @@ class TanhGaussianPolicy(nn.Module):
 
         self.pos_dim = 12
         self.angle_dim = self.observation_dim - self.pos_dim
-        ff_dim = 64
+        ff_dim = 128
 
         # positions
         self.pos_fourier = Fourier(self.pos_dim, self.angle_dim)
@@ -344,7 +344,7 @@ class FullyConnectedQFunction(nn.Module):
 
         self.pos_dim = 12
         self.angle_dim = self.observation_dim - self.pos_dim
-        ff_dim = 64
+        ff_dim = 128
 
         # positions
         self.pos_fourier = Fourier(self.pos_dim, self.angle_dim)
