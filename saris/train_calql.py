@@ -687,7 +687,13 @@ def train(trainer: CalQL, config: TrainConfig, envs: gym.vector.VectorEnv) -> No
         if step >= config.offline_iterations:
             acts, _ = trainer.actor(torch.tensor(obs, device=config.device, dtype=torch.float32))
             acts = pytorch_utils.to_numpy(acts)
-            next_obs, rews, terminations, truncations, env_infos = envs.step(acts)
+            try:
+                next_obs, rews, terminations, truncations, env_infos = envs.step(acts)
+            except Exception as e:
+                print(f"Error at step {step}")
+                print(f"Error: {e}")
+                print(f"Traceback: {traceback.format_exc()}")
+                continue
             dones = terminations
 
             # TRY NOT TO MODIFY: save data to reply buffer; handle `final_observation`
