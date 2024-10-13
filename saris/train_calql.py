@@ -28,6 +28,7 @@ from saris.drl.envs import register_envs
 import tqdm
 import json
 import traceback
+import torchinfo
 
 register_envs()
 TensorBatch = Tuple[torch.Tensor]
@@ -812,8 +813,6 @@ def train(trainer: CalQL, config: TrainConfig, envs: gym.vector.VectorEnv) -> No
     rms_path = os.path.join(config.checkpoint_path, "rms.pt")
     torch.save({"obs_rms": obs_rms}, rms_path)
 
-    
-
 
 @torch.no_grad()
 def eval_actor(
@@ -940,14 +939,18 @@ def main(config: TrainConfig):
         ob_dim,
         action_dim,
         config.orthogonal_init,
-        config.q_n_hidden_layers,
     ).to(config.device)
     critic_2 = calql.FullyConnectedQFunction(
         ob_dim,
         action_dim,
         config.orthogonal_init,
-        config.q_n_hidden_layers,
     ).to(config.device)
+    torchinfo.summary(
+        critic_1,
+        input_size=[(1, ob_dim), (1, 4, action_dim)],
+        col_names=["input_size", "output_size", "num_params"],
+    )
+
     critic_optimizer = torch.optim.AdamW(
         list(critic_1.parameters()) + list(critic_2.parameters()), config.qf_lr
     )
@@ -963,10 +966,17 @@ def main(config: TrainConfig):
         action_scale=2.0,
         orthogonal_init=config.orthogonal_init,
     ).to(config.device)
+    torchinfo.summary(
+        actor,
+        input_size=(1, ob_dim),
+        col_names=["input_size", "output_size", "num_params"],
+    )
+
     actor_optimizer = torch.optim.AdamW(actor.parameters(), config.policy_lr)
+    total_iterations = config.offline_iterations + config.online_iterations
     actor_scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
         actor_optimizer,
-        config.ep_len * config.n_updates,
+        config.ep_len * config.n_updates * total_iterations,
         eta_min=config.policy_lr / 10,
     )
 
