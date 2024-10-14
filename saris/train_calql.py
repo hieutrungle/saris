@@ -693,6 +693,12 @@ def train(trainer: CalQL, config: TrainConfig, envs: gym.vector.VectorEnv) -> No
                 print(f"Error at step {step}")
                 print(f"Error: {e}")
                 print(f"Traceback: {traceback.format_exc()}")
+                envs.close()
+                envs = gym.vector.AsyncVectorEnv(
+                    [make_env(config, i, eval_mode=False) for i in range(config.num_envs)],
+                    context="spawn",
+                )
+                obs, env_infos = envs.reset(seed=config.seed)
                 continue
             dones = terminations
 
