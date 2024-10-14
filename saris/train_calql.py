@@ -954,9 +954,10 @@ def main(config: TrainConfig):
     critic_optimizer = torch.optim.AdamW(
         list(critic_1.parameters()) + list(critic_2.parameters()), config.qf_lr
     )
+    total_iterations = config.offline_iterations + config.online_iterations
     critic_scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
         critic_optimizer,
-        config.ep_len * config.n_updates,
+        config.ep_len * config.n_updates* total_iterations,
         eta_min=config.qf_lr / 10,
     )
 
