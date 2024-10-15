@@ -1,17 +1,10 @@
-gymnasium==0.29.1
-mathutils==3.3.0
-matplotlib==3.9.2
-numpy
-pyrallis==0.3.1
-PyYAML==6.0.2
-PyYAML==6.0.2
-sionna==0.18.0
-stable_baselines3==2.3.2
-tensorflow[and-cuda]
-torch
+gymnasium
+mathutils
+PyYAML
+# sionna
+# tensorflow[and-cuda]
 torchinfo
-tqdm==4.66.5
-wandb==0.18.3
+
 ipykernel
 bumpversion
 coverage
@@ -22,5 +15,17 @@ pylint
 pytest
 sphinx
 black
-setuptools
-opencv-python
+
+gymnasium
+jax-jumpy==1.0.0
+matplotlib
+moviepy
+pandas
+protobuf
+pygame
+stable-baselines3
+tqdm
+# wandb
+# torchrl-nightly
+# tensordict-nightly
+tyro
