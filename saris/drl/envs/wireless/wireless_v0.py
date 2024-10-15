@@ -91,7 +91,7 @@ class WirelessEnvV0(Env):
         ris_positions = np.array(self.sionna_config["ris_positions"]).flatten()
         self.positions = np.concatenate([rx_positions, ris_positions], dtype=np.float32)
         self.position_space = spaces.Box(
-            low=-np.inf, high=np.inf, shape=(len(self.positions),), dtype=np.float32
+            low=-100.0, high=100.0, shape=(len(self.positions),), dtype=np.float32
         )
 
         # focal vecs space for action space
