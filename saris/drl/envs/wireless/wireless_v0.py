@@ -201,8 +201,8 @@ class WirelessEnvV0(Env):
         gain_diff = np.sum(next_gains - cur_gains)
         cost_time = time_taken
 
-        lower_ = -90
-        upper_ = -70
+        lower_ = -100
+        upper_ = -80
 
         reward = total_gain + 0.2 * gain_diff - 0.1 * cost_time
         reward = (reward - lower_) / (upper_ - lower_)
