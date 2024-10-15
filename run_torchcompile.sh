@@ -10,6 +10,8 @@ handle_error() {
 
 trap 'handle_error $LINENO' ERR
 
+# for a in /sys/bus/pci/devices/*; do echo 0 | sudo tee -a $a/numa_node; done
+
 # # Source: https://stackoverflow.com/questions/59895/how-do-i-get-the-directory-where-a-bash-script-is-located-from-within-the-script
 # # Get the directory of the script (does not solve symlink problem)
 # SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
@@ -79,13 +81,4 @@ mkdir -p ${OPTIX_CACHE_PATH}
 # poetry run train_sac --command train --sionna_config_file ${SIONNA_CONFIG_FILE} --seed 100 --verbose --resume --load_step 1710
 
 export OPTIX_CACHE_PATH=${TMP_DIR}/optix_cache_1
-poetry run train_sac --command eval --sionna_config_file ${SIONNA_CONFIG_FILE} --seed 100 --verbose --resume --load_step 2500
-
-export OPTIX_CACHE_PATH=${TMP_DIR}/optix_cache_1
-poetry run train_sac --command eval --sionna_config_file ${SIONNA_CONFIG_FILE} --seed 100 --verbose --resume --load_step 3600
-
-export OPTIX_CACHE_PATH=${TMP_DIR}/optix_cache_1
-poetry run train_sac --command eval --sionna_config_file ${SIONNA_CONFIG_FILE} --seed 100 --verbose --resume --load_step 3800
-
-export OPTIX_CACHE_PATH=${TMP_DIR}/optix_cache_1
-poetry run train_sac --command eval --sionna_config_file ${SIONNA_CONFIG_FILE} --seed 100 --verbose --resume --load_step 4200
+python ./saris/run_sac_torchcompile.py --sionna_config_file ${SIONNA_CONFIG_FILE} --verbose True 
