@@ -129,7 +129,7 @@ class WirelessEnvV0(Env):
     def _get_action_space(self) -> spaces.Box:
         # each group has 3 elements: 1 phi, 1 theta, and 1 r
         action_space_shape = tuple((3 * self.num_groups,))
-        action_space = spaces.Box(low=-1, high=1, shape=action_space_shape)
+        action_space = spaces.Box(low=-1.0, high=1.0, shape=action_space_shape)
         return action_space
 
     def reset(self, seed: int = None, options: dict = None) -> Tuple[dict, dict]:
@@ -201,8 +201,8 @@ class WirelessEnvV0(Env):
         gain_diff = np.sum(next_gains - cur_gains)
         cost_time = time_taken
 
-        lower_ = -100
-        upper_ = -80
+        lower_ = -100.0
+        upper_ = -80.0
 
         reward = total_gain + 0.2 * gain_diff - 0.1 * cost_time
         reward = (reward - lower_) / (upper_ - lower_)
