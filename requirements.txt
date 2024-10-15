@@ -4,7 +4,7 @@ PyYAML
 # sionna
 # tensorflow[and-cuda]
 torchinfo
-
+pyrallis
 ipykernel
 bumpversion
 coverage
