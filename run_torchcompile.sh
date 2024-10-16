@@ -81,4 +81,4 @@ mkdir -p ${OPTIX_CACHE_PATH}
 # poetry run train_sac --command train --sionna_config_file ${SIONNA_CONFIG_FILE} --seed 100 --verbose --resume --load_step 1710
 
 export OPTIX_CACHE_PATH=${TMP_DIR}/optix_cache_1
-python ./saris/run_sac_torchcompile.py --sionna_config_file ${SIONNA_CONFIG_FILE} --verbose True 
+python ./saris/run_sac_torchcompile.py --sionna_config_file ${SIONNA_CONFIG_FILE} --verbose True --load_model "local_assets/logs/SAC__Online-Learning__wireless-sigmap-v0__trained/model_2900.pth" --load_replay_buffer "/home/hieule/research/saris/local_assets/replay_buffers/SAC__Online-Learning__wireless-sigmap-v0__trained"

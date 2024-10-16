@@ -26,7 +26,7 @@ import importlib.resources
 import copy
 import pyrallis
 from tensordict import TensorDict, from_module, from_modules
-from tensordict.nn import CudaGraphModule, TensorDictModule
+from tensordict.nn import TensorDictModule
 from torchrl.data import ReplayBuffer, LazyMemmapStorage
 
 import saris
@@ -47,6 +47,7 @@ class TrainConfig:
     offline_data_dir: str = "-1"  # Offline data directory
     checkpoint_dir: str = "-1"  # the path to save the model
     replay_buffer_dir: str = "-1"  # the path to save the replay buffer
+    load_replay_buffer: str = "-1"  # the path to load the replay buffer
     verbose: bool = False  # whether to log to console
     seed: int = 1  # seed of the experiment
     eval_seed: int = 100  # seed of the evaluation
@@ -183,7 +184,15 @@ def main(config: TrainConfig):
     with open(os.path.join(config.checkpoint_dir, "train_config.yaml"), "w") as f:
         pyrallis.dump(config, f)
 
+    # Load models
+    if config.load_model != "-1":
+        print(f"Loading model from {config.load_model}")
+        checkpoint = torch.load(config.load_model, weights_only=True)
+
+    # Actor setup
     actor = sac.Actor(ob_dim, ac_dim, action_scale=2.0).to(config.device)
+    if config.load_model != "-1":
+        actor.load_state_dict(checkpoint["actor"])
     actor_detach = sac.Actor(ob_dim, ac_dim, action_scale=2.0).to(config.device)
     torchinfo.summary(
         actor_detach, (1, ob_dim), col_names=["input_size", "output_size", "num_params"]
@@ -192,6 +201,7 @@ def main(config: TrainConfig):
     from_module(actor).data.to_module(actor_detach)
     policy = TensorDictModule(actor_detach.get_action, in_keys=["observation"], out_keys=["action"])
 
+    # Q function setup
     def get_q_params():
         qf1 = sac.SoftQNetwork(ob_dim, ac_dim).to(config.device)
         qf2 = sac.SoftQNetwork(ob_dim, ac_dim).to(config.device)
@@ -209,27 +219,32 @@ def main(config: TrainConfig):
 
     qnet_params, qnet_target_params, qnet = get_q_params()
 
-    q_optimizer = optim.AdamW(qnet.parameters(), lr=config.q_lr)
-    actor_optimizer = optim.AdamW(list(actor.parameters()), lr=config.policy_lr)
-
-    q_scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
-        q_optimizer,
-        config.n_updates * config.total_timesteps,
-        eta_min=config.q_lr / 10,
-    )
-    actor_scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
-        actor_optimizer,
-        config.n_updates * config.total_timesteps,
-        eta_min=config.policy_lr / 10,
-    )
-
     # Automatic entropy tuning
     target_entropy = -torch.prod(
         torch.Tensor(envs.single_action_space.shape).to(config.device)
     ).item()
     log_alpha = torch.zeros(1, requires_grad=True, device=config.device)
+
+    if config.load_model != "-1":
+        qnet_params.load_state_dict(checkpoint["qnet_params"])
+        qnet_target_params.load_state_dict(checkpoint["qnet_target_params"])
+        log_alpha = checkpoint["log_alpha"].clone().detach().requires_grad_(True)
     alpha = log_alpha.detach().exp()
     a_optimizer = optim.AdamW([log_alpha], lr=config.q_lr)
+
+    q_optimizer = optim.AdamW(qnet.parameters(), lr=config.q_lr)
+    q_scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
+        q_optimizer,
+        config.n_updates * config.total_timesteps,
+        eta_min=config.q_lr / 10,
+    )
+
+    actor_optimizer = optim.AdamW(list(actor.parameters()), lr=config.policy_lr)
+    actor_scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
+        actor_optimizer,
+        config.n_updates * config.total_timesteps,
+        eta_min=config.policy_lr / 10,
+    )
 
     # replay buffer setup
     rb_dir = config.replay_buffer_dir
@@ -237,6 +252,10 @@ def main(config: TrainConfig):
         storage=LazyMemmapStorage(config.buffer_size, scratch_dir=rb_dir),
         batch_size=config.batch_size,
     )
+    if config.load_replay_buffer != "-1":
+        print(f"Loading replay buffer from {config.load_replay_buffer}")
+        rb.loads(config.load_replay_buffer)
+        print(f"Replay buffer loaded with {len(rb)} samples")
 
     # functions to compile
     def batched_qf(params, obs, action, next_q_value=None):
@@ -288,10 +307,12 @@ def main(config: TrainConfig):
         alpha_loss.backward()
         a_optimizer.step()
         return TensorDict(
-            alpha=alpha.detach(), actor_loss=actor_loss.detach(), alpha_loss=alpha_loss.detach()
+            alpha=alpha.detach(),
+            actor_loss=actor_loss.detach(),
+            alpha_loss=alpha_loss.detach(),
         )
 
-    mode = "max-autotune"  # "reduce-overhead" if not config.cudagraphs else None
+    mode = "default"  # "reduce-overhead" if not config.cudagraphs else None
     update_critics = torch.compile(update_critics, mode=mode)
     update_actor = torch.compile(update_actor, mode=mode)
     policy = torch.compile(policy, mode=mode)
@@ -301,7 +322,7 @@ def main(config: TrainConfig):
 
     # TRY NOT TO MODIFY: start the game
     obs, _ = envs.reset(seed=config.seed)
-    pbar = tqdm.tqdm(range(config.total_timesteps))
+    pbar = tqdm.tqdm(range(config.total_timesteps), dynamic_ncols=True)
     max_ep_ret = -float("inf")
     avg_returns = deque(maxlen=config.num_envs)
     desc = ""
@@ -318,6 +339,7 @@ def main(config: TrainConfig):
 
         # TRY NOT TO MODIFY: execute the game and log data.
         next_obs, rewards, terminations, truncations, infos = envs.step(actions)
+        rewards = np.asarray(rewards, dtype=np.float32)
 
         # TRY NOT TO MODIFY: record rewards for plotting purposes
         if "final_info" in infos:
@@ -349,6 +371,8 @@ def main(config: TrainConfig):
             if trunc:
                 real_next_obs[idx] = infos["final_observation"][idx]
 
+        if global_step == config.total_timesteps - 1:
+            truncations = [True] * len(truncations)
         transition = TensorDict(
             observations=obs,
             next_observations=real_next_obs,
@@ -396,10 +420,15 @@ def main(config: TrainConfig):
 
             if global_step > config.learning_starts + 3:
                 with torch.no_grad():
+                    q_lr = q_optimizer.param_groups[0]["lr"]
+                    a_lr = actor_optimizer.param_groups[0]["lr"]
                     logs = {
                         "actor_loss": log_infos["actor_loss"].mean(),
                         "alpha_loss": log_infos.get("alpha_loss", 0).mean(),
                         "qf_loss": log_infos["qf_loss"].mean(),
+                        "alpha": alpha.item(),
+                        "q_lr": q_lr,
+                        "a_lr": a_lr,
                     }
                 wandb.log({**logs}, step=global_step)
                 pbar.set_description(
@@ -418,6 +447,7 @@ def main(config: TrainConfig):
                     os.path.join(config.checkpoint_dir, f"model_{global_step}.pth"),
                 )
 
+    rb.dump()
     wandb.finish()
     envs.close()
     envs.close_extras()
