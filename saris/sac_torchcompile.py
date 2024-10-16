@@ -405,12 +405,13 @@ def main(config: TrainConfig):
                 data["observations"] = normalize_obs(data["observations"], obs_rms)
                 data["next_observations"] = normalize_obs(data["next_observations"], obs_rms)
 
-                log_infos.update(update_critics(data))
+                with torch.autocast(device_type=config.device, dtype=torch.bfloat16):
+                    log_infos.update(update_critics(data))
                 if j % config.policy_frequency == 1:  # TD 3 Delayed update support
-                    for _ in range(
-                        config.policy_frequency
-                    ):  # compensate for the delay by doing 'actor_update_interval' instead of 1
-                        log_infos.update(update_actor(data))
+                    for _ in range(config.policy_frequency):
+                        # compensate for the delay by doing 'actor_update_interval' instead of 1
+                        with torch.autocast(device_type=config.device, dtype=torch.bfloat16):
+                            log_infos.update(update_actor(data))
                         alpha.copy_(log_alpha.detach().exp())
 
                 # update the target networks
