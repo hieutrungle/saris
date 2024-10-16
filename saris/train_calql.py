@@ -685,7 +685,8 @@ def train(trainer: CalQL, config: TrainConfig, envs: gym.vector.VectorEnv) -> No
             trainer.cql_alpha = config.cql_alpha_online
         online_log = {}
         if step >= config.offline_iterations:
-            acts, _ = trainer.actor(torch.tensor(obs, device=config.device, dtype=torch.float32))
+            # acts, _ = trainer.actor(torch.tensor(obs, device=config.device, dtype=torch.float32))
+            acts = np.array([envs.single_action_space.sample() for _ in range(envs.num_envs)])
             acts = pytorch_utils.to_numpy(acts)
             try:
                 next_obs, rews, terminations, truncations, env_infos = envs.step(acts)

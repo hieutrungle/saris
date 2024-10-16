@@ -16,7 +16,7 @@ class TrainConfig:
     env_id: str = "wireless-sigmap-v0"  # environment name
     offline_iterations: int = int(0)  # Number of offline updates
     online_iterations: int = int(10_001)  # Number of online updates
-    learning_starts: int = int(500)  # Number of steps before learning starts
+    learning_starts: int = int(7000)  # Number of steps before learning starts
     checkpoint_path: Optional[str] = None  # Save path
     load_model: str = "-1"  # Model load file name for resume training, "" doesn't load
     offline_data_dir: str = "-1"  # Offline data directory
