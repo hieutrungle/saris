@@ -215,7 +215,7 @@ def main(config: TrainConfig):
     q_scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
         q_optimizer,
         config.n_updates * config.total_timesteps,
-        eta_min=config.qf_lr / 10,
+        eta_min=config.q_lr / 10,
     )
     actor_scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
         actor_optimizer,
