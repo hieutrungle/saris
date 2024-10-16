@@ -40,8 +40,8 @@ class TrainConfig:
     alpha_multiplier: float = 1.0  # Multiplier for alpha in loss
     use_automatic_entropy_tuning: bool = True  # Tune entropy
     backup_entropy: bool = False  # Use backup entropy
-    policy_lr: float = 1e-4  # Policy learning rate
-    qf_lr: float = 3e-4  # Critics learning rate
+    policy_lr: float = 3e-4  # Policy learning rate
+    qf_lr: float = 1e-3  # Critics learning rate
     tau: float = 5e-3  # Target network update rate
     target_update_period: int = 1  # Frequency of target nets updates
     cql_alpha: float = 2.0  # CQL offline regularization parameter
