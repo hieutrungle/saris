@@ -29,11 +29,11 @@ class TrainConfig:
     env_id: str = "wireless-sigmap-v0"  # the environment id of the task
     sionna_config_file: str = "-1"  # Sionna config file
     num_envs: int = 8  # the number of parallel environments
-    ep_len: int = 75  # the maximum length of an episode
-    eval_ep_len: int = 75  # the maximum length of an episode
+    ep_len: int = 50  # the maximum length of an episode
+    eval_ep_len: int = 50  # the maximum length of an episode
 
     # Algorithm specific arguments
-    total_timesteps: int = 10_001  # total timesteps of the experiments
+    total_timesteps: int = 50_001  # total timesteps of the experiments
     n_updates: int = 10  # the number of updates per step
     buffer_size: int = int(100_000)  # the replay memory buffer size
     gamma: float = 0.85  # the discount factor gamma
