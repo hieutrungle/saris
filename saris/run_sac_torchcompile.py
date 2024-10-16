@@ -32,9 +32,9 @@ class TrainConfig:
     eval_ep_len: int = 75  # the maximum length of an episode
 
     # Algorithm specific arguments
-    total_timesteps: int = 10_000  # total timesteps of the experiments
+    total_timesteps: int = 3_000  # total timesteps of the experiments
     n_updates: int = 10  # the number of updates per step
-    buffer_size: int = int(10_000)  # the replay memory buffer size
+    buffer_size: int = int(50_000)  # the replay memory buffer size
     gamma: float = 0.85  # the discount factor gamma
     tau: float = 0.005  # target smoothing coefficient (default: 0.005)
     batch_size: int = 128  # the batch size of sample from the reply memory
