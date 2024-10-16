@@ -130,3 +130,4 @@ checkpoints/
 
 # Tensorboard logs
 logs/
+wandb/
