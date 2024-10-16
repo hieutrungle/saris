@@ -20,25 +20,25 @@ class TrainConfig:
     checkpoint_dir: str = "-1"  # the path to save the model
     replay_buffer_dir: str = "-1"  # the path to save the replay buffer
     verbose: bool = False  # whether to log to console
-    seed: int = 1  # seed of the experiment
+    seed: int = 10  # seed of the experiment
     eval_seed: int = 100  # seed of the evaluation
-    save_interval: int = 3  # the interval to save the model
+    save_interval: int = 100  # the interval to save the model
 
     # Environment specific arguments
     env_id: str = "wireless-sigmap-v0"  # the environment id of the task
     sionna_config_file: str = "-1"  # Sionna config file
-    num_envs: int = 2  # the number of parallel environments
-    ep_len: int = 3  # the maximum length of an episode
+    num_envs: int = 8  # the number of parallel environments
+    ep_len: int = 75  # the maximum length of an episode
     eval_ep_len: int = 75  # the maximum length of an episode
 
     # Algorithm specific arguments
-    total_timesteps: int = 10  # total timesteps of the experiments
+    total_timesteps: int = 10_000  # total timesteps of the experiments
     n_updates: int = 10  # the number of updates per step
-    buffer_size: int = int(100)  # the replay memory buffer size
+    buffer_size: int = int(10_000)  # the replay memory buffer size
     gamma: float = 0.85  # the discount factor gamma
     tau: float = 0.005  # target smoothing coefficient (default: 0.005)
-    batch_size: int = 2  # the batch size of sample from the reply memory
-    learning_starts: int = 1  # the timestep to start learning
+    batch_size: int = 128  # the batch size of sample from the reply memory
+    learning_starts: int = 1_001  # the timestep to start learning
     policy_lr: float = 3e-4  # the learning rate of the policy network optimizer
     q_lr: float = 1e-3  # the learning rate of the q network optimizer
     policy_frequency: int = 2  # the frequency of training policy (delayed)
@@ -47,7 +47,7 @@ class TrainConfig:
 
     # Wandb logging
     project: str = "SARIS"  # wandb project name
-    group: str = "Cal-QL"  # wandb group name
+    group: str = "SAC"  # wandb group name
     name: str = "Online-Learning"  # wandb run name
 
     def __post_init__(self):

@@ -31,7 +31,7 @@ from torchrl.data import ReplayBuffer, LazyMemmapStorage
 
 import saris
 from saris.utils import utils, pytorch_utils, running_mean
-from saris.drl.agents import calql
+from saris.drl.agents import sac
 
 from saris.drl.envs import register_envs
 
@@ -105,7 +105,7 @@ def wandb_init(config: TrainConfig) -> None:
         project=config.project,
         group=config.group,
         name=config.name,
-        mode="offline",
+        # mode="offline",
     )
 
 
@@ -146,64 +146,6 @@ def normalize_obs(
     return (observations - mean) / torch.sqrt(var + epsilon)
 
 
-# ALGO LOGIC: initialize agent here:
-class SoftQNetwork(nn.Module):
-    def __init__(self, env, n_act, n_obs, device=None):
-        super().__init__()
-        self.fc1 = nn.Linear(n_act + n_obs, 256, device=device)
-        self.fc2 = nn.Linear(256, 256, device=device)
-        self.fc3 = nn.Linear(256, 1, device=device)
-
-    def forward(self, x, a):
-        x = torch.cat([x, a], 1)
-        x = F.relu(self.fc1(x))
-        x = F.relu(self.fc2(x))
-        x = self.fc3(x)
-        return x
-
-
-LOG_STD_MAX = 2
-LOG_STD_MIN = -5
-
-
-class Actor(nn.Module):
-    def __init__(self, env, n_obs, n_act, device=None):
-        super().__init__()
-        self.fc1 = nn.Linear(n_obs, 256, device=device)
-        self.fc2 = nn.Linear(256, 256, device=device)
-        self.fc_mean = nn.Linear(256, n_act, device=device)
-        self.fc_logstd = nn.Linear(256, n_act, device=device)
-        # action rescaling
-        self.register_buffer("action_scale", torch.tensor(2.0, dtype=torch.float32, device=device))
-        self.register_buffer("action_bias", torch.tensor(0.0, dtype=torch.float32, device=device))
-
-    def forward(self, x):
-        x = F.relu(self.fc1(x))
-        x = F.relu(self.fc2(x))
-        mean = self.fc_mean(x)
-        log_std = self.fc_logstd(x)
-        log_std = torch.tanh(log_std)
-        log_std = LOG_STD_MIN + 0.5 * (LOG_STD_MAX - LOG_STD_MIN) * (
-            log_std + 1
-        )  # From SpinUp / Denis Yarats
-
-        return mean, log_std
-
-    def get_action(self, x):
-        mean, log_std = self(x)
-        std = log_std.exp()
-        normal = torch.distributions.Normal(mean, std)
-        x_t = normal.rsample()  # for reparameterization trick (mean + std * N(0,1))
-        y_t = torch.tanh(x_t)
-        action = y_t * self.action_scale + self.action_bias
-        log_prob = normal.log_prob(x_t)
-        # Enforcing Action Bound
-        log_prob -= torch.log(self.action_scale * (1 - y_t.pow(2)) + 1e-6)
-        log_prob = log_prob.sum(1, keepdim=True)
-        mean = torch.tanh(mean) * self.action_scale + self.action_bias
-        return action, log_prob, mean
-
-
 @pyrallis.wrap()
 def main(config: TrainConfig):
 
@@ -229,8 +171,8 @@ def main(config: TrainConfig):
     else:
         raise ValueError(f"Invalid command: {config.command}, available commands: train, eval")
 
-    n_act = math.prod(envs.single_action_space.shape)
-    n_obs = math.prod(envs.single_observation_space.shape)
+    ac_dim = math.prod(envs.single_action_space.shape)
+    ob_dim = math.prod(envs.single_observation_space.shape)
     assert isinstance(
         envs.single_action_space, gym.spaces.Box
     ), "only continuous action space is supported"
@@ -241,28 +183,45 @@ def main(config: TrainConfig):
     with open(os.path.join(config.checkpoint_dir, "train_config.yaml"), "w") as f:
         pyrallis.dump(config, f)
 
-    actor = Actor(envs, n_act=n_act, n_obs=n_obs).to(config.device)
-    actor_detach = Actor(envs, n_act=n_act, n_obs=n_obs).to(config.device)
+    actor = sac.Actor(ob_dim, ac_dim, action_scale=2.0).to(config.device)
+    actor_detach = sac.Actor(ob_dim, ac_dim, action_scale=2.0).to(config.device)
+    torchinfo.summary(
+        actor_detach, (1, ob_dim), col_names=["input_size", "output_size", "num_params"]
+    )
     # Copy params to actor_detach without grad
     from_module(actor).data.to_module(actor_detach)
     policy = TensorDictModule(actor_detach.get_action, in_keys=["observation"], out_keys=["action"])
 
     def get_q_params():
-        qf1 = SoftQNetwork(envs, n_act=n_act, n_obs=n_obs).to(config.device)
-        qf2 = SoftQNetwork(envs, n_act=n_act, n_obs=n_obs).to(config.device)
+        qf1 = sac.SoftQNetwork(ob_dim, ac_dim).to(config.device)
+        qf2 = sac.SoftQNetwork(ob_dim, ac_dim).to(config.device)
+        torchinfo.summary(
+            qf1, [(1, ob_dim), (1, ac_dim)], col_names=["input_size", "output_size", "num_params"]
+        )
         qnet_params = from_modules(qf1, qf2, as_module=True)
-        qnet_target = qnet_params.data.clone()
+        qnet_target_params = qnet_params.data.clone()
 
         # discard params of net
-        qnet = SoftQNetwork(envs, n_act=n_act, n_obs=n_obs).to("meta")
+        qnet = sac.SoftQNetwork(ob_dim, ac_dim).to("meta")
         qnet_params.to_module(qnet)
 
-        return qnet_params, qnet_target, qnet
+        return qnet_params, qnet_target_params, qnet
 
-    qnet_params, qnet_target, qnet = get_q_params()
+    qnet_params, qnet_target_params, qnet = get_q_params()
 
-    q_optimizer = optim.Adam(qnet.parameters(), lr=config.q_lr)
-    actor_optimizer = optim.Adam(list(actor.parameters()), lr=config.policy_lr)
+    q_optimizer = optim.AdamW(qnet.parameters(), lr=config.q_lr)
+    actor_optimizer = optim.AdamW(list(actor.parameters()), lr=config.policy_lr)
+
+    q_scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
+        q_optimizer,
+        config.n_updates * config.total_timesteps,
+        eta_min=config.qf_lr / 10,
+    )
+    actor_scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
+        actor_optimizer,
+        config.n_updates * config.total_timesteps,
+        eta_min=config.policy_lr / 10,
+    )
 
     # Automatic entropy tuning
     target_entropy = -torch.prod(
@@ -270,7 +229,7 @@ def main(config: TrainConfig):
     ).item()
     log_alpha = torch.zeros(1, requires_grad=True, device=config.device)
     alpha = log_alpha.detach().exp()
-    a_optimizer = optim.Adam([log_alpha], lr=config.q_lr)
+    a_optimizer = optim.AdamW([log_alpha], lr=config.q_lr)
 
     # replay buffer setup
     rb_dir = config.replay_buffer_dir
@@ -294,7 +253,7 @@ def main(config: TrainConfig):
         with torch.no_grad():
             next_state_actions, next_state_log_pi, _ = actor.get_action(data["next_observations"])
             qf_next_target = torch.vmap(batched_qf, (0, None, None))(
-                qnet_target, data["next_observations"], next_state_actions
+                qnet_target_params, data["next_observations"], next_state_actions
             )
             min_qf_next_target, _ = qf_next_target.min(dim=0)
             min_qf_next_target -= alpha * next_state_log_pi
@@ -306,9 +265,9 @@ def main(config: TrainConfig):
             qnet_params, data["observations"], data["actions"], next_q_value
         )
         qf_loss = qf_a_values.sum(0)
-
         qf_loss.backward()
         q_optimizer.step()
+        q_scheduler.step()
         return TensorDict(qf_loss=qf_loss.detach())
 
     def update_actor(data):
@@ -320,7 +279,7 @@ def main(config: TrainConfig):
 
         actor_loss.backward()
         actor_optimizer.step()
-
+        actor_scheduler.step()
         a_optimizer.zero_grad()
         with torch.no_grad():
             _, log_pi, _ = actor.get_action(data["observations"])
@@ -332,7 +291,7 @@ def main(config: TrainConfig):
             alpha=alpha.detach(), actor_loss=actor_loss.detach(), alpha_loss=alpha_loss.detach()
         )
 
-    mode = None  # "reduce-overhead" if not config.cudagraphs else None
+    mode = "max-autotune"  # "reduce-overhead" if not config.cudagraphs else None
     update_critics = torch.compile(update_critics, mode=mode)
     update_actor = torch.compile(update_actor, mode=mode)
     policy = torch.compile(policy, mode=mode)
@@ -342,13 +301,11 @@ def main(config: TrainConfig):
 
     # TRY NOT TO MODIFY: start the game
     obs, _ = envs.reset(seed=config.seed)
-    # obs = torch.as_tensor(obs, device=device, dtype=torch.float)
     pbar = tqdm.tqdm(range(config.total_timesteps))
     max_ep_ret = -float("inf")
     avg_returns = deque(maxlen=config.num_envs)
     desc = ""
     wandb_init(config)
-    log_infos = {}
 
     for global_step in pbar:
 
@@ -369,8 +326,22 @@ def main(config: TrainConfig):
                 max_ep_ret = max(max_ep_ret, r)
                 avg_returns.append(r)
 
-            desc = f"global_step={global_step}, episodic_return={torch.tensor(avg_returns).mean(): 4.2f} (max={max_ep_ret: 4.2f})"
-            wandb.log({"episodic_return": torch.tensor(avg_returns).mean()}, step=global_step)
+            avg_ret = torch.tensor(avg_returns).mean()
+            std_ret = torch.tensor(avg_returns).std()
+            log_dict = {"episodic_return": avg_ret, "episodic_return_std": std_ret}
+
+            desc = f"global_step={global_step}, episodic_return={avg_ret: 4.2f} (max={max_ep_ret: 4.2f})"
+            wandb.log(log_dict, step=global_step)
+
+            path_gains = [info["path_gain"] for info in infos["final_info"]]
+            next_path_gains = [info["next_path_gain"] for info in infos["final_info"]]
+        else:
+            path_gains = infos["path_gain"]
+            next_path_gains = infos["next_path_gain"]
+        path_gains = np.stack(path_gains)
+        next_path_gains = np.stack(next_path_gains)
+        path_gains = torch.as_tensor(path_gains, dtype=torch.float)
+        next_path_gains = torch.as_tensor(next_path_gains, dtype=torch.float)
 
         # TRY NOT TO MODIFY: save data to reply buffer; handle `final_observation`
         real_next_obs = copy.deepcopy(next_obs)
@@ -384,7 +355,9 @@ def main(config: TrainConfig):
             actions=actions,
             rewards=rewards,
             terminations=terminations,
-            dones=terminations,
+            truncations=truncations,
+            path_gains=path_gains,
+            next_path_gains=next_path_gains,
             batch_size=obs.shape[0],
         )
         rb.extend(transition)
@@ -396,6 +369,7 @@ def main(config: TrainConfig):
         # ALGO LOGIC: training.
         if global_step > config.learning_starts:
 
+            log_infos = {}
             for j in range(config.n_updates):
                 data = rb.sample()
                 data = TensorDict(
@@ -418,9 +392,9 @@ def main(config: TrainConfig):
                 # update the target networks
                 if j % config.target_network_frequency == 0:
                     # lerp is defined as x' = x + w (y-x), which is equivalent to x' = (1-w) x + w y
-                    qnet_target.lerp_(qnet_params.data, config.tau)
+                    qnet_target_params.lerp_(qnet_params.data, config.tau)
 
-            if global_step % 2 == 0 and global_step > config.learning_starts + 4:
+            if global_step > config.learning_starts + 3:
                 with torch.no_grad():
                     logs = {
                         "actor_loss": log_infos["actor_loss"].mean(),
@@ -430,7 +404,7 @@ def main(config: TrainConfig):
                 wandb.log({**logs}, step=global_step)
                 pbar.set_description(
                     desc
-                    + f" | actor_loss={logs['actor_loss']: 4.2f} | qf_loss={logs['qf_loss']: 4.2f}"
+                    + f" | actor_loss={logs['actor_loss']: 4.3f} | qf_loss={logs['qf_loss']: 4.3f}"
                 )
 
             if global_step % config.save_interval == 0:
@@ -438,7 +412,7 @@ def main(config: TrainConfig):
                     {
                         "actor": actor.state_dict(),
                         "qnet_params": qnet_params.state_dict(),
-                        "qnet_target": qnet_target.state_dict(),
+                        "qnet_target_params": qnet_target_params.state_dict(),
                         "log_alpha": log_alpha,
                     },
                     os.path.join(config.checkpoint_dir, f"model_{global_step}.pth"),

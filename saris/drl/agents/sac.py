@@ -1,245 +1,283 @@
-import torch.nn as nn
+from typing import Tuple
 import torch
-from typing import Tuple, Sequence, Union
 import torch.nn as nn
-import numpy as np
 import torch.nn.functional as F
-import gymnasium as gym
+from torch.distributions import Normal, TanhTransform, TransformedDistribution
+import numpy as np
 
 
-class SoftQNetwork(nn.Module):
-    def __init__(self, ob_shape: Sequence[int], ac_shape: Sequence[int]):
+def init_module_weights(module: torch.nn.Module, orthogonal_init: bool = False):
+    if isinstance(module, nn.Linear):
+        if orthogonal_init:
+            nn.init.orthogonal_(module.weight, gain=np.sqrt(2))
+            nn.init.constant_(module.bias, 0.0)
+        else:
+            nn.init.xavier_uniform_(module.weight, gain=1e-2)
+
+
+class Fourier(nn.Module):
+    """Fourier features for encoding the input signal."""
+
+    def __init__(self, in_features: int, out_features: int):
         super().__init__()
-        self.fc1 = nn.Linear(np.prod(ob_shape) + np.prod(ac_shape), 256)
-        self.fc2 = nn.Linear(256, 256)
-        self.fc3 = nn.Linear(256, 1)
+        assert out_features % 2 == 0, "The number of output features must be even."
+        self.fourier = nn.Linear(in_features, out_features // 2, bias=False)
 
-    def forward(self, x, a):
-        x = torch.cat([x, a], 1)
-        x = F.gelu(self.fc1(x))
-        x = F.gelu(self.fc2(x))
-        x = self.fc3(x)
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = self.fourier(x)
+        x = 2 * np.pi * x
+        x = torch.cat([torch.sin(x), torch.cos(x)], axis=-1)
         return x
 
 
 class Actor(nn.Module):
     def __init__(
         self,
-        ob_shape: Sequence[int],
-        ac_shape: Sequence[int],
-        action_high: Union[float, Sequence[float]],
-        action_low: Union[float, Sequence[float]],
-        log_std_min: float = -5,
-        log_std_max: float = 2,
+        ob_dim: int,
+        ac_dim: int,
+        action_scale: float = 1.0,
+        log_std_multiplier: float = 1.0,
+        log_std_offset: float = 0.0,
+        log_std_min: float = -5.0,
+        log_std_max: float = 2.0,
     ):
         super().__init__()
-
+        self.ob_dim = ob_dim
+        self.ac_dim = ac_dim
+        self.action_scale = action_scale
         self.log_std_min = log_std_min
         self.log_std_max = log_std_max
 
-        self.fc1 = nn.Linear(np.prod(ob_shape), 256)
-        self.fc2 = nn.Linear(256, 256)
-        self.fc_mean = nn.Linear(256, np.prod(ac_shape))
-        self.fc_logstd = nn.Linear(256, np.prod(ac_shape))
-        # action rescaling
-        self.register_buffer(
-            "action_scale",
-            torch.tensor(
-                (action_high - action_low) / 2.0,
-                dtype=torch.float32,
-            ),
-        )
-        self.register_buffer(
-            "action_bias",
-            torch.tensor(
-                (action_high + action_low) / 2.0,
-                dtype=torch.float32,
-            ),
-        )
+        self.pos_dim = 12
+        self.angle_dim = self.ob_dim - self.pos_dim
+        ff_dim = 128
 
-    def forward(self, x):
-        x = F.gelu(self.fc1(x))
-        x = F.gelu(self.fc2(x))
-        mean = self.fc_mean(x)
-        log_std = self.fc_logstd(x)
-        log_std = torch.tanh(log_std)
-        # From SpinUp / Denis Yarats
+        # positions
+        self.pos_fourier = Fourier(self.pos_dim, self.angle_dim)
+        self.pos_embedding = nn.Linear(1, ff_dim, bias=False)
+        pos_layers = [
+            TransformerBlock(ff_dim, 4),
+            TransformerBlock(ff_dim, 4),
+        ]
+        self.pos_network = nn.Sequential(*pos_layers)
+        self.pos_down = nn.Linear(ff_dim, 1)
+
+        # angles
+        self.angle_embedding = nn.Linear(1, ff_dim, bias=False)
+        angle_layers = [
+            nn.Linear(ff_dim, ff_dim),
+            nn.GELU(),
+            TransformerBlock(ff_dim, 4),
+            TransformerBlock(ff_dim, 4),
+            TransformerBlock(ff_dim, 4),
+        ]
+        self.angle_network = nn.Sequential(*angle_layers)
+        self.angle_down = nn.Linear(ff_dim, 1)
+
+        self.connect_layer = nn.Linear(self.angle_dim * 2, ff_dim)
+        self.combine_layer = MLPBlock(ff_dim, ff_dim)
+        self.fc_mean = nn.Linear(ff_dim, self.ac_dim)
+        self.fc_log_std = nn.Linear(ff_dim, self.ac_dim)
+
+        self.pos_network.apply(lambda m: init_module_weights(m, True))
+        self.angle_network.apply(lambda m: init_module_weights(m, True))
+        self.connect_layer.apply(lambda m: init_module_weights(m, True))
+        self.combine_layer.apply(lambda m: init_module_weights(m, True))
+
+        self.log_std_multiplier = Scalar(log_std_multiplier)
+        self.log_std_offset = Scalar(log_std_offset)
+
+    def forward(self, observations: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+
+        # positions
+        pos = observations[..., self.angle_dim :]
+        pos = self.pos_fourier(pos)
+        pos = pos.unsqueeze(-1)
+        pos = self.pos_embedding(pos)
+        pos_shape = pos.shape
+        pos = pos.reshape(-1, pos_shape[-2], pos_shape[-1])
+        pos = self.pos_network(pos)
+        pos = pos.reshape(pos_shape)
+        pos = self.pos_down(pos)
+        pos = pos.squeeze(-1)
+
+        # angles
+        angles = observations[..., : self.angle_dim]
+        angles = angles.unsqueeze(-1)
+        angles = self.angle_embedding(angles)
+        angle_shape = angles.shape
+        angles = angles.reshape(-1, angle_shape[-2], angle_shape[-1])
+        angles = self.angle_network(angles)
+        angles = angles.reshape(angle_shape)
+        angles = self.angle_down(angles)
+        angles = angles.squeeze(-1)
+
+        # connect
+        pos_angles = torch.cat([pos, angles], dim=-1)
+        pos_angles = self.connect_layer(pos_angles)
+
+        # combine
+        network_output = self.combine_layer(pos_angles)
+
+        # mean and log_std
+        mean = self.fc_mean(network_output)
+        log_std = self.fc_log_std(network_output)
+        log_std = self.log_std_multiplier() * log_std + self.log_std_offset()
         log_std = self.log_std_min + 0.5 * (self.log_std_max - self.log_std_min) * (log_std + 1)
 
         return mean, log_std
 
-    def get_actions(self, x):
-        mean, log_std = self(x)
-        std = log_std.exp()
+    def get_action(self, obs: torch.Tensor):
+
+        # action
+        mean, log_std = self.forward(obs)
+        std = torch.exp(log_std)
         normal = torch.distributions.Normal(mean, std)
-        x_t = normal.rsample()  # for reparameterization trick (mean + std * N(0,1))
+        x_t = normal.rsample()
         y_t = torch.tanh(x_t)
-        action = y_t * self.action_scale + self.action_bias
+        actions = self.action_scale * y_t
+
+        # log_prob
         log_prob = normal.log_prob(x_t)
+
         # Enforcing Action Bound
         log_prob -= torch.log(self.action_scale * (1 - y_t.pow(2)) + 1e-6)
-        log_prob = log_prob.sum(1, keepdim=True)
-        mean = torch.tanh(mean) * self.action_scale + self.action_bias
-        return action, log_prob, mean
+        log_prob = log_prob.sum(-1, keepdim=True)
+        mean = torch.tanh(mean) * self.action_scale
+
+        actions = self.modify_action(actions)
+        mean = self.modify_action(mean)
+
+        return actions, log_prob, mean
+
+    def modify_action(self, acts: torch.tensor):
+        action_shape = acts.shape
+        last_dim = acts.shape[-1]
+        all_but_last_dim = acts.shape[:-1]
+        acts = acts.view(*all_but_last_dim, last_dim // 3, 3)
+        acts[..., 1] = torch.rad2deg(acts[..., 1])
+        acts[..., 2] = torch.rad2deg(acts[..., 2])
+        acts = acts.view(*action_shape)
+        return acts
 
 
-class Agent(nn.Module):
-    def __init__(self, ob_space: gym.spaces.Dict, ac_space: gym.spaces.Box):
+class SoftQNetwork(nn.Module):
+    def __init__(self, ob_dim: int, ac_dim: int):
         super().__init__()
-        self.actor = DictActor(ob_space, ac_space)
-        self.qf1 = DictSoftQNetwork(ob_space, ac_space)
-        self.qf2 = DictSoftQNetwork(ob_space, ac_space)
-        self.target_qf1 = DictSoftQNetwork(ob_space, ac_space)
-        self.target_qf2 = DictSoftQNetwork(ob_space, ac_space)
-        self.target_qf1.load_state_dict(self.qf1.state_dict())
-        self.target_qf2.load_state_dict(self.qf2.state_dict())
+        self.ob_dim = ob_dim
+        self.ac_dim = ac_dim
 
-    def get_actions(self, obs: dict[str, torch.Tensor]):
-        _, _, mean = self.actor.get_actions(obs)
-        return mean
+        self.pos_dim = 12
+        self.angle_dim = self.ob_dim - self.pos_dim
+        ff_dim = 128
 
-    def get_trainable_actions(self, obs: dict[str, torch.Tensor]):
-        action, log_prob, mean = self.actor.get_actions(obs)
-        return action, log_prob, mean
+        # positions
+        self.pos_fourier = Fourier(self.pos_dim, self.angle_dim)
+        self.pos_embedding = nn.Linear(1, ff_dim, bias=False)
+        pos_layers = [
+            TransformerBlock(ff_dim, 4),
+            TransformerBlock(ff_dim, 4),
+        ]
+        self.pos_network = nn.Sequential(*pos_layers)
+        self.pos_down = nn.Linear(ff_dim, 1)
 
-    def get_q_values(
-        self, obs: dict[str, torch.Tensor], a: torch.Tensor
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
-        q1 = self.qf1(obs, a)
-        q2 = self.qf2(obs, a)
-        return q1, q2
+        # angles
+        self.angle_embedding = nn.Linear(1, ff_dim, bias=False)
+        angle_layers = [
+            nn.Linear(ff_dim, ff_dim),
+            nn.GELU(),
+            TransformerBlock(ff_dim, 4),
+            TransformerBlock(ff_dim, 4),
+            TransformerBlock(ff_dim, 4),
+        ]
+        self.angle_network = nn.Sequential(*angle_layers)
+        self.angle_down = nn.Linear(ff_dim, 1)
 
-    def get_target_q_values(
-        self, obs: dict[str, torch.Tensor], a: torch.Tensor
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
-        q1 = self.target_qf1(obs, a)
-        q2 = self.target_qf2(obs, a)
-        return q1, q2
+        self.connect_layer = nn.Linear(self.angle_dim * 2, ff_dim)
 
-    def update_target(self, tau: float):
-        for target_param, param in zip(self.target_qf1.parameters(), self.qf1.parameters()):
-            target_param.data.copy_(tau * param.data + (1 - tau) * target_param.data)
-        for target_param, param in zip(self.target_qf2.parameters(), self.qf2.parameters()):
-            target_param.data.copy_(tau * param.data + (1 - tau) * target_param.data)
+        # action
+        action_layers = [
+            nn.Linear(ac_dim, ff_dim),
+            nn.GELU(),
+            MLPBlock(ff_dim, ff_dim),
+        ]
+        self.action_network = nn.Sequential(*action_layers)
+
+        self.activation = nn.GELU()
+        self.combine_layer = nn.Linear(ff_dim, 1)
+
+        self.pos_network.apply(lambda m: init_module_weights(m, True))
+        self.angle_network.apply(lambda m: init_module_weights(m, True))
+        self.connect_layer.apply(lambda m: init_module_weights(m, True))
+        self.action_network.apply(lambda m: init_module_weights(m, True))
+        self.combine_layer.apply(lambda m: init_module_weights(m, True))
+
+    def forward(self, observations: torch.Tensor, actions: torch.Tensor) -> torch.Tensor:
+
+        # positions
+        pos = observations[..., self.angle_dim :]
+        pos = self.pos_fourier(pos)
+        pos = pos.unsqueeze(-1)
+        pos = self.pos_embedding(pos)
+        pos = self.pos_network(pos)
+        pos = self.pos_down(pos)
+        pos = pos.squeeze(-1)
+
+        # angles
+        angles = observations[..., : self.angle_dim]
+        angles = angles.unsqueeze(-1)
+        angles = self.angle_embedding(angles)
+        angles = self.angle_network(angles)
+        angles = self.angle_down(angles)
+        angles = angles.squeeze(-1)
+
+        # connect
+        pos_angles = torch.cat([pos, angles], dim=-1)
+        pos_angles = self.connect_layer(pos_angles)
+
+        # action
+        action = self.action_network(actions)
+
+        # combine
+        combined = self.activation(pos_angles + action)
+        q_values = self.combine_layer(combined)
+
+        return q_values
 
 
-class DictSoftQNetwork(nn.Module):
-    def __init__(self, ob_space: gym.spaces.Dict, ac_space: gym.spaces.Box):
+class Scalar(nn.Module):
+    def __init__(self, init_value: float):
         super().__init__()
-        assert isinstance(ob_space, gym.spaces.Dict)
-        assert isinstance(ac_space, gym.spaces.Box)
-        angle_shape = ob_space["angles"].shape
-        gain_shape = ob_space["gains"].shape
+        self.constant = nn.Parameter(torch.tensor(init_value, dtype=torch.float32))
 
-        self.angle_fc1 = nn.Linear(np.prod(angle_shape), 256)
-        self.angle_fc2 = nn.Linear(256, 256)
-        self.angle_layer_norm = nn.LayerNorm(256)
-
-        self.gain_fc1 = nn.Linear(np.prod(gain_shape), 64)
-        self.gain_fc2 = nn.Linear(64, 256)
-        self.gain_layer_norm = nn.LayerNorm(256)
-
-        self.fc1 = nn.Linear(256 + np.prod(ac_space.shape), 256)
-        self.layer_norm1 = nn.LayerNorm(256)
-        self.fc2 = nn.Linear(256, 256)
-        self.fc3 = nn.Linear(256, 1)
-
-    def forward(self, obs, a):
-
-        angle = obs["angles"]
-        angle = F.gelu(self.angle_fc1(angle))
-        angle = F.gelu(self.angle_fc2(angle))
-        angle = self.angle_layer_norm(angle)
-
-        gain = obs["gains"]
-        gain = F.gelu(self.gain_fc1(gain))
-        gain = F.gelu(self.gain_fc2(gain))
-        gain = self.gain_layer_norm(gain)
-
-        x = angle + gain
-        x = torch.cat([x, a], 1)
-        x = F.gelu(self.fc1(x))
-        x = self.layer_norm1(x)
-        x = F.gelu(self.fc2(x))
-        x = self.fc3(x)
-        return x
+    def forward(self) -> nn.Parameter:
+        return self.constant
 
 
-class DictActor(nn.Module):
-    def __init__(
-        self,
-        ob_space: gym.spaces.Dict,
-        ac_space: gym.spaces.Box,
-        log_std_min: float = -5,
-        log_std_max: float = 2,
-    ):
+class TransformerBlock(nn.Module):
+    def __init__(self, embed_dim: int, nhead: int, dropout: float = 0.0):
         super().__init__()
-        assert isinstance(ob_space, gym.spaces.Dict)
-        assert isinstance(ac_space, gym.spaces.Box)
-        angle_shape = ob_space["angles"].shape
-        gain_shape = ob_space["gains"].shape
+        self.attention = nn.MultiheadAttention(embed_dim, nhead, dropout=dropout, batch_first=True)
+        self.layer_norm1 = nn.LayerNorm(embed_dim)
+        self.dropout = nn.Dropout(dropout)
+        self.mlp = MLPBlock(embed_dim, embed_dim)
 
-        self.log_std_min = log_std_min
-        self.log_std_max = log_std_max
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        attention_output, _ = self.attention(x, x, x)
+        out1 = self.layer_norm1(x + self.dropout(attention_output))
+        out2 = self.mlp(out1)
+        return out2
 
-        self.angle_fc1 = nn.Linear(np.prod(angle_shape), 256)
-        self.angle_fc2 = nn.Linear(256, 256)
-        self.angle_layer_norm = nn.LayerNorm(256)
 
-        self.gain_fc1 = nn.Linear(np.prod(gain_shape), 64)
-        self.gain_fc2 = nn.Linear(64, 256)
-        self.gain_layer_norm = nn.LayerNorm(256)
-
-        self.fc1 = nn.Linear(256, 256)
-        self.fc2 = nn.Linear(256, 256)
-        self.fc_mean = nn.Linear(256, np.prod(ac_space.shape))
-        self.fc_logstd = nn.Linear(256, np.prod(ac_space.shape))
-
-        # action rescaling
-        action_high = ac_space.high
-        action_low = ac_space.low
-        self.register_buffer(
-            "action_scale",
-            torch.tensor((action_high - action_low) / 2.0, dtype=torch.float32),
+class MLPBlock(nn.Module):
+    def __init__(self, in_features: int, out_features: int, multiplier: int = 2):
+        super().__init__()
+        self.block = nn.Sequential(
+            nn.Linear(in_features, out_features * multiplier),
+            nn.GELU(),
+            nn.Linear(out_features * multiplier, out_features),
         )
-        self.register_buffer(
-            "action_bias",
-            torch.tensor((action_high + action_low) / 2.0, dtype=torch.float32),
-        )
+        self.layer_norm = nn.LayerNorm(out_features)
 
-    def forward(self, obs: dict):
-
-        angle = obs["angles"]
-        angle = F.gelu(self.angle_fc1(angle))
-        angle = F.gelu(self.angle_fc2(angle))
-        angle = self.angle_layer_norm(angle)
-
-        gain = obs["gains"]
-        gain = F.gelu(self.gain_fc1(gain))
-        gain = F.gelu(self.gain_fc2(gain))
-        gain = self.gain_layer_norm(gain)
-
-        x = angle + gain
-        x = F.gelu(self.fc1(x))
-        x = F.gelu(self.fc2(x))
-        mean = self.fc_mean(x)
-        log_std = self.fc_logstd(x)
-        log_std = torch.tanh(log_std)
-        # From SpinUp / Denis Yarats
-        log_std = self.log_std_min + 0.5 * (self.log_std_max - self.log_std_min) * (log_std + 1)
-
-        return mean, log_std
-
-    def get_actions(self, obs: dict):
-        mean, log_std = self(obs)
-        std = log_std.exp()
-        normal = torch.distributions.Normal(mean, std)
-        x_t = normal.rsample()  # for reparameterization trick (mean + std * N(0,1))
-        y_t = torch.tanh(x_t)
-        actions = y_t * self.action_scale + self.action_bias
-        log_probs = normal.log_prob(x_t)
-        # Enforcing Action Bound
-        log_probs -= torch.log(self.action_scale * (1 - y_t.pow(2)) + 1e-6)
-        log_probs = log_probs.sum(1, keepdim=True)
-        mean = torch.tanh(mean) * self.action_scale + self.action_bias
-        return actions, log_probs, mean
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.layer_norm(self.block(x))
