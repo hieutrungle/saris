@@ -21,8 +21,8 @@ class TrainConfig:
     replay_buffer_dir: str = "-1"  # the path to save the replay buffer
     load_replay_buffer: str = "-1"  # the path to load the replay buffer
     verbose: bool = False  # whether to log to console
-    seed: int = 50  # seed of the experiment
-    eval_seed: int = 500  # seed of the evaluation
+    seed: int = 1  # seed of the experiment
+    eval_seed: int = 100  # seed of the evaluation
     save_interval: int = 100  # the interval to save the model
 
     # Environment specific arguments
@@ -49,7 +49,7 @@ class TrainConfig:
     # Wandb logging
     project: str = "SARIS"  # wandb project name
     group: str = "SAC"  # wandb group name
-    name: str = "Online-Learning-with-Loaded_Data"  # wandb run name
+    name: str = "Online-Learning"  # wandb run name
 
     def __post_init__(self):
         lib_dir = importlib.resources.files(saris)
