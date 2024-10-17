@@ -143,10 +143,10 @@ class WirelessMovingV0(Env):
         self.positions = copy.deepcopy(self.default_positions)
         self.sionna_config = copy.deepcopy(self.default_sionna_config)
 
-        # TODO: add noise to angles
-        # noise = self.np_rng.normal(loc=0.0, scale=0.05, size=self.angles.shape)
-        # self.angles += noise
+        # noise to spherical_focal_vecs
+        noise = self.np_rng.normal(loc=0.0, scale=0.05, size=self.init_focal_vecs.shape)
         self.spherical_focal_vecs = self.init_focal_vecs
+        self.spherical_focal_vecs += noise
         self.spherical_focal_vecs = np.clip(
             self.spherical_focal_vecs, self.focal_vec_space.low, self.focal_vec_space.high
         )

@@ -9,11 +9,12 @@ import subprocess
 import time
 import numpy as np
 from gymnasium import Env, spaces
-from saris.utils import utils
 import pickle
 import glob
-from saris.blender_script import shared_utils
 import math
+import copy
+from saris.utils import utils
+from saris.blender_script import shared_utils
 from saris import sigmap
 from sionna.channel import (
     cir_to_ofdm_channel,
@@ -113,9 +114,12 @@ class WirelessEnvV0(Env):
         self.taken_steps = 0.0
         self.cur_gain = 0.0
         self.next_gain = 0.0
+        self.ep_step = 0
 
         self.info = {}
         self.eval_mode = eval_mode
+        self.default_positions = copy.deepcopy(self.positions)
+        self.default_sionna_config = copy.deepcopy(self.sionna_config)
 
     def _get_observation_space(self) -> spaces.Box:
         observation_space = spaces.Dict(
@@ -135,10 +139,14 @@ class WirelessEnvV0(Env):
     def reset(self, seed: int = None, options: dict = None) -> Tuple[dict, dict]:
         super().reset(seed=seed, options=options)
 
-        # TODO: add noise to angles
-        # noise = self.np_rng.normal(loc=0.0, scale=0.05, size=self.angles.shape)
-        # self.angles += noise
+        self.ep_step = 0
+        self.positions = copy.deepcopy(self.default_positions)
+        self.sionna_config = copy.deepcopy(self.default_sionna_config)
+
+        # noise to spherical_focal_vecs
+        noise = self.np_rng.normal(loc=0.0, scale=0.05, size=self.init_focal_vecs.shape)
         self.spherical_focal_vecs = self.init_focal_vecs
+        self.spherical_focal_vecs += noise
         self.spherical_focal_vecs = np.clip(
             self.spherical_focal_vecs, self.focal_vec_space.low, self.focal_vec_space.high
         )
@@ -146,7 +154,6 @@ class WirelessEnvV0(Env):
         self.angles = np.clip(self.angles, self.angle_space.low, self.angle_space.high)
 
         self.cur_gain = self._cal_path_gain_dB(eval_mode=self.eval_mode)
-        # print(f"Initial path gain: {self.cur_gain}")
         self.next_gain = self.cur_gain
 
         observation = {
