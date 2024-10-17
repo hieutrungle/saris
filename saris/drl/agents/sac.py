@@ -84,9 +84,6 @@ class Actor(nn.Module):
         self.connect_layer.apply(lambda m: init_module_weights(m, True))
         self.combine_layer.apply(lambda m: init_module_weights(m, True))
 
-        self.log_std_multiplier = Scalar(log_std_multiplier)
-        self.log_std_offset = Scalar(log_std_offset)
-
     def forward(self, observations: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
 
         # positions
@@ -122,7 +119,6 @@ class Actor(nn.Module):
         # mean and log_std
         mean = self.fc_mean(network_output)
         log_std = self.fc_log_std(network_output)
-        log_std = self.log_std_multiplier() * log_std + self.log_std_offset()
         log_std = self.log_std_min + 0.5 * (self.log_std_max - self.log_std_min) * (log_std + 1)
 
         return mean, log_std
