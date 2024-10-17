@@ -106,7 +106,7 @@ def wandb_init(config: TrainConfig) -> None:
         project=config.project,
         group=config.group,
         name=config.name,
-        # mode="offline",
+        mode="offline",
     )
 
 
@@ -448,7 +448,7 @@ def main(config: TrainConfig):
                     os.path.join(config.checkpoint_dir, f"model_{global_step}.pth"),
                 )
 
-    rb.dump()
+    rb.dump(config.replay_buffer_dir)
     wandb.finish()
     envs.close()
     envs.close_extras()
