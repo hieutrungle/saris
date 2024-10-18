@@ -75,14 +75,14 @@ class Actor(nn.Module):
         self.angle_down = nn.Linear(ff_dim, 1)
 
         self.connect_layer = nn.Linear(self.angle_dim * 2, ff_dim)
-        self.combine_layer = MLPBlock(ff_dim, ff_dim)
+        self.combine_network = nn.Sequential(MLPBlock(ff_dim, ff_dim), MLPBlock(ff_dim, ff_dim))
         self.fc_mean = nn.Linear(ff_dim, self.ac_dim)
         self.fc_log_std = nn.Linear(ff_dim, self.ac_dim)
 
         self.pos_network.apply(lambda m: init_module_weights(m, True))
         self.angle_network.apply(lambda m: init_module_weights(m, True))
         self.connect_layer.apply(lambda m: init_module_weights(m, True))
-        self.combine_layer.apply(lambda m: init_module_weights(m, True))
+        self.combine_network.apply(lambda m: init_module_weights(m, True))
 
     def forward(self, observations: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
 
@@ -114,11 +114,11 @@ class Actor(nn.Module):
         pos_angles = self.connect_layer(pos_angles)
 
         # combine
-        network_output = self.combine_layer(pos_angles)
+        combined = self.combine_network(pos_angles)
 
         # mean and log_std
-        mean = self.fc_mean(network_output)
-        log_std = self.fc_log_std(network_output)
+        mean = self.fc_mean(combined)
+        log_std = self.fc_log_std(combined)
         log_std = self.log_std_min + 0.5 * (self.log_std_max - self.log_std_min) * (log_std + 1)
 
         return mean, log_std

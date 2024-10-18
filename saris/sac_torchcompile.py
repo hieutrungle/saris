@@ -25,10 +25,10 @@ import torchinfo
 import importlib.resources
 import copy
 import pyrallis
-from tensordict import TensorDict, from_module, from_modules
+from tensordict import TensorDict, from_module, from_modules, TensorDictBase
 from tensordict.nn import TensorDictModule
 from torchrl.data import ReplayBuffer, LazyMemmapStorage
-
+import traceback
 import saris
 from saris.utils import utils, pytorch_utils, running_mean
 from saris.drl.agents import sac
@@ -178,6 +178,9 @@ def main(config: TrainConfig):
         envs.single_action_space, gym.spaces.Box
     ), "only continuous action space is supported"
 
+    # Create running meanstd for normalization
+    obs_rms = running_mean.RunningMeanStd(shape=envs.single_observation_space.shape)
+
     # Init checkpoints
     print(f"Checkpoints dir: {config.checkpoint_dir}")
     os.makedirs(config.checkpoint_dir, exist_ok=True)
@@ -226,6 +229,7 @@ def main(config: TrainConfig):
     log_alpha = torch.zeros(1, requires_grad=True, device=config.device)
 
     if config.load_model != "-1":
+        obs_rms = checkpoint["obs_rms"]
         qnet_params.load_state_dict(checkpoint["qnet_params"])
         qnet_target_params.load_state_dict(checkpoint["qnet_target_params"])
         log_alpha = checkpoint["log_alpha"].clone().detach().requires_grad_(True)
@@ -256,6 +260,59 @@ def main(config: TrainConfig):
         print(f"Loading replay buffer from {config.load_replay_buffer}")
         rb.loads(config.load_replay_buffer)
         print(f"Replay buffer loaded with {len(rb)} samples")
+
+    wandb_init(config)
+
+    try:
+        train_agent(
+            config,
+            envs,
+            obs_rms,
+            actor,
+            policy,
+            qnet_params,
+            qnet_target_params,
+            qnet,
+            target_entropy,
+            log_alpha,
+            alpha,
+            a_optimizer,
+            q_optimizer,
+            q_scheduler,
+            actor_optimizer,
+            actor_scheduler,
+            rb,
+        )
+    except Exception as e:
+        print(f"Exception: {e}")
+        traceback.print_exc()
+        raise e
+    finally:
+        rb.dump(config.replay_buffer_dir)
+        wandb.finish()
+        envs.close()
+        envs.close_extras()
+
+
+def train_agent(
+    config: TrainConfig,
+    envs: gym.vector.AsyncVectorEnv,
+    obs_rms: running_mean.RunningMeanStd,
+    actor: sac.Actor,
+    policy: Callable,
+    qnet_params: TensorDict,
+    qnet_target_params: TensorDict,
+    qnet: sac.SoftQNetwork,
+    target_entropy: float,
+    log_alpha: torch.Tensor,
+    alpha: torch.Tensor,
+    a_optimizer: torch.optim.Optimizer,
+    q_optimizer: torch.optim.Optimizer,
+    q_scheduler: torch.optim.lr_scheduler.CosineAnnealingWarmRestarts,
+    actor_optimizer: torch.optim.Optimizer,
+    actor_scheduler: torch.optim.lr_scheduler.CosineAnnealingWarmRestarts,
+    rb: ReplayBuffer,
+):
 
     # functions to compile
     def batched_qf(params, obs, action, next_q_value=None):
@@ -317,19 +374,14 @@ def main(config: TrainConfig):
     update_actor = torch.compile(update_actor, mode=mode)
     policy = torch.compile(policy, mode=mode)
 
-    # Create running meanstd for normalization
-    obs_rms = running_mean.RunningMeanStd(shape=envs.single_observation_space.shape)
-
     # TRY NOT TO MODIFY: start the game
     obs, _ = envs.reset(seed=config.seed)
     pbar = tqdm.tqdm(range(config.total_timesteps), dynamic_ncols=True)
     max_ep_ret = -float("inf")
     avg_returns = deque(maxlen=config.num_envs)
     desc = ""
-    wandb_init(config)
 
     for global_step in pbar:
-
         # ALGO LOGIC: put action logic here
         if global_step < config.learning_starts * 2 / 3:
             actions = np.array([envs.single_action_space.sample() for _ in range(envs.num_envs)])
@@ -392,7 +444,6 @@ def main(config: TrainConfig):
 
         # ALGO LOGIC: training.
         if global_step > config.learning_starts:
-
             log_infos = {}
             for j in range(config.n_updates):
                 data = rb.sample()
@@ -405,7 +456,7 @@ def main(config: TrainConfig):
                 data["observations"] = normalize_obs(data["observations"], obs_rms)
                 data["next_observations"] = normalize_obs(data["next_observations"], obs_rms)
 
-                with torch.autocast(device_type=config.device.type):
+                with torch.autocast(device_type=config.device.type, dtype=torch.float16):
                     log_infos.update(update_critics(data))
                 if j % config.policy_frequency == 1:  # TD 3 Delayed update support
                     for _ in range(config.policy_frequency):
@@ -444,14 +495,10 @@ def main(config: TrainConfig):
                         "qnet_params": qnet_params.state_dict(),
                         "qnet_target_params": qnet_target_params.state_dict(),
                         "log_alpha": log_alpha,
+                        "obs_rms": obs_rms,
                     },
                     os.path.join(config.checkpoint_dir, f"model_{global_step}.pth"),
                 )
-
-    rb.dump(config.replay_buffer_dir)
-    wandb.finish()
-    envs.close()
-    envs.close_extras()
 
 
 if __name__ == "__main__":
