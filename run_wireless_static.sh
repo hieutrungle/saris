@@ -78,7 +78,5 @@ mkdir -p ${OPTIX_CACHE_PATH}
 ##############################
 # DRL run
 ##############################
-# poetry run train_sac --command train --sionna_config_file ${SIONNA_CONFIG_FILE} --seed 100 --verbose --resume --load_step 1710
-
 export OPTIX_CACHE_PATH=${TMP_DIR}/optix_cache_1
-python ./saris/run_sac_torchcompile.py --sionna_config_file ${SIONNA_CONFIG_FILE} --verbose True --name "L_shape_static" --env_id "wireless-sigmap-v0" --seed 55
+python ./saris/run_sac_torchcompile.py --sionna_config_file ${SIONNA_CONFIG_FILE} --verbose True --name "L_shape_static" --env_id "wireless-sigmap-v0" --seed 30 --load_model "/home/hieule/research/saris/local_assets/logs/SAC__L_shape_static__wireless-sigmap-v0__trained/model_1200.pth"
