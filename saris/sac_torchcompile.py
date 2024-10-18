@@ -456,13 +456,11 @@ def train_agent(
                 data["observations"] = normalize_obs(data["observations"], obs_rms)
                 data["next_observations"] = normalize_obs(data["next_observations"], obs_rms)
 
-                with torch.autocast(device_type=config.device.type, dtype=torch.float16):
-                    log_infos.update(update_critics(data))
+                log_infos.update(update_critics(data))
                 if j % config.policy_frequency == 1:  # TD 3 Delayed update support
                     for _ in range(config.policy_frequency):
                         # compensate for the delay by doing 'actor_update_interval' instead of 1
-                        with torch.autocast(device_type=config.device.type):
-                            log_infos.update(update_actor(data))
+                        log_infos.update(update_actor(data))
                         alpha.copy_(log_alpha.detach().exp())
 
                 # update the target networks
