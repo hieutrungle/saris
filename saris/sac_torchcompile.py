@@ -190,7 +190,7 @@ def main(config: TrainConfig):
     # Load models
     if config.load_model != "-1":
         print(f"Loading model from {config.load_model}")
-        checkpoint = torch.load(config.load_model, weights_only=True)
+        checkpoint = torch.load(config.load_model, weights_only=False)
 
     # Actor setup
     actor = sac.Actor(ob_dim, ac_dim, action_scale=2.0).to(config.device)
