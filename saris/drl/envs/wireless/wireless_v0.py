@@ -211,7 +211,7 @@ class WirelessEnvV0(Env):
         lower_ = -100.0
         upper_ = -80.0
 
-        reward = total_gain + 0.4 * gain_diff - 0.05 * cost_time
+        reward = total_gain + 0.3 * gain_diff - 0.05 * cost_time
         reward = (reward - lower_) / (upper_ - lower_)
 
         return float(reward)
