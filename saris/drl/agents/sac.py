@@ -199,6 +199,7 @@ class SoftQNetwork(nn.Module):
         ]
         self.action_network = nn.Sequential(*action_layers)
 
+        self.combine_network = nn.Sequential(MLPBlock(ff_dim, ff_dim), MLPBlock(ff_dim, ff_dim))
         self.activation = nn.GELU()
         self.combine_layer = nn.Linear(ff_dim, 1)
 
@@ -206,6 +207,7 @@ class SoftQNetwork(nn.Module):
         self.angle_network.apply(lambda m: init_module_weights(m, True))
         self.connect_layer.apply(lambda m: init_module_weights(m, True))
         self.action_network.apply(lambda m: init_module_weights(m, True))
+        self.combine_network.apply(lambda m: init_module_weights(m, True))
         self.combine_layer.apply(lambda m: init_module_weights(m, True))
 
     def forward(self, observations: torch.Tensor, actions: torch.Tensor) -> torch.Tensor:
@@ -235,7 +237,8 @@ class SoftQNetwork(nn.Module):
         action = self.action_network(actions)
 
         # combine
-        combined = self.activation(pos_angles + action)
+        combined = self.combine_network(pos_angles + action)
+        combined = self.activation(combined)
         q_values = self.combine_layer(combined)
 
         return q_values
