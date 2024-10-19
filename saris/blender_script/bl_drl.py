@@ -67,7 +67,7 @@ def export_drl_hallway_hex(args):
     # Save files without ceiling
     folder_dir = os.path.join(args.output_dir, f"idx")
     bl_utils.mkdir_with_replacement(folder_dir)
-    bl_utils.save_mitsuba_xml(folder_dir, "hallway", [*devices_names, "Wall", "Floor"])
+    bl_utils.save_mitsuba_xml(folder_dir, "hallway", [*devices_names, "Wall", "Floor", "Obstacles"])
 
     # Save files with ceiling
     folder_dir = os.path.join(args.output_dir, f"ceiling_idx")
@@ -75,7 +75,7 @@ def export_drl_hallway_hex(args):
     bl_utils.save_mitsuba_xml(
         folder_dir,
         "hallway",
-        [*devices_names, "Wall", "Floor", "Ceiling"],
+        [*devices_names, "Wall", "Floor", "Ceiling", "Obstacles"],
     )
 
 
