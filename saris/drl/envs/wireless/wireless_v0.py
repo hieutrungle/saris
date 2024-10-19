@@ -314,8 +314,6 @@ class WirelessEnvV0(Env):
             render_filename = utils.create_filename(img_dir, f"{scene_name}_00000.png")
             coverage_map = sig_cmap.compute_cmap()
             path_gain = sig_cmap.get_path_gain(coverage_map)
-            print(f"Path gain: {path_gain}")
-            print(f"Path gain [dB]: {utils.linear2dB(path_gain)}")
             sig_cmap.render_to_file(coverage_map, filename=render_filename)
 
         return path_gain
