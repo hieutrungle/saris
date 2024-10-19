@@ -19,3 +19,9 @@ def register_envs():
         entry_point="saris.drl.envs.wireless_moving:WirelessMovingV0",
         max_episode_steps=100,
     )
+
+    register(
+        id="wireless-T-static-v0",
+        entry_point="saris.drl.envs.wireless_T_static:WirelessTStaticV0",
+        max_episode_steps=100,
+    )
