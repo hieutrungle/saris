@@ -25,8 +25,29 @@ from sionna.channel import (
 )
 import tensorflow as tf
 
+"""
+TODO: change to T hallway
 
-# TODO: change to T hallway
+These are configurations for 1 reflector:
+    reflector_config = shared_utils.get_reflector_config()
+    self.theta_config = reflector_config[0]
+    self.phi_config = reflector_config[1]
+    self.num_groups = reflector_config[2]
+    self.num_elements_per_group = reflector_config[3]
+    
+num_refls <- len(sionna_config["ris_positions"])
+
+TODO: change obs space:
+{
+    "angles":  [num_refls, num_groups, 3] flatten,
+    "positions": concat(rx_positions, ris_positions) flatten
+}
+TODO: change action space:
+    [num_refls, num_groups * 3] flatten
+    
+"""
+
+
 class WirelessTStaticV0(Env):
 
     def __init__(
@@ -230,6 +251,9 @@ class WirelessTStaticV0(Env):
         Step the environment using Blender.
 
         If action is not given, the environment stays the same with the given angles.
+
+        Args:
+            spherical_focal_vecs: [num_reflectors, num_groups, 3], [r, theta, phi] for each group
         """
         # Blender export
         blender_app = utils.get_os_dir("BLENDER_APP")
@@ -246,7 +270,7 @@ class WirelessTStaticV0(Env):
         with open(data_path, "wb") as f:
             pickle.dump(spherical_focal_vecs, f)
 
-        blender_script = os.path.join(source_dir, "saris", "blender_script", "bl_drl.py")
+        blender_script = os.path.join(source_dir, "saris", "blender_script", "bl_drl_T_hallway.py")
         blender_cmd = [
             blender_app,
             "-b",
