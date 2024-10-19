@@ -133,7 +133,15 @@ class WirelessEnvV0(Env):
     def _get_action_space(self) -> spaces.Box:
         # each group has 3 elements: 1 phi, 1 theta, and 1 r
         action_space_shape = tuple((3 * self.num_groups,))
-        action_space = spaces.Box(low=-1.0, high=1.0, shape=action_space_shape)
+        r_low = -2.0
+        r_high = 2.0
+        theta_low = np.deg2rad(-2.0)
+        theta_high = np.deg2rad(2.0)
+        phi_low = np.deg2rad(-2.0)
+        phi_high = np.deg2rad(2.0)
+        low = np.array([r_low, theta_low, phi_low] * self.num_groups, dtype=np.float32)
+        high = np.array([r_high, theta_high, phi_high] * self.num_groups, dtype=np.float32)
+        action_space = spaces.Box(low=low, high=high, shape=action_space_shape, dtype=np.float32)
         return action_space
 
     def reset(self, seed: int = None, options: dict = None) -> Tuple[dict, dict]:
@@ -306,6 +314,8 @@ class WirelessEnvV0(Env):
             render_filename = utils.create_filename(img_dir, f"{scene_name}_00000.png")
             coverage_map = sig_cmap.compute_cmap()
             path_gain = sig_cmap.get_path_gain(coverage_map)
+            print(f"Path gain: {path_gain}")
+            print(f"Path gain [dB]: {utils.linear2dB(path_gain)}")
             sig_cmap.render_to_file(coverage_map, filename=render_filename)
 
         return path_gain
