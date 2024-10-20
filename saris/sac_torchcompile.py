@@ -106,7 +106,7 @@ def wandb_init(config: TrainConfig) -> None:
         project=config.project,
         group=config.group,
         name=config.name,
-        mode="offline",
+        # mode="offline",
     )
 
 
