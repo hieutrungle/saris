@@ -73,6 +73,7 @@ class TrainConfig:
     policy_frequency: int = 2  # the frequency of training policy (delayed)
     target_network_frequency: int = 2  # the frequency of updates for the target nerworks
     alpha: float = 0.2  # Entropy regularization coefficient
+    action_scale: float = 2.0  # the scale of the action
 
     # Wandb logging
     project: str = "SARIS"  # wandb project name
@@ -193,10 +194,10 @@ def main(config: TrainConfig):
         checkpoint = torch.load(config.load_model, weights_only=False)
 
     # Actor setup
-    actor = sac.Actor(ob_dim, ac_dim, action_scale=2.0).to(config.device)
+    actor = sac.Actor(ob_dim, ac_dim, action_scale=config.action_scale).to(config.device)
     if config.load_model != "-1":
         actor.load_state_dict(checkpoint["actor"])
-    actor_detach = sac.Actor(ob_dim, ac_dim, action_scale=2.0).to(config.device)
+    actor_detach = sac.Actor(ob_dim, ac_dim, action_scale=config.action_scale).to(config.device)
     torchinfo.summary(
         actor_detach, (1, ob_dim), col_names=["input_size", "output_size", "num_params"]
     )
