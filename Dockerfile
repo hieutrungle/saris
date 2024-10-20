@@ -41,5 +41,10 @@ RUN pip3 install wandb torchrl-nightly==2024.10.20 tensordict-nightly==2024.10.2
 RUN pip3 install -U tensorflow[and-cuda]==2.17.0
 
 # TODO: add Blender installation
+RUN gdown --folder https://drive.google.com/drive/u/2/folders/1sHqz5PRKtLQI0aEcByzKMyNwIOSG557l
+RUN unzip blender.zip
+RUN mv blender ../
+
+RUN unzip blender_config.zip
 
 # ENTRYPOINT ["bash", "run_drl_L_hallway_calql.sh"]
