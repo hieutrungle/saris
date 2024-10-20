@@ -72,7 +72,7 @@ class TrainConfig:
     policy_frequency: int = 2  # the frequency of training policy (delayed)
     target_network_frequency: int = 2  # the frequency of updates for the target nerworks
     alpha: float = 0.2  # Entropy regularization coefficient
-    action_scale: float = 15.0  # the scale of the action
+    action_scale: float = 10.0  # the scale of the action
 
     # Wandb logging
     project: str = "SARIS"  # wandb project name
