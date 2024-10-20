@@ -1,5 +1,4 @@
 gymnasium
-mathutils
 PyYAML
 # sionna
 # tensorflow[and-cuda]

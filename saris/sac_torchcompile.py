@@ -25,7 +25,7 @@ import torchinfo
 import importlib.resources
 import copy
 import pyrallis
-from tensordict import TensorDict, from_module, from_modules, TensorDictBase
+from tensordict import TensorDict, from_module, from_modules
 from tensordict.nn import TensorDictModule
 from torchrl.data import ReplayBuffer, LazyMemmapStorage
 import traceback
@@ -106,7 +106,7 @@ def wandb_init(config: TrainConfig) -> None:
         project=config.project,
         group=config.group,
         name=config.name,
-        # mode="offline",
+        mode="offline",
     )
 
 
