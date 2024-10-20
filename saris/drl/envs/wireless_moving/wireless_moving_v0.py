@@ -135,10 +135,10 @@ class WirelessMovingV0(Env):
         action_space_shape = tuple((3 * self.num_groups,))
         r_low = -5.0
         r_high = 5.0
-        theta_low = np.deg2rad(-10.0)
-        theta_high = np.deg2rad(10.0)
-        phi_low = np.deg2rad(-10.0)
-        phi_high = np.deg2rad(10.0)
+        theta_low = np.deg2rad(-15.0)
+        theta_high = np.deg2rad(15.0)
+        phi_low = np.deg2rad(-15.0)
+        phi_high = np.deg2rad(15.0)
         low = np.array([r_low, theta_low, phi_low] * self.num_groups, dtype=np.float32)
         high = np.array([r_high, theta_high, phi_high] * self.num_groups, dtype=np.float32)
         action_space = spaces.Box(low=low, high=high, shape=action_space_shape, dtype=np.float32)
