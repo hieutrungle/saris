@@ -28,32 +28,18 @@ RUN --mount=type=cache,target=/var/lib/apt/lists \
 FROM base-all AS runtime
 
 WORKDIR /research
+RUN pip install gdown
 
 # clone from github
 RUN git clone -b torch-dev-angles https://github.com/hieutrungle/saris
 RUN cd ./saris && pip install -e .
 RUN python -m pip install --upgrade pip
-RUN pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+RUN pip3 install --upgrade --pre torch==2.6.0.dev20241020+cu124 --index-url https://download.pytorch.org/whl/nightly/cu124
 RUN pip3 install -r ./saris/requirements.txt
 RUN pip3 install sionna==0.19 tensorflow[and-cuda]
-RUN pip3 install wandb torchrl tensordict
+RUN pip3 install wandb torchrl-nightly==2024.10.20 tensordict-nightly==2024.10.20
+RUN pip3 install -U tensorflow[and-cuda]==2.17.0
 
-# ENV VIRTUAL_ENV=/app/.venv \
-#     PATH="/app/.venv/bin:$PATH"
-
-# COPY --from=builder ${VIRTUAL_ENV} ${VIRTUAL_ENV}
-
-# WORKDIR /myapp
-# COPY ../../blender ./blender
-
-# RUN mkdir -p research/saris
-
-# WORKDIR /myapp/research/saris
-# COPY saris ./saris
-# COPY pyproject_docker.toml ./pyproject.toml
-# RUN pip install -e .
-# COPY configs ./configs
-# COPY tmp_wandb_api_key.txt ./
-# COPY run_drl_L_hallway_calql.sh ./
+# TODO: add Blender installation
 
 # ENTRYPOINT ["bash", "run_drl_L_hallway_calql.sh"]

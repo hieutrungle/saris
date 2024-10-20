@@ -1,6 +1,4 @@
-=====
-saris
-=====
+# saris
 
 
 .. image:: https://img.shields.io/pypi/v/saris.svg
@@ -22,14 +20,20 @@ Self Adjustable Reconfigurable Intelligent Surfaces (SARIS)
 * Free software: MIT
 * Documentation: https://saris.readthedocs.io.
 
+## Instructions
 
-Features
---------
+## Docker
+
+```bash
+docker build -t saris .
+docker run --rm --runtime=nvidia --gpus all -it saris
+```
+
+## Features
 
 * TODO
 
-Credits
--------
+## Credits
 
 This package was created with Cookiecutter_ and the `briggySmalls/cookiecutter-pypackage`_ project template.
 
