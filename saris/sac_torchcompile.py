@@ -44,7 +44,6 @@ class TrainConfig:
     # General arguments
     command: str = "train"  # the command to run
     load_model: str = "-1"  # Model load file name for resume training, "-1" doesn't load
-    offline_data_dir: str = "-1"  # Offline data directory
     checkpoint_dir: str = "-1"  # the path to save the model
     replay_buffer_dir: str = "-1"  # the path to save the replay buffer
     load_replay_buffer: str = "-1"  # the path to load the replay buffer
@@ -73,7 +72,7 @@ class TrainConfig:
     policy_frequency: int = 2  # the frequency of training policy (delayed)
     target_network_frequency: int = 2  # the frequency of updates for the target nerworks
     alpha: float = 0.2  # Entropy regularization coefficient
-    action_scale: float = 2.0  # the scale of the action
+    action_scale: float = 15.0  # the scale of the action
 
     # Wandb logging
     project: str = "SARIS"  # wandb project name

@@ -16,7 +16,6 @@ class TrainConfig:
     # General arguments
     command: str = "train"  # the command to run
     load_model: str = "-1"  # Model load file name for resume training, "-1" doesn't load
-    offline_data_dir: str = "-1"  # Offline data directory
     checkpoint_dir: str = "-1"  # the path to save the model
     replay_buffer_dir: str = "-1"  # the path to save the replay buffer
     load_replay_buffer: str = "-1"  # the path to load the replay buffer
@@ -36,7 +35,7 @@ class TrainConfig:
     total_timesteps: int = 20_001  # total timesteps of the experiments
     n_updates: int = 35  # the number of updates per step
     buffer_size: int = int(150_000)  # the replay memory buffer size
-    gamma: float = 0.75  # the discount factor gamma
+    gamma: float = 0.85  # the discount factor gamma
     tau: float = 0.005  # target smoothing coefficient (default: 0.005)
     batch_size: int = 256  # the batch size of sample from the reply memory
     learning_starts: int = 1_001  # the timestep to start learning
@@ -45,6 +44,7 @@ class TrainConfig:
     policy_frequency: int = 2  # the frequency of training policy (delayed)
     target_network_frequency: int = 2  # the frequency of updates for the target nerworks
     alpha: float = 0.2  # Entropy regularization coefficient
+    action_scale: float = 15.0  # the scale of the action
 
     # Wandb logging
     project: str = "SARIS"  # wandb project name
@@ -123,6 +123,8 @@ def main(config: TrainConfig):
         str(config.target_network_frequency),
         "--alpha",
         str(config.alpha),
+        "--action_scale",
+        str(config.action_scale),
         # wandb logging
         "--project",
         str(config.project),
