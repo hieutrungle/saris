@@ -84,8 +84,7 @@ class WirelessTStaticV0(Env):
         self.current_time = "_" + time.strftime("%d-%m-%Y_%H-%M-%S")
 
         # Set up action and observation space
-        reflector_config = shared_utils.get_reflector_config()
-
+        reflector_config = shared_utils.get_config_reflectors()
         self.theta_config = reflector_config[0]
         self.phi_config = reflector_config[1]
         self.num_groups = reflector_config[2]
@@ -93,8 +92,9 @@ class WirelessTStaticV0(Env):
 
         # angles = [theta, phi] for each tile
         # theta: azimuth angle, phi: elevation angle
-        init_theta = self.theta_config[0]
-        init_phi = self.phi_config[0]
+        init_thetas = self.theta_config[0]
+        init_phis = self.phi_config[0]
+
         init_per_group = [init_theta] + [init_phi] * self.num_elements_per_group
         self.init_angles = np.concatenate([init_per_group] * self.num_groups)
 
