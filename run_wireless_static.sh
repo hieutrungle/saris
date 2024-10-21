@@ -79,4 +79,4 @@ mkdir -p ${OPTIX_CACHE_PATH}
 # DRL run
 ##############################
 export OPTIX_CACHE_PATH=${TMP_DIR}/optix_cache_1
-python ./saris/run_sac_torchcompile.py --sionna_config_file ${SIONNA_CONFIG_FILE} --verbose True --name "L_shape_static" --env_id "wireless-sigmap-v0" --seed 10 
+python ./saris/run_sac_torchcompile.py --sionna_config_file ${SIONNA_CONFIG_FILE} --verbose True --name "L_shape_static" --env_id "wireless-sigmap-v0" --seed 1 
