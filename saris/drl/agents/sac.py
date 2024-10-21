@@ -65,17 +65,15 @@ class Actor(nn.Module):
         # angles
         self.angle_embedding = nn.Linear(1, ff_dim, bias=False)
         angle_layers = [
-            nn.Linear(ff_dim, ff_dim),
-            nn.GELU(),
             TransformerBlock(ff_dim, 4),
             TransformerBlock(ff_dim, 4),
-            TransformerBlock(ff_dim, 4),
+            # TransformerBlock(ff_dim, 4),
         ]
         self.angle_network = nn.Sequential(*angle_layers)
         self.angle_down = nn.Linear(ff_dim, 1)
 
-        self.connect_layer = nn.Linear(self.angle_dim * 2, ff_dim)
-        self.combine_network = nn.Sequential(MLPBlock(ff_dim, ff_dim), MLPBlock(ff_dim, ff_dim))
+        self.connect_layer = MLPBlock(self.angle_dim * 2, ff_dim)
+        self.combine_network = nn.Sequential(MLPBlock(ff_dim, ff_dim))
         self.fc_mean = nn.Linear(ff_dim, self.ac_dim)
         self.fc_log_std = nn.Linear(ff_dim, self.ac_dim)
 
@@ -180,16 +178,14 @@ class SoftQNetwork(nn.Module):
         # angles
         self.angle_embedding = nn.Linear(1, ff_dim, bias=False)
         angle_layers = [
-            nn.Linear(ff_dim, ff_dim),
-            nn.GELU(),
             TransformerBlock(ff_dim, 4),
             TransformerBlock(ff_dim, 4),
-            TransformerBlock(ff_dim, 4),
+            # TransformerBlock(ff_dim, 4),
         ]
         self.angle_network = nn.Sequential(*angle_layers)
         self.angle_down = nn.Linear(ff_dim, 1)
 
-        self.connect_layer = nn.Linear(self.angle_dim * 2, ff_dim)
+        self.connect_layer = MLPBlock(self.angle_dim * 2, ff_dim)
 
         # action
         action_layers = [
@@ -199,8 +195,8 @@ class SoftQNetwork(nn.Module):
         ]
         self.action_network = nn.Sequential(*action_layers)
 
-        self.combine_network = nn.Sequential(MLPBlock(ff_dim, ff_dim), MLPBlock(ff_dim, ff_dim))
-        self.activation = nn.GELU()
+        self.combine_network = nn.Sequential(MLPBlock(ff_dim * 2, ff_dim))
+        self.activation = nn.Identity()
         self.combine_layer = nn.Linear(ff_dim, 1)
 
         self.pos_network.apply(lambda m: init_module_weights(m, True))
@@ -237,7 +233,7 @@ class SoftQNetwork(nn.Module):
         action = self.action_network(actions)
 
         # combine
-        combined = self.combine_network(pos_angles + action)
+        combined = self.combine_network(torch.cat([pos_angles, action], dim=-1))
         combined = self.activation(combined)
         q_values = self.combine_layer(combined)
 
