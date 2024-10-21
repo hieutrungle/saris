@@ -151,9 +151,8 @@ class Actor(nn.Module):
         last_dim = acts.shape[-1]
         all_but_last_dim = acts.shape[:-1]
         acts = acts.view(*all_but_last_dim, last_dim // 3, 3)
-        acts[..., 0] = acts / 3.0
-        acts[..., 1] = torch.deg2rad(acts[..., 1])
-        acts[..., 2] = torch.deg2rad(acts[..., 2])
+        acts[..., 0] = torch.div(acts[..., 0], 3.0)
+        acts[..., 1:] = torch.deg2rad(acts[..., 1:])
         acts = acts.view(*action_shape)
         return acts
 
