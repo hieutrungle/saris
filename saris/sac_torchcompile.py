@@ -383,7 +383,7 @@ def train_agent(
 
     for global_step in pbar:
         # ALGO LOGIC: put action logic here
-        if global_step < config.learning_starts * 2 / 3:
+        if global_step < config.learning_starts * 9 / 10:
             actions = np.array([envs.single_action_space.sample() for _ in range(envs.num_envs)])
         else:
             actions = policy(torch.as_tensor(obs, device=config.device, dtype=torch.float))
