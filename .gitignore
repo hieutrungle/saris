@@ -131,3 +131,6 @@ checkpoints/
 # Tensorboard logs
 logs/
 wandb/
+
+# keys
+wandb_api_key*

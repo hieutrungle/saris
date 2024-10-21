@@ -9,6 +9,10 @@ RUN --mount=type=cache,target=/var/lib/apt/lists \
     && apt-get upgrade --assume-yes \
     && apt-get install --assume-yes --no-install-recommends python3-pip build-essential zlib1g-dev libncurses5-dev libgdbm-dev libnss3-dev libssl-dev libreadline-dev libffi-dev wget python-is-python3 software-properties-common git
 
+RUN groupadd -r saris --gid=1280 && \
+    useradd -r -g saris --uid=1280 --create-home --shell /bin/bash saris
+# switch user from 'root' to saris and also to the home directory that it owns 
+USER root
 # FROM base-all AS builder
 
 # RUN pip install poetry==1.8.3
@@ -27,7 +31,9 @@ RUN --mount=type=cache,target=/var/lib/apt/lists \
 
 FROM base-all AS runtime
 
-WORKDIR /research
+RUN mkdir /home/saris/research
+WORKDIR /home/saris/research
+RUN echo "cd ~/Desktop/Java\ Files" >> ~/.bashrc
 RUN pip install gdown
 
 # clone from github
@@ -41,10 +47,18 @@ RUN pip3 install wandb torchrl-nightly==2024.10.20 tensordict-nightly==2024.10.2
 RUN pip3 install -U tensorflow[and-cuda]==2.17.0
 
 # TODO: add Blender installation
+RUN --mount=type=cache,target=/var/lib/apt/lists \
+    --mount=type=cache,target=/var/cache,sharing=locked \
+    apt-get install unzip
 RUN gdown --folder https://drive.google.com/drive/u/2/folders/1sHqz5PRKtLQI0aEcByzKMyNwIOSG557l
-RUN unzip blender.zip
+RUN unzip blender_gdown/blender.zip
 RUN mv blender ../
 
-RUN unzip blender_config.zip
+RUN unzip blender_gdown/blender_config.zip
 
+# wandb login key
+COPY wandb_api_key.txt ./
+RUN mv wandb_api_key.txt ./saris/tmp_wandb_api_key.txt
+
+# USER saris
 # ENTRYPOINT ["bash", "run_drl_L_hallway_calql.sh"]
