@@ -75,6 +75,7 @@ class TrainConfig:
     action_scale: float = 10.0  # the scale of the action
 
     # Wandb logging
+    wandb_mode: str = "online"  # wandb mode
     project: str = "SARIS"  # wandb project name
     group: str = "SAC"  # wandb group name
     name: str = "Online-Learning"  # wandb run name
@@ -106,7 +107,7 @@ def wandb_init(config: TrainConfig) -> None:
         project=config.project,
         group=config.group,
         name=config.name,
-        # mode="offline",
+        mode=config.wandb_mode,
     )
 
 
