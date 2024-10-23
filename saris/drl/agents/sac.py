@@ -74,18 +74,20 @@ class Actor(nn.Module):
         # angles
         self.angle_fourier = Fourier(self.angle_dim, self.angle_dim)
         self.angle_layers = [
-            MLPBlock(self.angle_dim, self.angle_dim),
-            MLPBlock(self.angle_dim, self.angle_dim),
+            nn.Linear(self.angle_dim, ff_dim),
+            nn.GELU(),
+            MLPBlock(ff_dim, self.angle_dim),
         ]
         self.angle_network = nn.Sequential(*self.angle_layers)
         self.angle_tail = [
-            MLPBlock(self.angle_dim, ff_dim),
-            MLPBlock(ff_dim, ff_dim),
-            MLPBlock(ff_dim, ff_dim),
+            nn.Linear(self.angle_dim, ff_dim),
+            nn.GELU(),
+            nn.Linear(ff_dim, ff_dim),
+            nn.GELU(),
         ]
         self.angle_tail = nn.Sequential(*self.angle_tail)
 
-        self.connect_layer = [MLPBlock(ff_dim * 2, ff_dim // 2)]
+        self.connect_layer = [nn.Linear(ff_dim * 2, ff_dim // 2)]
         self.connect_network = nn.Sequential(*self.connect_layer)
         self.fc_mean = nn.Linear(ff_dim // 2, self.ac_dim)
         self.fc_log_std = nn.Linear(ff_dim // 2, self.ac_dim)
@@ -172,14 +174,16 @@ class SoftQNetwork(nn.Module):
         # angles
         self.angle_fourier = Fourier(self.angle_dim, self.angle_dim)
         self.angle_layers = [
-            MLPBlock(self.angle_dim, self.angle_dim),
-            MLPBlock(self.angle_dim, self.angle_dim),
+            nn.Linear(self.angle_dim, ff_dim),
+            nn.GELU(),
+            MLPBlock(ff_dim, self.angle_dim),
         ]
         self.angle_network = nn.Sequential(*self.angle_layers)
         self.angle_tail = [
-            MLPBlock(self.angle_dim, ff_dim),
-            MLPBlock(ff_dim, ff_dim),
-            MLPBlock(ff_dim, ff_dim),
+            nn.Linear(self.angle_dim, ff_dim),
+            nn.GELU(),
+            nn.Linear(ff_dim, ff_dim),
+            nn.GELU(),
         ]
         self.angle_tail = nn.Sequential(*self.angle_tail)
 
@@ -194,7 +198,7 @@ class SoftQNetwork(nn.Module):
         ]
         self.action_network = nn.Sequential(*action_layers)
 
-        self.combine_network = nn.Sequential(MLPBlock(ff_dim, ff_dim // 2))
+        self.combine_network = nn.Sequential(nn.Linear(ff_dim, ff_dim // 2))
         self.combine_layer = nn.Linear(ff_dim // 2, 1)
 
         self.pos_network.apply(lambda m: init_module_weights(m, True))
@@ -230,6 +234,198 @@ class SoftQNetwork(nn.Module):
         q_values = self.combine_layer(combined)
 
         return q_values
+
+
+"""
+Architecture for:
+- SAC__L_shape_static__wireless-sigmap-v0__d6d96e9f
+"""
+# class Actor(nn.Module):
+#     def __init__(
+#         self,
+#         ob_dim: int,
+#         ac_dim: int,
+#         action_scale: float = 1.0,
+#         log_std_multiplier: float = 1.0,
+#         log_std_offset: float = 0.0,
+#         log_std_min: float = -5.0,
+#         log_std_max: float = 2.0,
+#     ):
+#         super().__init__()
+#         self.ob_dim = ob_dim
+#         self.ac_dim = ac_dim
+#         self.action_scale = action_scale
+#         self.log_std_min = log_std_min
+#         self.log_std_max = log_std_max
+
+#         self.pos_dim = 12
+#         self.angle_dim = self.ob_dim - self.pos_dim
+#         ff_dim = 256
+
+#         # positions
+#         self.pos_fourier = Fourier(self.pos_dim, self.angle_dim)
+#         self.pos_layers = [MLPBlock(self.angle_dim, ff_dim)]
+#         self.pos_network = nn.Sequential(*self.pos_layers)
+
+#         # angles
+#         self.angle_fourier = Fourier(self.angle_dim, self.angle_dim)
+#         self.angle_layers = [
+#             MLPBlock(self.angle_dim, self.angle_dim),
+#             MLPBlock(self.angle_dim, self.angle_dim),
+#         ]
+#         self.angle_network = nn.Sequential(*self.angle_layers)
+#         self.angle_tail = [
+#             MLPBlock(self.angle_dim, ff_dim),
+#             MLPBlock(ff_dim, ff_dim),
+#             MLPBlock(ff_dim, ff_dim),
+#         ]
+#         self.angle_tail = nn.Sequential(*self.angle_tail)
+
+#         self.connect_layer = [MLPBlock(ff_dim * 2, ff_dim // 2)]
+#         self.connect_network = nn.Sequential(*self.connect_layer)
+#         self.fc_mean = nn.Linear(ff_dim // 2, self.ac_dim)
+#         self.fc_log_std = nn.Linear(ff_dim // 2, self.ac_dim)
+
+#         self.pos_network.apply(lambda m: init_module_weights(m, True))
+#         self.angle_network.apply(lambda m: init_module_weights(m, True))
+#         self.angle_tail.apply(lambda m: init_module_weights(m, True))
+#         self.connect_network.apply(lambda m: init_module_weights(m, True))
+
+#     def forward(self, observations: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+
+#         # positions
+#         pos = observations[..., self.angle_dim :]
+#         pos = self.pos_fourier(pos)
+#         pos = self.pos_network(pos)
+
+#         # angles
+#         angles = observations[..., : self.angle_dim]
+#         residual = angles
+#         angles = self.angle_fourier(angles)
+#         angles = self.angle_network(angles)
+#         angles = self.angle_tail(angles + residual)
+
+#         # connect
+#         pos_angles = torch.cat([pos, angles], dim=-1)
+#         combined = self.connect_network(pos_angles)
+
+#         # mean and log_std
+#         mean = self.fc_mean(combined)
+#         log_std = self.fc_log_std(combined)
+#         log_std = self.log_std_min + 0.5 * (self.log_std_max - self.log_std_min) * (log_std + 1)
+
+#         return mean, log_std
+
+#     def get_action(self, obs: torch.Tensor):
+
+#         # action
+#         mean, log_std = self.forward(obs)
+#         std = torch.exp(log_std)
+#         normal = torch.distributions.Normal(mean, std)
+#         x_t = normal.rsample()
+#         y_t = torch.tanh(x_t)
+#         actions = self.action_scale * y_t
+
+#         # log_prob
+#         log_prob = normal.log_prob(x_t)
+
+#         # Enforcing Action Bound
+#         log_prob -= torch.log(self.action_scale * (1 - y_t.pow(2)) + 1e-6)
+#         log_prob = log_prob.sum(-1, keepdim=True)
+#         mean = torch.tanh(mean) * self.action_scale
+
+#         actions = self.modify_action(actions)
+#         mean = self.modify_action(mean)
+
+#         return actions, log_prob, mean
+
+#     def modify_action(self, acts: torch.tensor):
+#         action_shape = acts.shape
+#         last_dim = acts.shape[-1]
+#         all_but_last_dim = acts.shape[:-1]
+#         acts = acts.view(*all_but_last_dim, last_dim // 3, 3)
+#         acts[..., 0] = torch.div(acts[..., 0], 3.0)
+#         acts[..., 1:] = torch.deg2rad(acts[..., 1:])
+#         acts = acts.view(*action_shape)
+#         return acts
+
+
+# class SoftQNetwork(nn.Module):
+#     def __init__(self, ob_dim: int, ac_dim: int):
+#         super().__init__()
+#         self.ob_dim = ob_dim
+#         self.ac_dim = ac_dim
+
+#         self.pos_dim = 12
+#         self.angle_dim = self.ob_dim - self.pos_dim
+#         ff_dim = 256
+
+#         # positions
+#         self.pos_fourier = Fourier(self.pos_dim, self.angle_dim)
+#         self.pos_layers = [MLPBlock(self.angle_dim, ff_dim)]
+#         self.pos_network = nn.Sequential(*self.pos_layers)
+
+#         # angles
+#         self.angle_fourier = Fourier(self.angle_dim, self.angle_dim)
+#         self.angle_layers = [
+#             MLPBlock(self.angle_dim, self.angle_dim),
+#             MLPBlock(self.angle_dim, self.angle_dim),
+#         ]
+#         self.angle_network = nn.Sequential(*self.angle_layers)
+#         self.angle_tail = [
+#             MLPBlock(self.angle_dim, ff_dim),
+#             MLPBlock(ff_dim, ff_dim),
+#             MLPBlock(ff_dim, ff_dim),
+#         ]
+#         self.angle_tail = nn.Sequential(*self.angle_tail)
+
+#         self.connect_layer = [MLPBlock(ff_dim * 2, ff_dim // 2)]
+#         self.connect_network = nn.Sequential(*self.connect_layer)
+
+#         # action
+#         action_layers = [
+#             nn.Linear(ac_dim, ff_dim),
+#             nn.GELU(),
+#             MLPBlock(ff_dim, ff_dim // 2),
+#         ]
+#         self.action_network = nn.Sequential(*action_layers)
+
+#         self.combine_network = nn.Sequential(MLPBlock(ff_dim, ff_dim // 2))
+#         self.combine_layer = nn.Linear(ff_dim // 2, 1)
+
+#         self.pos_network.apply(lambda m: init_module_weights(m, True))
+#         self.angle_network.apply(lambda m: init_module_weights(m, True))
+#         self.connect_network.apply(lambda m: init_module_weights(m, True))
+#         self.action_network.apply(lambda m: init_module_weights(m, True))
+#         self.combine_network.apply(lambda m: init_module_weights(m, True))
+#         self.combine_layer.apply(lambda m: init_module_weights(m, True))
+
+#     def forward(self, observations: torch.Tensor, actions: torch.Tensor) -> torch.Tensor:
+
+#         # positions
+#         pos = observations[..., self.angle_dim :]
+#         pos = self.pos_fourier(pos)
+#         pos = self.pos_network(pos)
+
+#         # angles
+#         angles = observations[..., : self.angle_dim]
+#         residual = angles
+#         angles = self.angle_fourier(angles)
+#         angles = self.angle_network(angles)
+#         angles = self.angle_tail(angles + residual)
+
+#         # connect
+#         pos_angles = torch.cat([pos, angles], dim=-1)
+#         pos_angles = self.connect_network(pos_angles)
+
+#         # action
+#         action = self.action_network(actions)
+
+#         # combine
+#         combined = self.combine_network(torch.cat([pos_angles, action], dim=-1))
+#         q_values = self.combine_layer(combined)
+
+#         return q_values
 
 
 # class Actor(nn.Module):
