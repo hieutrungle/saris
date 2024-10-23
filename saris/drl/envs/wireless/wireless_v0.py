@@ -103,10 +103,14 @@ class WirelessEnvV0(Env):
         focal_vec_low = np.asarray([r_low, theta_low, phi_low] * self.num_groups)
         self.focal_vec_space = spaces.Box(low=focal_vec_low, high=focal_vec_high, dtype=np.float32)
 
+        # channels space
+        self.channel_space = spaces.Box(low=-100.0, high=100.0, shape=(6, 16, 73), dtype=np.float32)
+
         # Action is a focal_vec [delta_r, delta_theta, _delta_phi] for each group
         # spherical_focal_vecs = [r, theta, phi] for each group
         self.spherical_focal_vecs = None
         self.angles = None
+        self.channels = None
 
         self.observation_space = self._get_observation_space()
         self.action_space = self._get_action_space()
@@ -124,7 +128,7 @@ class WirelessEnvV0(Env):
     def _get_observation_space(self) -> spaces.Box:
         observation_space = spaces.Dict(
             {
-                "angles": self.angle_space,
+                "channels": self.channel_space,
                 "positions": self.position_space,
             }
         )
@@ -161,11 +165,11 @@ class WirelessEnvV0(Env):
         self.angles = self._blender_step(self.spherical_focal_vecs)
         self.angles = np.clip(self.angles, self.angle_space.low, self.angle_space.high)
 
-        self.cur_gain = self._cal_path_gain_dB(eval_mode=self.eval_mode)
+        self.channels, self.cur_gain = self._run_sionna_dB(eval_mode=self.eval_mode)
         self.next_gain = self.cur_gain
 
         observation = {
-            "angles": np.array(self.angles, dtype=np.float32),
+            "channels": self.channels,
             "positions": self.positions,
         }
 
@@ -189,10 +193,9 @@ class WirelessEnvV0(Env):
 
         truncated = False
         terminated = False
-        self.next_gain = 0.0
-        self.next_gain = self._cal_path_gain_dB(eval_mode=self.eval_mode)
+        self.channels, self.next_gain = self._run_sionna_dB(eval_mode=self.eval_mode)
         next_observation = {
-            "angles": np.asarray(self.angles, dtype=np.float32),
+            "channels": self.channels,
             "positions": self.positions,
         }
 
@@ -266,16 +269,16 @@ class WirelessEnvV0(Env):
         angles = np.asarray(angles, dtype=np.float32)
         return angles
 
-    def _cal_path_gain_dB(self, eval_mode: bool = False) -> np.ndarray[float]:
+    def _run_sionna_dB(self, eval_mode: bool = False) -> np.ndarray[float]:
 
         # self._prepare_geometry()
         # path gain shape: [num_rx]
-        path_gains = self._cal_path_gain_sionna(eval_mode=eval_mode)
+        channels, path_gains = self._run_sionna(eval_mode=eval_mode)
         path_gain_dBs = utils.linear2dB(path_gains)
 
-        return path_gain_dBs
+        return np.array(channels), path_gain_dBs
 
-    def _cal_path_gain_sionna(self, eval_mode: bool = False) -> float:
+    def _run_sionna(self, eval_mode: bool = False) -> float:
 
         # Set up geometry paths for Sionna script
         assets_dir = utils.get_os_dir("ASSETS_DIR")
@@ -291,32 +294,31 @@ class WirelessEnvV0(Env):
         )
 
         bandwidth = 20e6
-        if not eval_mode:
-            paths = sig_cmap.compute_paths()
-            cir = paths.cir()
-            # a: [batch_size, num_rx, num_rx_ant, num_tx, num_tx_ant, max_num_paths, num_time_steps], tf.complex
-            a, tau = cir
-            (l_min, l_max) = time_lag_discrete_time_channel(bandwidth)
-            # [batch size, num_rx, num_rx_ant, num_tx, num_tx_ant, num_time_steps, l_max - l_min + 1], tf.complex
-            h_time = cir_to_time_channel(bandwidth, a, tau, l_min, l_max)
-            h_time = h_time[0]
-            # [num_rx, num_rx_ant, num_tx, num_tx_ant, num_time_steps]
-            h_time_sum_power = tf.reduce_sum(tf.abs(h_time) ** 2, axis=-1)
-            # [num_rx, num_rx_ant]
-            h_time_avg_power = tf.reduce_mean(h_time_sum_power, axis=(1, 2, 3, 4))
-            # h_time_avg_power shape: [num_rx]
-            path_gain = h_time_avg_power.numpy()
-        else:
+        paths = sig_cmap.compute_paths()
+        cir = paths.cir()
+        # a: [batch_size, num_rx, num_rx_ant, num_tx, num_tx_ant, max_num_paths, num_time_steps], tf.complex
+        a, tau = cir
+        (l_min, l_max) = time_lag_discrete_time_channel(bandwidth)
+        # [batch size, num_rx, num_rx_ant, num_tx, num_tx_ant, num_time_steps, l_max - l_min + 1], tf.complex
+        channels = cir_to_time_channel(bandwidth, a, tau, l_min, l_max)
+        # [num_rx, num_rx_ant, num_tx, num_tx_ant, num_time_steps]
+        h_time_sum_power = tf.reduce_sum(tf.abs(channels[0]) ** 2, axis=-1)
+        # [num_rx, num_rx_ant]
+        h_time_avg_power = tf.reduce_mean(h_time_sum_power, axis=(1, 2, 3, 4))
+        # h_time_avg_power shape: [num_rx]
+        path_gains = h_time_avg_power.numpy()
+
+        if eval_mode:
             # Path for outputing iamges if we want to visualize the coverage map
             img_dir = os.path.join(
                 assets_dir, "images", self.log_string + self.current_time + f"_{self.idx}"
             )
             render_filename = utils.create_filename(img_dir, f"{scene_name}_00000.png")
             coverage_map = sig_cmap.compute_cmap()
-            path_gain = sig_cmap.get_path_gain(coverage_map)
+            path_gains = sig_cmap.get_path_gain(coverage_map)
             sig_cmap.render_to_file(coverage_map, filename=render_filename)
 
-        return path_gain
+        return channels, path_gains
 
 
 def compute_rot_angle(pt1: list, pt2: list) -> Tuple[float, float, float]:

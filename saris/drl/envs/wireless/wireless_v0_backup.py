@@ -4,21 +4,18 @@ os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
 os.environ["TF_GPU_ALLOCATOR"] = "cuda_malloc_async"  # to avoid memory fragmentation
 
-# import orderdict
-from collections import OrderedDict
-from typing import Tuple
-import re
+from typing import Tuple, Optional
 import subprocess
 import time
 import numpy as np
 from gymnasium import Env, spaces
-from saris.utils import utils
 import pickle
 import glob
-import json
+import math
+import copy
+from saris.utils import utils
 from saris.blender_script import shared_utils
-
-from saris.sigmap import signal_cmap
+from saris import sigmap
 from sionna.channel import (
     cir_to_ofdm_channel,
     subcarrier_frequencies,
@@ -26,8 +23,6 @@ from sionna.channel import (
     cir_to_time_channel,
     time_to_ofdm_channel,
 )
-
-import importlib
 import tensorflow as tf
 
 
@@ -44,44 +39,73 @@ class WirelessEnvV0(Env):
     ):
         super(WirelessEnvV0, self).__init__()
 
-        policy = tf.keras.mixed_precision.Policy("mixed_bfloat16")
-        tf.keras.mixed_precision.set_global_policy(policy)
-
         self.idx = idx
         self.log_string = log_string
         self.seed = seed + idx
         self.np_rng = np.random.default_rng(self.seed)
 
+        policy = tf.keras.mixed_precision.Policy("mixed_bfloat16")
+        tf.keras.mixed_precision.set_global_policy(policy)
         tf.config.experimental.set_memory_growth(
             tf.config.experimental.list_physical_devices("GPU")[0], True
         )
         tf.random.set_seed(self.seed)
 
         self.sionna_config = utils.load_config(sionna_config_file)
+
+        ris_pos = self.sionna_config["ris_positions"][0]
+        tx_pos = self.sionna_config["tx_positions"][0]
+        r, theta, phi = compute_rot_angle(tx_pos, ris_pos)
+        self.sionna_config["tx_orientations"] = [[theta, math.pi / 2 - phi, 0.0]]
+
+        # Set up logging
         self.current_time = "_" + time.strftime("%d-%m-%Y_%H-%M-%S")
 
         # Set up action and observation space
-        reflector_config = shared_utils.set_up_reflector()
-        self.lead_follow_dict, self.init_angles, self.angle_deltas = reflector_config
-        self.num_lead_tiles = len(self.lead_follow_dict.keys())
+        reflector_config = shared_utils.get_reflector_config()
+
+        self.theta_config = reflector_config[0]
+        self.phi_config = reflector_config[1]
+        self.num_groups = reflector_config[2]
+        self.num_elements_per_group = reflector_config[3]
+
         # angles = [theta, phi] for each tile
         # theta: azimuth angle, phi: elevation angle
-        init_theta, init_phi = self.init_angles
-        min_delta, max_delta = self.angle_deltas
+        init_theta = self.theta_config[0]
+        init_phi = self.phi_config[0]
+        init_per_group = [init_theta] + [init_phi] * self.num_elements_per_group
+        self.init_angles = np.concatenate([init_per_group] * self.num_groups)
 
-        theta_high = [init_theta + max_delta] * self.num_lead_tiles
-        phi_high = [init_phi + max_delta] * self.num_lead_tiles
-        angle_high = np.concatenate([theta_high, phi_high])
-
-        theta_low = [init_theta + min_delta] * self.num_lead_tiles
-        phi_low = [init_phi + min_delta] * self.num_lead_tiles
-        angle_low = np.concatenate([theta_low, phi_low])
-
+        # angles space
+        theta_high = self.theta_config[2]
+        phi_high = self.phi_config[2]
+        per_group_high = [theta_high] + [phi_high] * self.num_elements_per_group
+        angle_high = np.concatenate([per_group_high] * self.num_groups)
+        theta_low = self.theta_config[1]
+        phi_low = self.phi_config[1]
+        per_group_low = [theta_low] + [phi_low] * self.num_elements_per_group
+        angle_low = np.concatenate([per_group_low] * self.num_groups)
         self.angle_space = spaces.Box(low=angle_low, high=angle_high, dtype=np.float32)
 
-        # Power average of the equivalent channel
-        self.gain_space = spaces.Box(low=-np.inf, high=np.inf, shape=(1,), dtype=np.float32)
+        # position space
+        rx_positions = np.array(self.sionna_config["rx_positions"]).flatten()
+        ris_positions = np.array(self.sionna_config["ris_positions"]).flatten()
+        self.positions = np.concatenate([rx_positions, ris_positions], dtype=np.float32)
+        self.position_space = spaces.Box(
+            low=-100.0, high=100.0, shape=(len(self.positions),), dtype=np.float32
+        )
 
+        # focal vecs space for action space
+        self.init_focal_vecs = np.asarray([10.0, init_theta, init_phi] * self.num_groups)
+        r_high = 35.0
+        focal_vec_high = np.asarray([r_high, theta_high, phi_high] * self.num_groups)
+        r_low = 5.0
+        focal_vec_low = np.asarray([r_low, theta_low, phi_low] * self.num_groups)
+        self.focal_vec_space = spaces.Box(low=focal_vec_low, high=focal_vec_high, dtype=np.float32)
+
+        # Action is a focal_vec [delta_r, delta_theta, _delta_phi] for each group
+        # spherical_focal_vecs = [r, theta, phi] for each group
+        self.spherical_focal_vecs = None
         self.angles = None
 
         self.observation_space = self._get_observation_space()
@@ -90,69 +114,60 @@ class WirelessEnvV0(Env):
         self.taken_steps = 0.0
         self.cur_gain = 0.0
         self.next_gain = 0.0
+        self.ep_step = 0
 
         self.info = {}
         self.eval_mode = eval_mode
-
-        # rx_pos = self.sionna_config["rx_position"]
-        # print(f"rx_pos: {rx_pos}")
-        # rx_pos_xs = np.arange(-11.0, -14.0, -0.5)
-        # rx_pos_ys = np.arange(-2.5, -4.6, -0.5)
-        # rx_pos_zs = np.array([rx_pos[2]])
-
-        # print(f"env_idx: {self.idx}")
-        # self.rx_poss = []
-        # for rx_pos_x in rx_pos_xs:
-        #     rx_pos_ys = rx_pos_ys[::-1]
-        #     for rx_pos_y in rx_pos_ys:
-        #         for rx_pos_z in rx_pos_zs:
-        #             self.rx_poss.append([rx_pos_x, rx_pos_y, rx_pos_z])
-        #             print(f"rx_pos: {rx_pos_x}, {rx_pos_y}, {rx_pos_z}")
-        # print(f"Number of rx positions: {len(self.rx_poss)}")
-        # self.rx_idx = 0
-
-        # for i in range(100):
-        #     print(f"i: {i} - rx_idx: {self.rx_idx} - rx_pos: {self.rx_poss[self.rx_idx]}")
-        #     self.rx_idx = self.rx_idx + 1
-        #     if self.rx_idx % len(self.rx_poss) == 0:
-        #         self.rx_idx = 0
-        #         self.rx_poss = self.rx_poss[::-1]
-        #         print()
+        self.default_positions = copy.deepcopy(self.positions)
+        self.default_sionna_config = copy.deepcopy(self.sionna_config)
 
     def _get_observation_space(self) -> spaces.Box:
         observation_space = spaces.Dict(
             {
                 "angles": self.angle_space,
-                "gain": self.gain_space,
+                "positions": self.position_space,
             }
         )
         return observation_space
 
     def _get_action_space(self) -> spaces.Box:
-        action_space = spaces.Box(low=-1, high=1, shape=self.angle_space.shape)
+        # each group has 3 elements: 1 phi, 1 theta, and 1 r
+        action_space_shape = tuple((3 * self.num_groups,))
+        r_low = -4.05
+        r_high = 4.05
+        theta_low = np.deg2rad(-12.05)
+        theta_high = np.deg2rad(12.05)
+        phi_low = np.deg2rad(-12.05)
+        phi_high = np.deg2rad(12.05)
+        low = np.array([r_low, theta_low, phi_low] * self.num_groups, dtype=np.float32)
+        high = np.array([r_high, theta_high, phi_high] * self.num_groups, dtype=np.float32)
+        action_space = spaces.Box(low=low, high=high, shape=action_space_shape, dtype=np.float32)
         return action_space
 
     def reset(self, seed: int = None, options: dict = None) -> Tuple[dict, dict]:
         super().reset(seed=seed, options=options)
 
-        self.sionna_config["rx_position"] = self.rx_poss[self.rx_idx]
-        self.rx_idx = self.rx_idx + 1
-        if self.rx_idx % len(self.rx_poss) == 0:
-            self.rx_idx = 0
-            self.rx_poss = self.rx_poss[::-1]
+        self.ep_step = 0
+        self.positions = copy.deepcopy(self.default_positions)
+        self.sionna_config = copy.deepcopy(self.default_sionna_config)
 
-        self.angles = self.np_rng.uniform(low=self.angle_space.low, high=self.angle_space.high)
+        # noise to spherical_focal_vecs
+        noise = self.np_rng.normal(loc=0.0, scale=0.05, size=self.init_focal_vecs.shape)
+        self.spherical_focal_vecs = self.init_focal_vecs
+        self.spherical_focal_vecs += noise
+        self.spherical_focal_vecs = np.clip(
+            self.spherical_focal_vecs, self.focal_vec_space.low, self.focal_vec_space.high
+        )
+        self.angles = self._blender_step(self.spherical_focal_vecs)
         self.angles = np.clip(self.angles, self.angle_space.low, self.angle_space.high)
 
         self.cur_gain = self._cal_path_gain_dB(eval_mode=self.eval_mode)
         self.next_gain = self.cur_gain
 
-        observation = OrderedDict(
-            {
-                "angles": np.array(self.angles, dtype=np.float32),
-                "gain": np.array([self.cur_gain], dtype=np.float32),
-            }
-        )
+        observation = {
+            "angles": np.array(self.angles, dtype=np.float32),
+            "positions": self.positions,
+        }
 
         self.taken_steps = 0.0
 
@@ -163,48 +178,57 @@ class WirelessEnvV0(Env):
         self.taken_steps += 1.0
         self.cur_gain = self.next_gain
 
-        self.angles = np.clip(self.angles + action, self.angle_space.low, self.angle_space.high)
+        # action: [num_groups * 3]: num_groups * [phi, theta, r]
+        self.spherical_focal_vecs = self.spherical_focal_vecs + action
+        self.spherical_focal_vecs = np.clip(
+            self.spherical_focal_vecs, self.focal_vec_space.low, self.focal_vec_space.high
+        )
+
+        self.angles = self._blender_step(self.spherical_focal_vecs)
+        self.angles = np.clip(self.angles, self.angle_space.low, self.angle_space.high)
 
         truncated = False
         terminated = False
-
         self.next_gain = 0.0
         self.next_gain = self._cal_path_gain_dB(eval_mode=self.eval_mode)
         next_observation = {
             "angles": np.asarray(self.angles, dtype=np.float32),
-            "gain": np.asarray([self.next_gain], dtype=np.float32),
+            "positions": self.positions,
         }
 
         reward = self._cal_reward(self.cur_gain, self.next_gain, self.taken_steps)
 
         step_info = {
-            "path_gain_dB": self.cur_gain,
-            "next_path_gain_dB": self.next_gain,
+            "path_gain": self.cur_gain,
+            "next_path_gain": self.next_gain,
             "reward": reward,
         }
 
         return next_observation, reward, terminated, truncated, step_info
 
-    def _cal_reward(self, cur_gain: float, next_gain: float, time_taken: float) -> float:
-        threshold = -90.0  # dB
-        scaled_gain = 0.8 * (cur_gain - threshold)
-        gain_diff = 0.1 * (next_gain - cur_gain)
-        cost_time = -0.1 * time_taken
-        reward = scaled_gain + gain_diff + cost_time
-        return reward
+    def _cal_reward(
+        self, cur_gains: np.ndarray, next_gains: np.ndarray, time_taken: float
+    ) -> float:
 
-    def _cal_path_gain_dB(self, eval_mode: bool = False) -> float:
+        total_gain = np.sum(utils.dB2linear(cur_gains))
+        total_gain = utils.linear2dB(total_gain)  # dB
 
-        self._prepare_geometry()
-        path_gain = self._cal_path_gain_sionna(eval_mode=eval_mode)
-        path_gain_dB = utils.linear2dB(path_gain)
+        gain_diff = np.sum(next_gains - cur_gains)
+        cost_time = time_taken
 
-        return path_gain_dB
+        lower_ = -100.0
+        upper_ = -80.0
 
-    def _prepare_geometry(self) -> None:
+        reward = total_gain + 0.1 * gain_diff - 0.02 * cost_time
+        reward = (reward - lower_) / (upper_ - lower_)
+
+        return float(reward)
+
+    def _blender_step(self, spherical_focal_vecs: np.ndarray[float]) -> np.ndarray[float]:
         """
-        Prepare geometry for Sionna script using Blender.
-        This function saves current states of thetas and phis to a pickle file and runs the Blender script.
+        Step the environment using Blender.
+
+        If action is not given, the environment stays the same with the given angles.
         """
         # Blender export
         blender_app = utils.get_os_dir("BLENDER_APP")
@@ -214,17 +238,14 @@ class WirelessEnvV0(Env):
         tmp_dir = utils.get_os_dir("TMP_DIR")
         scene_name = f"{self.sionna_config['scene_name']}_{self.idx}"
         blender_output_dir = os.path.join(assets_dir, "blender", scene_name)
-        # // ! TODO: Need to convert from degrees to radians
-        angles = np.deg2rad(self.angles)
-        angles = (angles[: len(angles) // 2], angles[len(angles) // 2 :])
-        angle_path = os.path.join(
-            tmp_dir, f"angles-{self.log_string}-{self.current_time}-{self.idx}.pkl"
+
+        data_path = os.path.join(
+            tmp_dir, f"data-{self.log_string}-{self.current_time}-{self.idx}.pkl"
         )
-        with open(angle_path, "wb") as f:
-            pickle.dump(angles, f)
+        with open(data_path, "wb") as f:
+            pickle.dump(spherical_focal_vecs, f)
 
         blender_script = os.path.join(source_dir, "saris", "blender_script", "bl_drl.py")
-
         blender_cmd = [
             blender_app,
             "-b",
@@ -233,15 +254,26 @@ class WirelessEnvV0(Env):
             blender_script,
             "--",
             "-i",
-            angle_path,
+            data_path,
             "-o",
             blender_output_dir,
         ]
-        try:
-            bl_output_txt = os.path.join(tmp_dir, "bl_outputs.txt")
-            subprocess.run(blender_cmd, check=True, stdout=open(bl_output_txt, "w"))
-        except subprocess.CalledProcessError as e:
-            raise Exception(f"Error running Blender command: {e}")
+        bl_output_txt = os.path.join(tmp_dir, "bl_outputs.txt")
+        subprocess.run(blender_cmd, check=True, stdout=open(bl_output_txt, "w"))
+
+        with open(data_path, "rb") as f:
+            angles = pickle.load(f)
+        angles = np.asarray(angles, dtype=np.float32)
+        return angles
+
+    def _cal_path_gain_dB(self, eval_mode: bool = False) -> np.ndarray[float]:
+
+        # self._prepare_geometry()
+        # path gain shape: [num_rx]
+        path_gains = self._cal_path_gain_sionna(eval_mode=eval_mode)
+        path_gain_dBs = utils.linear2dB(path_gains)
+
+        return path_gain_dBs
 
     def _cal_path_gain_sionna(self, eval_mode: bool = False) -> float:
 
@@ -254,7 +286,7 @@ class WirelessEnvV0(Env):
         viz_scene_dir = os.path.join(blender_output_dir, "idx")
         viz_scene_path = glob.glob(os.path.join(viz_scene_dir, "*.xml"))[0]
 
-        sig_cmap = signal_cmap.SignalCoverageMap(
+        sig_cmap = sigmap.engine.SignalCoverageMap(
             self.sionna_config, compute_scene_path, viz_scene_path
         )
 
@@ -262,11 +294,18 @@ class WirelessEnvV0(Env):
         if not eval_mode:
             paths = sig_cmap.compute_paths()
             cir = paths.cir()
+            # a: [batch_size, num_rx, num_rx_ant, num_tx, num_tx_ant, max_num_paths, num_time_steps], tf.complex
             a, tau = cir
             (l_min, l_max) = time_lag_discrete_time_channel(bandwidth)
+            # [batch size, num_rx, num_rx_ant, num_tx, num_tx_ant, num_time_steps, l_max - l_min + 1], tf.complex
             h_time = cir_to_time_channel(bandwidth, a, tau, l_min, l_max)
-            h_time_avg_power = tf.reduce_mean(tf.reduce_sum(tf.abs(h_time) ** 2, axis=-1)).numpy()
-            path_gain = h_time_avg_power
+            h_time = h_time[0]
+            # [num_rx, num_rx_ant, num_tx, num_tx_ant, num_time_steps]
+            h_time_sum_power = tf.reduce_sum(tf.abs(h_time) ** 2, axis=-1)
+            # [num_rx, num_rx_ant]
+            h_time_avg_power = tf.reduce_mean(h_time_sum_power, axis=(1, 2, 3, 4))
+            # h_time_avg_power shape: [num_rx]
+            path_gain = h_time_avg_power.numpy()
         else:
             # Path for outputing iamges if we want to visualize the coverage map
             img_dir = os.path.join(
@@ -278,3 +317,26 @@ class WirelessEnvV0(Env):
             sig_cmap.render_to_file(coverage_map, filename=render_filename)
 
         return path_gain
+
+
+def compute_rot_angle(pt1: list, pt2: list) -> Tuple[float, float, float]:
+    """Compute the rotation angles for vector pt1 to pt2."""
+    x = pt2[0] - pt1[0]
+    y = pt2[1] - pt1[1]
+    z = pt2[2] - pt1[2]
+
+    return cartesian2spherical(x, y, z)
+
+
+def cartesian2spherical(x: float, y: float, z: float) -> Tuple[float, float, float]:
+    r = math.sqrt(x**2 + y**2 + z**2)
+    theta = math.atan2(y, x)
+    phi = math.acos(z / r)
+    return r, theta, phi
+
+
+def spherical2cartesian(r: float, theta: float, phi: float) -> Tuple[float, float, float]:
+    x = r * math.sin(phi) * math.cos(theta)
+    y = r * math.sin(phi) * math.sin(theta)
+    z = r * math.cos(phi)
+    return x, y, z
