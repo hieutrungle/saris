@@ -129,7 +129,7 @@ def make_env(config: TrainConfig, idx: int, eval_mode: bool) -> Callable:
         )
         env = gym.wrappers.RecordEpisodeStatistics(env)
         env = gym.wrappers.TimeLimit(env, max_episode_steps=max_episode_steps)
-        env = gym.wrappers.FlattenObservation(env)
+        # env = gym.wrappers.FlattenObservation(env)
         env.action_space.seed(config.seed)
         env.observation_space.seed(config.seed)
 
@@ -138,14 +138,55 @@ def make_env(config: TrainConfig, idx: int, eval_mode: bool) -> Callable:
     return thunk
 
 
+# def normalize_obs(
+#     observations: torch.Tensor,
+#     obs_rms: running_mean.RunningMeanStd,
+#     epsilon: float = 1e-8,
+# ) -> torch.Tensor:
+#     mean = obs_rms.mean.to(observations.device)
+#     var = obs_rms.var.to(observations.device)
+# return (observations - mean) / torch.sqrt(var + epsilon)
+
+
 def normalize_obs(
-    observations: torch.Tensor,
-    obs_rms: running_mean.RunningMeanStd,
+    flat_obs: torch.Tensor,
+    real_channel_rms: running_mean.RunningMeanStd,
+    imag_channel_rms: running_mean.RunningMeanStd,
     epsilon: float = 1e-8,
-) -> torch.Tensor:
-    mean = obs_rms.mean.to(observations.device)
-    var = obs_rms.var.to(observations.device)
-    return (observations - mean) / torch.sqrt(var + epsilon)
+):
+    real_mean = real_channel_rms.mean.to(flat_obs.device)
+    real_var = real_channel_rms.var.to(flat_obs.device)
+    real_channel_len = real_channel_rms.mean.shape[0]
+    real_channels = flat_obs[..., :real_channel_len]
+    real_channels = (real_channels - real_mean) / torch.sqrt(real_var + epsilon)
+
+    imag_mean = imag_channel_rms.mean.to(flat_obs.device)
+    imag_var = imag_channel_rms.var.to(flat_obs.device)
+    imag_channel_len = imag_channel_rms.mean.shape[0]
+    imag_channels = flat_obs[..., real_channel_len : real_channel_len + imag_channel_len]
+    imag_channels = (imag_channels - imag_mean) / torch.sqrt(imag_var + epsilon)
+
+    pos = flat_obs[..., real_channel_len + imag_channel_len :]
+    flat_obs = torch.cat([real_channels, imag_channels, pos], dim=-1)
+    return flat_obs
+
+
+def update_channel_rmss(
+    flat_obs: Tuple[torch.Tensor, torch.Tensor, torch.Tensor],
+    real_channel_rms: running_mean.RunningMeanStd,
+    imag_channel_rms: running_mean.RunningMeanStd,
+):
+    real_channel_len = np.prod(real_channel_rms.mean.shape)
+    real_channel_rms.update(flat_obs[..., :real_channel_len])
+    imag_channel_len = np.prod(imag_channel_rms.mean.shape)
+    imag_channel_rms.update(flat_obs[..., real_channel_len : real_channel_len + imag_channel_len])
+
+
+def print_rmss(
+    real_channel_rms: running_mean.RunningMeanStd, imag_channel_rms: running_mean.RunningMeanStd
+):
+    print(f"Real channel rms: {real_channel_rms.mean}, {real_channel_rms.var}")
+    # print(f"Imag channel rms: {imag_channel_rms.mean}, {imag_channel_rms.var}")
 
 
 @pyrallis.wrap()
@@ -173,14 +214,16 @@ def main(config: TrainConfig):
     else:
         raise ValueError(f"Invalid command: {config.command}, available commands: train, eval")
 
-    ac_dim = math.prod(envs.single_action_space.shape)
-    ob_dim = math.prod(envs.single_observation_space.shape)
     assert isinstance(
         envs.single_action_space, gym.spaces.Box
     ), "only continuous action space is supported"
 
     # Create running meanstd for normalization
-    obs_rms = running_mean.RunningMeanStd(shape=envs.single_observation_space.shape)
+    real_channel_len = math.prod(envs.single_observation_space[0].shape)
+    imag_channel_len = math.prod(envs.single_observation_space[1].shape)
+    real_channel_rms = running_mean.RunningMeanStd(shape=(real_channel_len,))
+    imag_channel_rms = running_mean.RunningMeanStd(shape=(imag_channel_len,))
+    obs_rmss = (real_channel_rms, imag_channel_rms)
 
     # Init checkpoints
     print(f"Checkpoints dir: {config.checkpoint_dir}")
@@ -189,17 +232,23 @@ def main(config: TrainConfig):
         pyrallis.dump(config, f)
 
     # Load models
+    ob_space = envs.single_observation_space
+    ac_space = envs.single_action_space
     if config.load_model != "-1":
         print(f"Loading model from {config.load_model}")
         checkpoint = torch.load(config.load_model, weights_only=False)
 
     # Actor setup
-    actor = sac.Actor(ob_dim, ac_dim, action_scale=config.action_scale).to(config.device)
+    actor = sac.Actor(ob_space, ac_space, action_scale=config.action_scale).to(config.device)
     if config.load_model != "-1":
         actor.load_state_dict(checkpoint["actor"])
-    actor_detach = sac.Actor(ob_dim, ac_dim, action_scale=config.action_scale).to(config.device)
+    actor_detach = sac.Actor(ob_space, ac_space, action_scale=config.action_scale).to(config.device)
+    total_ob_dim = sum([math.prod(ob.shape) for ob in ob_space])
+    tmp_obs = torch.randn((1, total_ob_dim), device=config.device)
     torchinfo.summary(
-        actor_detach, (1, ob_dim), col_names=["input_size", "output_size", "num_params"]
+        actor_detach,
+        input_data=tmp_obs,
+        col_names=["input_size", "output_size", "num_params"],
     )
     # Copy params to actor_detach without grad
     from_module(actor).data.to_module(actor_detach)
@@ -207,21 +256,26 @@ def main(config: TrainConfig):
 
     # Q function setup
     def get_q_params():
-        qf1 = sac.SoftQNetwork(ob_dim, ac_dim).to(config.device)
-        qf2 = sac.SoftQNetwork(ob_dim, ac_dim).to(config.device)
+        qf1 = sac.SoftQNetwork(ob_space, ac_space).to(config.device)
+        qf2 = sac.SoftQNetwork(ob_space, ac_space).to(config.device)
+        tmp_ac = torch.randn(1, *ac_space.shape, device=config.device)
         torchinfo.summary(
-            qf1, [(1, ob_dim), (1, ac_dim)], col_names=["input_size", "output_size", "num_params"]
+            qf1,
+            input_data=[tmp_obs, tmp_ac],
+            col_names=["input_size", "output_size", "num_params"],
         )
         qnet_params = from_modules(qf1, qf2, as_module=True)
         qnet_target_params = qnet_params.data.clone()
 
         # discard params of net
-        qnet = sac.SoftQNetwork(ob_dim, ac_dim).to("meta")
+        qnet = sac.SoftQNetwork(ob_space, ac_space).to("meta")
         qnet_params.to_module(qnet)
 
         return qnet_params, qnet_target_params, qnet
 
     qnet_params, qnet_target_params, qnet = get_q_params()
+
+    del tmp_obs
 
     # Automatic entropy tuning
     target_entropy = -torch.prod(
@@ -230,7 +284,7 @@ def main(config: TrainConfig):
     log_alpha = torch.zeros(1, requires_grad=True, device=config.device)
 
     if config.load_model != "-1":
-        obs_rms = checkpoint["obs_rms"]
+        obs_rmss = checkpoint["obs_rmss"]
         qnet_params.load_state_dict(checkpoint["qnet_params"])
         qnet_target_params.load_state_dict(checkpoint["qnet_target_params"])
         log_alpha = checkpoint["log_alpha"].clone().detach().requires_grad_(True)
@@ -268,7 +322,7 @@ def main(config: TrainConfig):
         train_agent(
             config,
             envs,
-            obs_rms,
+            obs_rmss,
             actor,
             policy,
             qnet_params,
@@ -298,7 +352,7 @@ def main(config: TrainConfig):
 def train_agent(
     config: TrainConfig,
     envs: gym.vector.AsyncVectorEnv,
-    obs_rms: running_mean.RunningMeanStd,
+    obs_rmss: running_mean.RunningMeanStd,
     actor: sac.Actor,
     policy: Callable,
     qnet_params: TensorDict,
@@ -377,6 +431,9 @@ def train_agent(
 
     # TRY NOT TO MODIFY: start the game
     obs, _ = envs.reset(seed=config.seed)
+    obs = np.concatenate([ob.reshape(ob.shape[0], -1) for ob in obs], axis=-1)
+    update_channel_rmss(torch.tensor(obs), obs_rmss[0], obs_rmss[1])
+
     pbar = tqdm.tqdm(range(config.total_timesteps), dynamic_ncols=True)
     max_ep_ret = -float("inf")
     avg_returns = deque(maxlen=config.num_envs)
@@ -387,7 +444,7 @@ def train_agent(
         if global_step < config.learning_starts * 9 / 10:
             actions = np.array([envs.single_action_space.sample() for _ in range(envs.num_envs)])
         else:
-            actions = policy(torch.as_tensor(obs, device=config.device, dtype=torch.float))
+            actions = policy(torch.tensor(obs, dtype=torch.float, device=config.device))
             actions = actions.cpu().numpy()
 
         # TRY NOT TO MODIFY: execute the game and log data.
@@ -419,10 +476,19 @@ def train_agent(
         next_path_gains = torch.as_tensor(next_path_gains, dtype=torch.float)
 
         # TRY NOT TO MODIFY: save data to reply buffer; handle `final_observation`
-        real_next_obs = copy.deepcopy(next_obs)
+        # next_obs: Tuple(batched_real, batched_imag, batched_pos)
+        real_next_obs = list(copy.deepcopy(next_obs))
         for idx, trunc in enumerate(truncations):
             if trunc:
-                real_next_obs[idx] = infos["final_observation"][idx]
+                real_next_obs = infos["final_observation"]
+                # List[Tuple(Real, Imag, Pos), Tuple(Real, Imag, Pos)]
+                # need to convert to Tuple(batched_real, batched_imag, batched_pos)
+                real_next_obs = list(zip(*real_next_obs))
+                real_next_obs = [np.stack(obs, axis=0) for obs in real_next_obs]
+                break
+        real_next_obs = np.concatenate(
+            [ob.reshape(ob.shape[0], -1) for ob in real_next_obs], axis=-1
+        )
 
         if global_step == config.total_timesteps - 1:
             truncations = [True] * len(truncations)
@@ -438,24 +504,27 @@ def train_agent(
             batch_size=obs.shape[0],
         )
         rb.extend(transition)
-        obs_rms.update(torch.tensor(obs, dtype=torch.float))
 
         # TRY NOT TO MODIFY: CRUCIAL step easy to overlook
+        next_obs = np.concatenate([ob.reshape(ob.shape[0], -1) for ob in next_obs], axis=-1)
         obs = next_obs
+        update_channel_rmss(torch.tensor(obs), obs_rmss[0], obs_rmss[1])
 
         # ALGO LOGIC: training.
         if global_step > config.learning_starts:
             log_infos = {}
+
             for j in range(config.n_updates):
                 data = rb.sample()
-                data = TensorDict(
-                    {
-                        k: torch.as_tensor(v, device=config.device, dtype=torch.float)
-                        for k, v in data.items()
-                    }
+                data = {
+                    k: torch.as_tensor(v, device=config.device, dtype=torch.float)
+                    for k, v in data.items()
+                }
+                data["observations"] = normalize_obs(data["observations"], obs_rmss[0], obs_rmss[1])
+                data["next_observations"] = normalize_obs(
+                    data["next_observations"], obs_rmss[0], obs_rmss[1]
                 )
-                data["observations"] = normalize_obs(data["observations"], obs_rms)
-                data["next_observations"] = normalize_obs(data["next_observations"], obs_rms)
+                data = TensorDict(data)
 
                 log_infos.update(update_critics(data))
                 if j % config.policy_frequency == 1:  # TD 3 Delayed update support
@@ -487,14 +556,14 @@ def train_agent(
                     + f" | actor_loss={logs['actor_loss']: 4.3f} | qf_loss={logs['qf_loss']: 4.3f}"
                 )
 
-            if global_step % config.save_interval == 0:
+            if global_step % config.save_interval == 0 or global_step == config.total_timesteps - 1:
                 torch.save(
                     {
                         "actor": actor.state_dict(),
                         "qnet_params": qnet_params.state_dict(),
                         "qnet_target_params": qnet_target_params.state_dict(),
                         "log_alpha": log_alpha,
-                        "obs_rms": obs_rms,
+                        "obs_rmss": obs_rmss,
                     },
                     os.path.join(config.checkpoint_dir, f"model_{global_step}.pth"),
                 )
