@@ -397,6 +397,8 @@ def train_agent(
         )
         qf_loss = qf_a_values.sum(0)
         qf_loss.backward()
+        # clip the gradients for qnet_params
+        torch.nn.utils.clip_grad_norm_(qnet_params, 0.75)
         q_optimizer.step()
         q_scheduler.step()
         return TensorDict(qf_loss=qf_loss.detach())
@@ -409,13 +411,14 @@ def train_agent(
         actor_loss = torch.mean((alpha * log_pi) - min_qf_pi)
 
         actor_loss.backward()
+        torch.nn.utils.clip_grad_norm_(actor.parameters(), 0.75)
         actor_optimizer.step()
         actor_scheduler.step()
+
         a_optimizer.zero_grad()
         with torch.no_grad():
             _, log_pi, _ = actor.get_action(data["observations"])
         alpha_loss = -torch.mean(log_alpha.exp() * (log_pi + target_entropy))
-
         alpha_loss.backward()
         a_optimizer.step()
         return TensorDict(
