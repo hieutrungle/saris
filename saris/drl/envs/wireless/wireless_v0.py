@@ -202,7 +202,11 @@ class WirelessEnvV0(Env):
         )
 
         self.angles = self._blender_step(self.spherical_focal_vecs)
-        self.angles = np.clip(self.angles, self.angle_space.low, self.angle_space.high)
+        # if angles values are out of bounds, print warning
+        if np.any(self.angles < self.angle_space.low) or np.any(
+            self.angles > self.angle_space.high
+        ):
+            print("Warning: angles out of bounds")
 
         truncated = False
         terminated = False
