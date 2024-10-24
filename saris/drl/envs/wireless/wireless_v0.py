@@ -104,6 +104,9 @@ class WirelessEnvV0(Env):
         focal_vec_low = np.asarray([r_low, theta_low, phi_low] * self.num_groups)
         self.focal_vec_space = spaces.Box(low=focal_vec_low, high=focal_vec_high, dtype=np.float32)
 
+        self.focal_noise_high = np.asarray([2.0, 0.1, 0.1] * self.num_groups)
+        self.focal_noise_low = -self.focal_noise_high
+
         # channels space
         self.bandwidth = 20e6
         self.maximum_delay_spread = 1e-6  # 1us
@@ -170,8 +173,8 @@ class WirelessEnvV0(Env):
         self.sionna_config = copy.deepcopy(self.default_sionna_config)
 
         # noise to spherical_focal_vecs
-        noise = self.np_rng.normal(loc=0.0, scale=0.05, size=self.init_focal_vecs.shape)
-        self.spherical_focal_vecs = self.init_focal_vecs
+        noise = self.np_rng.uniform(low=self.focal_noise_low, high=self.focal_noise_high)
+        self.spherical_focal_vecs = copy.deepcopy(self.init_focal_vecs)
         self.spherical_focal_vecs += noise
         self.spherical_focal_vecs = np.clip(
             self.spherical_focal_vecs, self.focal_vec_space.low, self.focal_vec_space.high
