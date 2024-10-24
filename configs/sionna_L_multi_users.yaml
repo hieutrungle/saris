@@ -11,7 +11,7 @@ frequency: 28e9
 synthetic_array: true
 
 # RIS parameters
-ris_positions: [[2.0, -3.8, 2.3]]
+ris_positions: [[2.09223, -3.88804, 2.06059]]
 
 # Transmitter and receiver parameters
 tx_num_rows: 4
@@ -27,7 +27,7 @@ rx_num_cols: 1
 rx_vertical_spacing: 0.5
 rx_horizontal_spacing: 0.5
 rx_pattern: iso
-rx_polarization: cross
+rx_polarization: V
 rx_positions: [[-10.0, -2.75, 1.5], [-8.0, -4.25, 1.5], [-11.0, -3.25, 1.5]]
 rx_orientations: [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]]
 
