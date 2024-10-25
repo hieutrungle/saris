@@ -69,6 +69,7 @@ class TrainConfig:
     learning_starts: int = 5e3  # the timestep to start learning
     policy_lr: float = 3e-4  # the learning rate of the policy network optimizer
     q_lr: float = 1e-3  # the learning rate of the q network optimizer
+    warmup_steps: int = 1000  # the number of warmup steps
     policy_frequency: int = 2  # the frequency of training policy (delayed)
     target_network_frequency: int = 2  # the frequency of updates for the target nerworks
     alpha: float = 0.2  # Entropy regularization coefficient
@@ -189,6 +190,19 @@ def print_rmss(
     # print(f"Imag channel rms: {imag_channel_rms.mean}, {imag_channel_rms.var}")
 
 
+def create_scheduler(optimizer, warmup_steps, num_train_steps, lr):
+    warmup_scheduler = optim.lr_scheduler.LinearLR(
+        optimizer, start_factor=1 / 12, total_iters=warmup_steps
+    )
+    cosine_scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(
+        optimizer, num_train_steps - warmup_steps, eta_min=lr / 12
+    )
+    scheduler = optim.lr_scheduler.SequentialLR(
+        optimizer, [warmup_scheduler, cosine_scheduler], [warmup_steps]
+    )
+    return scheduler
+
+
 @pyrallis.wrap()
 def main(config: TrainConfig):
 
@@ -292,17 +306,19 @@ def main(config: TrainConfig):
     a_optimizer = optim.AdamW([log_alpha], lr=config.q_lr)
 
     q_optimizer = optim.AdamW(qnet.parameters(), lr=config.q_lr)
-    q_scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
+    q_scheduler = create_scheduler(
         q_optimizer,
+        config.n_updates * config.warmup_steps,
         config.n_updates * config.total_timesteps,
-        eta_min=config.q_lr / 12,
+        config.q_lr,
     )
 
     actor_optimizer = optim.AdamW(list(actor.parameters()), lr=config.policy_lr)
-    actor_scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
+    actor_scheduler = create_scheduler(
         actor_optimizer,
+        config.n_updates * config.warmup_steps,
         config.n_updates * config.total_timesteps,
-        eta_min=config.policy_lr / 10,
+        config.policy_lr,
     )
 
     # replay buffer setup
@@ -363,9 +379,9 @@ def train_agent(
     alpha: torch.Tensor,
     a_optimizer: torch.optim.Optimizer,
     q_optimizer: torch.optim.Optimizer,
-    q_scheduler: torch.optim.lr_scheduler.CosineAnnealingWarmRestarts,
+    q_scheduler: torch.optim.lr_scheduler._LRScheduler,
     actor_optimizer: torch.optim.Optimizer,
-    actor_scheduler: torch.optim.lr_scheduler.CosineAnnealingWarmRestarts,
+    actor_scheduler: torch.optim.lr_scheduler._LRScheduler,
     rb: ReplayBuffer,
 ):
 

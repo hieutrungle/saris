@@ -39,8 +39,9 @@ class TrainConfig:
     tau: float = 0.005  # target smoothing coefficient (default: 0.005)
     batch_size: int = 256  # the batch size of sample from the reply memory
     learning_starts: int = 701  # the timestep to start learning
-    policy_lr: float = 3e-4  # the learning rate of the policy network optimizer
-    q_lr: float = 1e-3  # the learning rate of the q network optimizer
+    policy_lr: float = 1e-4  # the learning rate of the policy network optimizer
+    q_lr: float = 5e-4  # the learning rate of the q network optimizer
+    warmup_steps: int = 200  # the number of warmup steps
     policy_frequency: int = 2  # the frequency of training policy (delayed)
     target_network_frequency: int = 2  # the frequency of updates for the target nerworks
     alpha: float = 0.2  # Entropy regularization coefficient
@@ -118,6 +119,8 @@ def main(config: TrainConfig):
         str(config.policy_lr),
         "--q_lr",
         str(config.q_lr),
+        "--warmup_steps",
+        str(config.warmup_steps),
         "--policy_frequency",
         str(config.policy_frequency),
         "--target_network_frequency",
