@@ -168,9 +168,17 @@ def normalize_obs(
     imag_channels = flat_obs[..., real_channel_len : real_channel_len + imag_channel_len]
     imag_channels = (imag_channels - imag_mean) / torch.sqrt(imag_var + epsilon)
 
-    pos = flat_obs[..., real_channel_len + imag_channel_len :]
-    flat_obs = torch.cat([real_channels, imag_channels, pos], dim=-1)
-    return flat_obs
+    angle_len = 72
+    angles = flat_obs[
+        ..., real_channel_len + imag_channel_len : real_channel_len + imag_channel_len + angle_len
+    ]
+    init_angles = [math.radians(135.0)] + [math.radians(90.0)] * 7
+    init_angles = np.concatenate([init_angles] * 9)
+    angles = torch.sub(angles, torch.tensor(init_angles, device=angles.device, dtype=angles.dtype))
+
+    pos = flat_obs[..., real_channel_len + imag_channel_len + angle_len :]
+    flat_obs = torch.cat([real_channels, imag_channels, angles, pos], dim=-1)
+    return flat_obs.float()
 
 
 def update_channel_rmss(
@@ -237,6 +245,8 @@ def main(config: TrainConfig):
     assert isinstance(
         envs.single_action_space, gym.spaces.Box
     ), "only continuous action space is supported"
+    print(f"Observation space: {envs.single_observation_space}")
+    print(f"Action space: {envs.single_action_space}")
 
     # Create running meanstd for normalization
     real_channel_len = math.prod(envs.single_observation_space[0].shape)

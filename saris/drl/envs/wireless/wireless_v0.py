@@ -147,7 +147,12 @@ class WirelessEnvV0(Env):
 
     def _get_observation_space(self) -> spaces.Box:
         observation_space = spaces.Tuple(
-            (self.real_channel_space, self.imag_channel_space, self.position_space)
+            (
+                self.real_channel_space,
+                self.imag_channel_space,
+                self.angle_space,
+                self.position_space,
+            )
         )
         return observation_space
 
@@ -187,7 +192,7 @@ class WirelessEnvV0(Env):
 
         real_channels = np.asarray(self.channels.real, dtype=np.float32)
         imag_channels = np.asarray(self.channels.imag, dtype=np.float32)
-        observation = (real_channels, imag_channels, self.positions)
+        observation = (real_channels, imag_channels, self.angles, self.positions)
 
         self.taken_steps = 0.0
 
@@ -217,7 +222,7 @@ class WirelessEnvV0(Env):
 
         real_channels = np.asarray(self.channels.real, dtype=np.float32)
         imag_channels = np.asarray(self.channels.imag, dtype=np.float32)
-        next_observation = (real_channels, imag_channels, self.positions)
+        next_observation = (real_channels, imag_channels, self.angles, self.positions)
 
         reward = self._cal_reward(self.cur_gain, self.next_gain, self.taken_steps)
 

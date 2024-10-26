@@ -95,12 +95,19 @@ class Actor(nn.Module):
         super().__init__()
         self.real_channel_shape = ob_space[0].shape
         self.imag_channel_shape = ob_space[1].shape
-        self.position_shape = ob_space[2].shape
+        self.angle_shape = ob_space[2].shape
+        self.position_shape = ob_space[3].shape
         self.ac_shape = ac_space.shape
 
         self.real_channel_dim = np.prod(self.real_channel_shape)
         self.imag_channel_dim = np.prod(self.imag_channel_shape)
+        self.angle_dim = np.prod(self.angle_shape)
         self.position_dim = np.prod(self.position_shape)
+
+        self.real_start = 0
+        self.imag_start = self.real_channel_dim
+        self.angle_start = self.imag_start + self.imag_channel_dim
+        self.pos_start = self.angle_start + self.angle_dim
 
         self.action_scale = action_scale
         self.log_std_min = log_std_min
@@ -121,6 +128,14 @@ class Actor(nn.Module):
             nn.GELU(),
         ]
         self.pos_network = nn.Sequential(*self.pos_layers)
+
+        # angles
+        self.angle_layers = [
+            nn.Linear(self.angle_dim, ff_dim),
+            nn.GELU(),
+            nn.Linear(ff_dim, ff_dim),
+        ]
+        self.angle_network = nn.Sequential(*self.angle_layers)
 
         # channels
         self.real_channel_layers = [
@@ -147,8 +162,8 @@ class Actor(nn.Module):
         self.chanel_combine_layer = [nn.Linear(ff_dim * 2, ff_dim), nn.GELU()]
         self.channel_connect_network = nn.Sequential(*self.chanel_combine_layer)
 
-        # Connect channel + pos
-        self.connect_layer = [MLPBlock(ff_dim * 2, ff_dim // 2)]
+        # Connect channel + pos + angles
+        self.connect_layer = [MLPBlock(ff_dim * 3, ff_dim // 2)]
         self.connect_network = nn.Sequential(*self.connect_layer)
 
         self.fc_mean = nn.Linear(ff_dim // 2, np.prod(self.ac_shape))
@@ -161,20 +176,27 @@ class Actor(nn.Module):
 
     def forward(self, observations: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
 
-        # positions
         batch_size = observations.shape[0]
-        real_channel = observations[:batch_size, : self.real_channel_dim].reshape(
+        real_channel = observations[:batch_size, self.real_start : self.imag_start].reshape(
             batch_size, *self.real_channel_shape
         )
-        imag_channel = observations[
-            :batch_size, self.real_channel_dim : self.real_channel_dim + self.imag_channel_dim
-        ].reshape(batch_size, *self.imag_channel_shape)
-        pos = observations[:batch_size, self.real_channel_dim + self.imag_channel_dim :].reshape(
-            batch_size, *self.position_shape
+        imag_channel = observations[:batch_size, self.imag_start : self.angle_start].reshape(
+            batch_size, *self.imag_channel_shape
         )
+        angles = angles = observations[:batch_size, self.angle_start : self.pos_start].reshape(
+            batch_size, *self.angle_shape
+        )
+        pos = observations[:batch_size, self.pos_start :].reshape(batch_size, *self.position_shape)
 
+        # positions
         pos = self.pos_embed(pos)
         pos = self.pos_network(pos)
+
+        # angles
+        angles = observations[
+            :batch_size, self.real_channel_dim + self.imag_channel_dim + self.position_dim :
+        ].reshape(batch_size, *self.angle_shape)
+        angles = self.angle_network(angles)
 
         # channels
         real_channel = real_channel.reshape(real_channel.shape[0], -1)
@@ -187,8 +209,8 @@ class Actor(nn.Module):
         channel = self.channel_connect_network(channel)
 
         # connect
-        pos_channel = torch.cat([pos, channel], dim=-1)
-        combined = self.connect_network(pos_channel)
+        combined = torch.cat([channel, angles, pos], dim=-1)
+        combined = self.connect_network(combined)
 
         # mean and log_std
         mean = self.fc_mean(combined)
@@ -236,15 +258,19 @@ class SoftQNetwork(nn.Module):
         super().__init__()
         self.real_channel_shape = ob_space[0].shape
         self.imag_channel_shape = ob_space[1].shape
-        self.position_shape = ob_space[2].shape
+        self.angle_shape = ob_space[2].shape
+        self.position_shape = ob_space[3].shape
         self.ac_shape = ac_space.shape
 
         self.real_channel_dim = np.prod(self.real_channel_shape)
         self.imag_channel_dim = np.prod(self.imag_channel_shape)
+        self.angle_dim = np.prod(self.angle_shape)
         self.position_dim = np.prod(self.position_shape)
 
-        num_txs = self.real_channel_shape[1]
-        num_rxs = self.real_channel_shape[0]
+        self.real_start = 0
+        self.imag_start = self.real_channel_dim
+        self.angle_start = self.imag_start + self.imag_channel_dim
+        self.pos_start = self.angle_start + self.angle_dim
 
         ff_dim = 256
 
@@ -261,6 +287,14 @@ class SoftQNetwork(nn.Module):
             nn.GELU(),
         ]
         self.pos_network = nn.Sequential(*self.pos_layers)
+
+        # angles
+        self.angle_layers = [
+            nn.Linear(self.angle_dim, ff_dim),
+            nn.GELU(),
+            nn.Linear(ff_dim, ff_dim),
+        ]
+        self.angle_network = nn.Sequential(*self.angle_layers)
 
         # channels
         self.real_channel_layers = [
@@ -287,8 +321,8 @@ class SoftQNetwork(nn.Module):
         self.chanel_combine_layer = [nn.Linear(ff_dim * 2, ff_dim), nn.GELU()]
         self.channel_connect_network = nn.Sequential(*self.chanel_combine_layer)
 
-        # Connect channel + pos
-        self.connect_layer = [MLPBlock(ff_dim * 2, ff_dim // 2)]
+        # Connect channel + pos + angles
+        self.connect_layer = [MLPBlock(ff_dim * 3, ff_dim // 2)]
         self.connect_network = nn.Sequential(*self.connect_layer)
 
         # action
@@ -313,20 +347,27 @@ class SoftQNetwork(nn.Module):
 
     def forward(self, observations: torch.Tensor, actions: torch.Tensor) -> torch.Tensor:
 
-        # positions
         batch_size = observations.shape[0]
-        real_channel = observations[:batch_size, : self.real_channel_dim].reshape(
+        real_channel = observations[:batch_size, self.real_start : self.imag_start].reshape(
             batch_size, *self.real_channel_shape
         )
-        imag_channel = observations[
-            :batch_size, self.real_channel_dim : self.real_channel_dim + self.imag_channel_dim
-        ].reshape(batch_size, *self.imag_channel_shape)
-        pos = observations[:batch_size, self.real_channel_dim + self.imag_channel_dim :].reshape(
-            batch_size, *self.position_shape
+        imag_channel = observations[:batch_size, self.imag_start : self.angle_start].reshape(
+            batch_size, *self.imag_channel_shape
         )
+        angles = angles = observations[:batch_size, self.angle_start : self.pos_start].reshape(
+            batch_size, *self.angle_shape
+        )
+        pos = observations[:batch_size, self.pos_start :].reshape(batch_size, *self.position_shape)
 
+        # positions
         pos = self.pos_embed(pos)
         pos = self.pos_network(pos)
+
+        # angles
+        angles = observations[
+            :batch_size, self.real_channel_dim + self.imag_channel_dim + self.position_dim :
+        ].reshape(batch_size, *self.angle_shape)
+        angles = self.angle_network(angles)
 
         # channels
         real_channel = real_channel.reshape(real_channel.shape[0], -1)
@@ -339,8 +380,8 @@ class SoftQNetwork(nn.Module):
         channel = self.channel_connect_network(channel)
 
         # connect
-        pos_channel = torch.cat([pos, channel], dim=-1)
-        combined = self.connect_network(pos_channel)
+        combined = torch.cat([channel, angles, pos], dim=-1)
+        combined = self.connect_network(combined)
 
         # action
         action = self.action_network(actions)
