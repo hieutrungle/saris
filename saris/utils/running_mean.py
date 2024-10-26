@@ -6,7 +6,7 @@ class RunningMeanStd:
     """Tracks the mean, variance and count of values."""
 
     # https://en.wikipedia.org/wiki/Algorithms_for_calculating_variance#Parallel_algorithm
-    def __init__(self, epsilon=1e-4, shape=()):
+    def __init__(self, epsilon=1e-15, shape=()):
         """Tracks the mean, variance and count of values."""
         self.mean = torch.zeros(shape, dtype=torch.float)
         self.var = torch.ones(shape, dtype=torch.float)
