@@ -183,13 +183,6 @@ def update_channel_rmss(
     imag_channel_rms.update(flat_obs[..., real_channel_len : real_channel_len + imag_channel_len])
 
 
-def print_rmss(
-    real_channel_rms: running_mean.RunningMeanStd, imag_channel_rms: running_mean.RunningMeanStd
-):
-    print(f"Real channel rms: {real_channel_rms.mean}, {real_channel_rms.var}")
-    # print(f"Imag channel rms: {imag_channel_rms.mean}, {imag_channel_rms.var}")
-
-
 def create_scheduler(optimizer, warmup_steps, num_train_steps, lr):
     warmup_scheduler = optim.lr_scheduler.LinearLR(
         optimizer, start_factor=1 / 12, total_iters=warmup_steps
@@ -343,6 +336,8 @@ def main(config: TrainConfig):
         print(f"Loading replay buffer from {config.load_replay_buffer}")
         rb.loads(config.load_replay_buffer)
         print(f"Replay buffer loaded with {len(rb)} samples")
+        stored_obs = np.asarray(rb.storage.get("observations"))
+        update_channel_rmss(torch.tensor(stored_obs), obs_rmss[0], obs_rmss[1])
 
     wandb_init(config)
 
@@ -461,9 +456,10 @@ def train_agent(
     policy = torch.compile(policy, mode=mode)
 
     # TRY NOT TO MODIFY: start the game
+    stored_flat_obs = []
     obs, _ = envs.reset(seed=config.seed)
-    obs = np.concatenate([ob.reshape(ob.shape[0], -1) for ob in obs], axis=-1)
-    update_channel_rmss(torch.tensor(obs), obs_rmss[0], obs_rmss[1])
+    flat_obs = np.concatenate([ob.reshape(ob.shape[0], -1) for ob in obs], axis=-1)
+    stored_flat_obs.append(flat_obs)
 
     pbar = tqdm.tqdm(range(config.total_timesteps), dynamic_ncols=True)
     max_ep_ret = -float("inf")
@@ -475,7 +471,7 @@ def train_agent(
         if global_step < config.learning_starts * 9 / 10:
             actions = np.array([envs.single_action_space.sample() for _ in range(envs.num_envs)])
         else:
-            actions = policy(torch.tensor(obs, dtype=torch.float, device=config.device))
+            actions = policy(torch.tensor(flat_obs, dtype=torch.float, device=config.device))
             actions = actions.cpu().numpy()
 
         # TRY NOT TO MODIFY: execute the game and log data.
@@ -484,6 +480,7 @@ def train_agent(
 
         # TRY NOT TO MODIFY: record rewards for plotting purposes
         if "final_info" in infos:
+            # log episodic returns
             for info in infos["final_info"]:
                 r = float(info["episode"]["r"][0])
                 max_ep_ret = max(max_ep_ret, r)
@@ -496,6 +493,12 @@ def train_agent(
             desc = f"global_step={global_step}, episodic_return={avg_ret: 4.2f} (max={max_ep_ret: 4.2f})"
             wandb.log(log_dict, step=global_step)
 
+            # update channel rms normalization
+            stored_flat_obs = np.concatenate(stored_flat_obs, axis=0)
+            update_channel_rmss(torch.tensor(stored_flat_obs), obs_rmss[0], obs_rmss[1])
+            stored_flat_obs = []
+
+            # get path gains
             path_gains = [info["path_gain"] for info in infos["final_info"]]
             next_path_gains = [info["next_path_gain"] for info in infos["final_info"]]
         else:
@@ -515,31 +518,31 @@ def train_agent(
                 # List[Tuple(Real, Imag, Pos), Tuple(Real, Imag, Pos)]
                 # need to convert to Tuple(batched_real, batched_imag, batched_pos)
                 real_next_obs = list(zip(*real_next_obs))
-                real_next_obs = [np.stack(obs, axis=0) for obs in real_next_obs]
+                real_next_obs = [np.stack(ob, axis=0) for ob in real_next_obs]
                 break
-        real_next_obs = np.concatenate(
+        flat_real_next_obs = np.concatenate(
             [ob.reshape(ob.shape[0], -1) for ob in real_next_obs], axis=-1
         )
 
         if global_step == config.total_timesteps - 1:
             truncations = [True] * len(truncations)
         transition = TensorDict(
-            observations=obs,
-            next_observations=real_next_obs,
+            observations=flat_obs,
+            next_observations=flat_real_next_obs,
             actions=actions,
             rewards=rewards,
             terminations=terminations,
             truncations=truncations,
             path_gains=path_gains,
             next_path_gains=next_path_gains,
-            batch_size=obs.shape[0],
+            batch_size=flat_obs.shape[0],
         )
         rb.extend(transition)
 
         # TRY NOT TO MODIFY: CRUCIAL step easy to overlook
-        next_obs = np.concatenate([ob.reshape(ob.shape[0], -1) for ob in next_obs], axis=-1)
-        obs = next_obs
-        update_channel_rmss(torch.tensor(obs), obs_rmss[0], obs_rmss[1])
+        flat_next_obs = np.concatenate([ob.reshape(ob.shape[0], -1) for ob in next_obs], axis=-1)
+        flat_obs = flat_next_obs
+        stored_flat_obs.append(flat_obs)
 
         # ALGO LOGIC: training.
         if global_step > config.learning_starts:
