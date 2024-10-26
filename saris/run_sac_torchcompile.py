@@ -32,20 +32,20 @@ class TrainConfig:
     eval_ep_len: int = 75  # the maximum length of an episode
 
     # Algorithm specific arguments
-    total_timesteps: int = 10_001  # total timesteps of the experiments
+    total_timesteps: int = 7_001  # total timesteps of the experiments
     n_updates: int = 20  # the number of updates per step
     buffer_size: int = int(80_000)  # the replay memory buffer size
     gamma: float = 0.9  # the discount factor gamma
     tau: float = 0.005  # target smoothing coefficient (default: 0.005)
     batch_size: int = 256  # the batch size of sample from the reply memory
-    learning_starts: int = 701  # the timestep to start learning
+    learning_starts: int = 501  # the timestep to start learning
     policy_lr: float = 1e-4  # the learning rate of the policy network optimizer
     q_lr: float = 5e-4  # the learning rate of the q network optimizer
-    warmup_steps: int = 200  # the number of warmup steps
+    warmup_steps: int = 500  # the number of warmup steps
     policy_frequency: int = 2  # the frequency of training policy (delayed)
     target_network_frequency: int = 2  # the frequency of updates for the target nerworks
     alpha: float = 0.2  # Entropy regularization coefficient
-    action_scale: float = 9.0  # the scale of the action
+    action_scale: float = 12.0  # the scale of the action
 
     # Wandb logging
     wandb_mode: str = "online"  # wandb mode
