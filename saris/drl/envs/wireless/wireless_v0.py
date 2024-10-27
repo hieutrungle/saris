@@ -108,21 +108,24 @@ class WirelessEnvV0(Env):
         self.focal_noise_low = -self.focal_noise_high
 
         # channels space
-        self.bandwidth = 20e6
-        self.maximum_delay_spread = 1e-6  # 1us
-        (l_min, l_max) = time_lag_discrete_time_channel(self.bandwidth, self.maximum_delay_spread)
+        self.bandwidth = 100e6  # 100MHz
+        self.maximum_delay_spread = 100e-9  # 300ns
+        # self.maximum_delay_spread = 1e-6  # 1us
+        (self.l_min, self.l_max) = time_lag_discrete_time_channel(
+            self.bandwidth, self.maximum_delay_spread
+        )
         num_rxs = len(self.sionna_config["rx_positions"])
         num_tx_ants = self.sionna_config["tx_num_rows"] * self.sionna_config["tx_num_cols"]
         self.real_channel_space = spaces.Box(
             low=-1.0,
             high=1.0,
-            shape=(num_rxs, num_tx_ants, int(l_max - l_min + 1)),
+            shape=(num_rxs, num_tx_ants, int(self.l_max - self.l_min + 1)),
             dtype=np.float32,
         )
         self.imag_channel_space = spaces.Box(
             low=-1.0,
             high=1.0,
-            shape=(num_rxs, num_tx_ants, int(l_max - l_min + 1)),
+            shape=(num_rxs, num_tx_ants, int(self.l_max - self.l_min + 1)),
             dtype=np.float32,
         )
 
@@ -318,14 +321,12 @@ class WirelessEnvV0(Env):
             self.sionna_config, compute_scene_path, viz_scene_path
         )
 
-        (l_min, l_max) = time_lag_discrete_time_channel(self.bandwidth, self.maximum_delay_spread)
-
         paths = sig_cmap.compute_paths()
         cir = paths.cir()
         # a: [batch_size, num_rx, num_rx_ant, num_tx, num_tx_ant, max_num_paths, num_time_steps], tf.complex
         a, tau = cir
-        # [batch size, num_rx, num_rx_ant, num_tx, num_tx_ant, num_time_steps, l_max - l_min + 1], tf.complex
-        channels: tf.Tensor = cir_to_time_channel(self.bandwidth, a, tau, l_min, l_max)
+        # [batch size, num_rx, num_rx_ant, num_tx, num_tx_ant, num_time_steps, self.l_max - self.l_min + 1], tf.complex
+        channels: tf.Tensor = cir_to_time_channel(self.bandwidth, a, tau, self.l_min, self.l_max)
         large_scale = tf.reduce_mean(
             tf.reduce_sum(tf.square(tf.abs(channels)), axis=6, keepdims=True),
             axis=(2, 4, 5),
@@ -333,16 +334,6 @@ class WirelessEnvV0(Env):
         )
         path_gains = tf.squeeze(large_scale, axis=(0, 2, 3, 4, 5, 6)).numpy()
         large_scale = tf.complex(tf.sqrt(large_scale), tf.constant(0.0, tau.dtype))
-
-        # Normalize the channels
-        # channels = tf.math.divide_no_nan(channels, large_scale)
-
-        # # [num_rx, num_rx_ant, num_tx, num_tx_ant, num_time_steps]
-        # h_time_sum_power = tf.reduce_sum(tf.abs(channels[0]) ** 2, axis=-1)
-        # # [num_rx, num_rx_ant]
-        # h_time_avg_power = tf.reduce_mean(h_time_sum_power, axis=(1, 2, 3, 4))
-        # # h_time_avg_power shape: [num_rx]
-        # path_gains = h_time_avg_power.numpy()
 
         if eval_mode:
             # Path for outputing iamges if we want to visualize the coverage map
