@@ -10,17 +10,22 @@ class RunningMeanStd:
         """Tracks the mean, variance and count of values."""
         self.mean = torch.zeros(shape, dtype=torch.float)
         self.var = torch.ones(shape, dtype=torch.float)
+        self.max = torch.ones(shape, dtype=torch.float) * (-torch.inf)
+        self.min = torch.ones(shape, dtype=torch.float) * (torch.inf)
         self.count = epsilon
 
     def update(self, x):
         """Updates the mean, var and count from a batch of samples."""
         batch_count = x.shape[0]
-        batch_mean = torch.mean(x, axis=0)
+        batch_mean = torch.mean(x, dim=0)
         if batch_count == 1:
             batch_var = torch.zeros_like(batch_mean)
         else:
-            batch_var = torch.var(x, axis=0)
+            batch_var = torch.var(x, dim=0)
         self.update_from_moments(batch_mean, batch_var, batch_count)
+
+        self.max = torch.maximum(self.max, torch.max(x, dim=0).values)
+        self.min = torch.minimum(self.min, torch.min(x, dim=0).values)
 
     def update_from_moments(self, batch_mean, batch_var, batch_count):
         """Updates from batch mean, variance and count moments."""
