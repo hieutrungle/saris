@@ -154,27 +154,41 @@ def normalize_obs(
     flat_obs: torch.Tensor,
     real_channel_rms: running_mean.RunningMeanStd,
     imag_channel_rms: running_mean.RunningMeanStd,
-    epsilon: float = 1e-8,
+    epsilon: float = 1e-10,
 ):
-    real_mean = real_channel_rms.mean.to(flat_obs.device)
-    real_var = real_channel_rms.var.to(flat_obs.device)
+    # real_mean = real_channel_rms.mean.to(flat_obs.device)
+    # real_var = real_channel_rms.var.to(flat_obs.device)
     real_channel_len = real_channel_rms.mean.shape[0]
     real_channels = flat_obs[..., :real_channel_len]
-    real_channels = (real_channels - real_mean) / torch.sqrt(real_var + epsilon)
+    # # whittening
+    # real_channels = (real_channels - real_mean) / torch.sqrt(real_var + epsilon)
+    # scaling
+    min_ = real_channel_rms.min.to(flat_obs.device)
+    max_ = real_channel_rms.max.to(flat_obs.device)
+    real_channels = (real_channels - min_) / (max_ - min_ + epsilon)
 
-    imag_mean = imag_channel_rms.mean.to(flat_obs.device)
-    imag_var = imag_channel_rms.var.to(flat_obs.device)
+    # imag_mean = imag_channel_rms.mean.to(flat_obs.device)
+    # imag_var = imag_channel_rms.var.to(flat_obs.device)
     imag_channel_len = imag_channel_rms.mean.shape[0]
     imag_channels = flat_obs[..., real_channel_len : real_channel_len + imag_channel_len]
-    imag_channels = (imag_channels - imag_mean) / torch.sqrt(imag_var + epsilon)
+    # # whittening
+    # imag_channels = (imag_channels - imag_mean) / torch.sqrt(imag_var + epsilon)
+    # scaling
+    min_ = imag_channel_rms.min.to(flat_obs.device)
+    max_ = imag_channel_rms.max.to(flat_obs.device)
+    imag_channels = (imag_channels - min_) / (max_ - min_ + epsilon)
 
+    # angles
     angle_len = 72
     angles = flat_obs[
         ..., real_channel_len + imag_channel_len : real_channel_len + imag_channel_len + angle_len
     ]
     init_angles = [math.radians(135.0)] + [math.radians(90.0)] * 7
     init_angles = np.concatenate([init_angles] * 9)
+    # offset
     angles = torch.sub(angles, torch.tensor(init_angles, device=angles.device, dtype=angles.dtype))
+    # normalize
+    angles = torch.div(torch.rad2deg(angles), 45.0)
 
     pos = flat_obs[..., real_channel_len + imag_channel_len + angle_len :]
     flat_obs = torch.cat([real_channels, imag_channels, angles, pos], dim=-1)
@@ -482,7 +496,9 @@ def train_agent(
         if global_step < config.learning_starts * 9 / 10:
             actions = np.array([envs.single_action_space.sample() for _ in range(envs.num_envs)])
         else:
-            actions = policy(torch.tensor(flat_obs, dtype=torch.float, device=config.device))
+            torch_flat_obs = torch.tensor(flat_obs, dtype=torch.float, device=config.device)
+            normalizedflat_obs = normalize_obs(torch_flat_obs, obs_rmss[0], obs_rmss[1])
+            actions = policy(normalizedflat_obs)
             actions = actions.cpu().numpy()
 
         # TRY NOT TO MODIFY: execute the game and log data.
