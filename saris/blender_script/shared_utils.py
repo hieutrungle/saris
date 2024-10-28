@@ -30,8 +30,8 @@ def get_reflector_config():
     """
     Set up reflector configuration.
     """
-    max_delta = math.radians(30.0)
-    min_delta = math.radians(-30.0)
+    max_delta = math.radians(45.0)
+    min_delta = math.radians(-45.0)
 
     # Rotation in x-y plane
     init_theta = math.radians(135.0)
