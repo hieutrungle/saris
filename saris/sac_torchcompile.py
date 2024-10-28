@@ -349,6 +349,7 @@ def main(config: TrainConfig):
         print(f"Replay buffer loaded with {len(rb)} samples")
         stored_obs = np.asarray(rb.storage.get("observations"))
         update_channel_rmss(torch.tensor(stored_obs), obs_rmss[0], obs_rmss[1])
+        print(f"updated obs_rms: {obs_rmss}")
 
     wandb_init(config)
 
@@ -505,9 +506,10 @@ def train_agent(
             wandb.log(log_dict, step=global_step)
 
             # update channel rms normalization
-            stored_flat_obs = np.concatenate(stored_flat_obs, axis=0)
-            update_channel_rmss(torch.tensor(stored_flat_obs), obs_rmss[0], obs_rmss[1])
-            stored_flat_obs = []
+            if global_step < config.learning_starts:
+                stored_flat_obs = np.concatenate(stored_flat_obs, axis=0)
+                update_channel_rmss(torch.tensor(stored_flat_obs), obs_rmss[0], obs_rmss[1])
+                stored_flat_obs = []
 
             # get path gains
             path_gains = [info["path_gain"] for info in infos["final_info"]]

@@ -20,7 +20,7 @@ class TrainConfig:
     replay_buffer_dir: str = "-1"  # the path to save the replay buffer
     load_replay_buffer: str = "-1"  # the path to load the replay buffer
     verbose: bool = False  # whether to log to console
-    seed: int = 1  # seed of the experiment
+    seed: int = 15  # seed of the experiment
     eval_seed: int = 100  # seed of the evaluation
     save_interval: int = 100  # the interval to save the model
 
