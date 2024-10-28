@@ -374,7 +374,6 @@ def main(config: TrainConfig):
             rb,
         )
     except Exception as e:
-        print(f"Exception: {e}")
         traceback.print_exc()
         raise e
     finally:

@@ -8,6 +8,8 @@ import importlib.resources
 import saris
 import subprocess
 import pyrallis
+import time
+import signal
 
 
 @dataclass
@@ -140,8 +142,20 @@ def main(config: TrainConfig):
         str(config.name),
     ]
 
-    train_cmd = base_cmd + ["--command", "train"]
-    subprocess.run(train_cmd, check=True)
+    def handle_interrupt(signum, frame):
+        print("Gracefully exiting subprocess...")
+        process.send_signal(signal.SIGINT)  # Send SIGINT to the subprocess
+        process.wait(timeout=10.0)  # Wait for the subprocess to finish
+        exit(0)
+
+    signal.signal(signal.SIGINT, handle_interrupt)
+
+    try:
+        train_cmd = base_cmd + ["--command", "train"]
+        process = subprocess.Popen(train_cmd)
+        process.wait()  # Wait for the subprocess to finish
+    except KeyboardInterrupt:
+        handle_interrupt(signal.SIGINT, None)
 
     # train_cmd = base_cmd + ["--command", "eval"]
     # subprocess.run(train_cmd, check=True)
