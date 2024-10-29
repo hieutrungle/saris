@@ -162,12 +162,12 @@ class WirelessEnvV0(Env):
     def _get_action_space(self) -> spaces.Box:
         # each group has 3 elements: 1 phi, 1 theta, and 1 r
         action_space_shape = tuple((3 * self.num_groups,))
-        r_low = -3.05
-        r_high = 3.05
-        theta_low = np.deg2rad(-9.05)
-        theta_high = np.deg2rad(9.05)
-        phi_low = np.deg2rad(-9.05)
-        phi_high = np.deg2rad(9.05)
+        r_low = -2
+        r_high = 2
+        theta_low = np.deg2rad(-10.0)
+        theta_high = np.deg2rad(10.0)
+        phi_low = np.deg2rad(-10.0)
+        phi_high = np.deg2rad(10.0)
         low = np.array([r_low, theta_low, phi_low] * self.num_groups, dtype=np.float32)
         high = np.array([r_high, theta_high, phi_high] * self.num_groups, dtype=np.float32)
         action_space = spaces.Box(low=low, high=high, shape=action_space_shape, dtype=np.float32)
