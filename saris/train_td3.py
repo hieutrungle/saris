@@ -257,9 +257,7 @@ def main(config: TrainConfig):
         )
     else:
         raise ValueError(f"Invalid command: {config.command}, available commands: train, eval")
-    action_low, action_high = float(envs.single_action_space.low[0]), float(
-        envs.single_action_space.high[0]
-    )
+
     assert isinstance(
         envs.single_action_space, gym.spaces.Box
     ), "only continuous action space is supported"
@@ -373,7 +371,58 @@ def main(config: TrainConfig):
 
     wandb_init(config)
 
+    try:
+        train_agent(
+            config,
+            envs,
+            obs_rmss,
+            actor,
+            policy,
+            qnet_params,
+            qnet_target_params,
+            qnet,
+            actor_params,
+            target_actor_params,
+            target_actor,
+            q_optimizer,
+            q_scheduler,
+            actor_optimizer,
+            actor_scheduler,
+            rb,
+        )
+    except Exception as e:
+        traceback.print_exc()
+        raise e
+    finally:
+        rb.dump(config.replay_buffer_dir)
+        wandb.finish()
+        envs.close()
+        envs.close_extras()
+
+
+def train_agent(
+    config: TrainConfig,
+    envs: gym.vector.AsyncVectorEnv,
+    obs_rmss: Tuple[running_mean.RunningMeanStd, running_mean.RunningMeanStd],
+    actor: td3.Actor,
+    policy: Callable,
+    qnet_params: TensorDict,
+    qnet_target_params: TensorDict,
+    qnet: td3.QNetwork,
+    actor_params: TensorDict,
+    target_actor_params: TensorDict,
+    target_actor: td3.Actor,
+    q_optimizer: torch.optim.Optimizer,
+    q_scheduler: torch.optim.lr_scheduler._LRScheduler,
+    actor_optimizer: torch.optim.Optimizer,
+    actor_scheduler: torch.optim.lr_scheduler._LRScheduler,
+    rb: ReplayBuffer,
+):
+
     # TODO: refactor
+    action_low, action_high = envs.single_action_space.low, envs.single_action_space.high
+    action_low = torch.tensor(action_low, device=config.device, dtype=torch.float)
+    action_high = torch.tensor(action_high, device=config.device, dtype=torch.float)
 
     def batched_qf(params, obs, action, next_q_value=None):
         with params.to_module(qnet):
@@ -570,9 +619,6 @@ def main(config: TrainConfig):
                     qnet_target_params.lerp_(qnet_params.data, config.tau)
                     target_actor_params.lerp_(actor_params.data, config.tau)
 
-            for k, v in log_infos.items():
-                print(f"{k}: {v}")
-
             if global_step > config.learning_starts + 5:
                 with torch.no_grad():
                     q_lr = q_optimizer.param_groups[0]["lr"]
@@ -583,8 +629,7 @@ def main(config: TrainConfig):
                         "q_lr": q_lr,
                         "a_lr": a_lr,
                     }
-                for k, v in logs.items():
-                    print(f"{k}: {v}")
+
                 wandb.log({**logs}, step=global_step)
                 pbar.set_description(
                     desc
@@ -597,279 +642,6 @@ def main(config: TrainConfig):
                         "actor": actor.state_dict(),
                         "qnet_params": qnet_params.state_dict(),
                         "qnet_target_params": qnet_target_params.state_dict(),
-                        "obs_rmss": obs_rmss,
-                    },
-                    os.path.join(config.checkpoint_dir, f"model_{global_step}.pth"),
-                )
-
-    rb.dump(config.replay_buffer_dir)
-    wandb.finish()
-    envs.close()
-    envs.close_extras()
-
-    # exit()
-
-    # try:
-    #     train_agent(
-    #         config,
-    #         envs,
-    #         obs_rmss,
-    #         actor,
-    #         policy,
-    #         qnet_params,
-    #         qnet_target_params,
-    #         qnet,
-    #         target_entropy,
-    #         log_alpha,
-    #         alpha,
-    #         a_optimizer,
-    #         q_optimizer,
-    #         q_scheduler,
-    #         actor_optimizer,
-    #         actor_scheduler,
-    #         rb,
-    #     )
-    # except Exception as e:
-    #     traceback.print_exc()
-    #     raise e
-    # finally:
-    #     rb.dump(config.replay_buffer_dir)
-    #     wandb.finish()
-    #     envs.close()
-    #     envs.close_extras()
-
-
-def train_agent(
-    config: TrainConfig,
-    envs: gym.vector.AsyncVectorEnv,
-    obs_rmss: running_mean.RunningMeanStd,
-    actor: td3.Actor,
-    policy: Callable,
-    qnet_params: TensorDict,
-    qnet_target_params: TensorDict,
-    qnet: td3.QNetwork,
-    target_entropy: float,
-    log_alpha: torch.Tensor,
-    alpha: torch.Tensor,
-    a_optimizer: torch.optim.Optimizer,
-    q_optimizer: torch.optim.Optimizer,
-    q_scheduler: torch.optim.lr_scheduler._LRScheduler,
-    actor_optimizer: torch.optim.Optimizer,
-    actor_scheduler: torch.optim.lr_scheduler._LRScheduler,
-    rb: ReplayBuffer,
-):
-
-    # functions to compile
-    def batched_qf(params, obs, action, next_q_value=None):
-        with params.to_module(qnet):
-            vals = qnet(obs, action)
-            if next_q_value is not None:
-                loss_val = F.mse_loss(vals.view(-1), next_q_value)
-                return loss_val
-            return vals
-
-    def update_critics(data):
-        # optimize the model
-        q_optimizer.zero_grad()
-        with torch.no_grad():
-            next_state_actions, next_state_log_pi, _ = actor.get_action(data["next_observations"])
-            qf_next_target = torch.vmap(batched_qf, (0, None, None))(
-                qnet_target_params, data["next_observations"], next_state_actions
-            )
-            min_qf_next_target, _ = qf_next_target.min(dim=0)
-            min_qf_next_target -= alpha * next_state_log_pi
-            next_q_value = data["rewards"].flatten() + (
-                (1.0 - data["terminations"].float()).flatten()
-            ) * config.gamma * min_qf_next_target.view(-1)
-
-        qf_a_values = torch.vmap(batched_qf, (0, None, None, None))(
-            qnet_params, data["observations"], data["actions"], next_q_value
-        )
-        qf_loss = qf_a_values.sum(0)
-        qf_loss.backward()
-        # clip the gradients for qnet_params
-        torch.nn.utils.clip_grad_norm_(qnet_params, 0.75)
-        q_optimizer.step()
-        q_scheduler.step()
-        return TensorDict(qf_loss=qf_loss.detach())
-
-    def update_actor(data):
-        actor_optimizer.zero_grad()
-        pi, log_pi, _ = actor.get_action(data["observations"])
-        qf_pi = torch.vmap(batched_qf, (0, None, None))(qnet_params.data, data["observations"], pi)
-        min_qf_pi, _ = qf_pi.min(dim=0)
-        actor_loss = torch.mean((alpha * log_pi) - min_qf_pi)
-
-        actor_loss.backward()
-        torch.nn.utils.clip_grad_norm_(actor.parameters(), 0.75)
-        actor_optimizer.step()
-        actor_scheduler.step()
-
-        a_optimizer.zero_grad()
-        with torch.no_grad():
-            _, log_pi, _ = actor.get_action(data["observations"])
-        alpha_loss = -torch.mean(log_alpha.exp() * (log_pi + target_entropy))
-        alpha_loss.backward()
-        a_optimizer.step()
-        return TensorDict(
-            alpha=alpha.detach(),
-            actor_loss=actor_loss.detach(),
-            alpha_loss=alpha_loss.detach(),
-        )
-
-    mode = "default"  # "reduce-overhead" if not config.cudagraphs else None
-    update_critics = torch.compile(update_critics, mode=mode)
-    update_actor = torch.compile(update_actor, mode=mode)
-    policy = torch.compile(policy, mode=mode)
-
-    # TRY NOT TO MODIFY: start the game
-    stored_flat_obs = []
-    obs, _ = envs.reset(seed=config.seed)
-    flat_obs = np.concatenate([ob.reshape(ob.shape[0], -1) for ob in obs], axis=-1)
-    stored_flat_obs.append(flat_obs)
-
-    pbar = tqdm.tqdm(range(config.total_timesteps), dynamic_ncols=True)
-    max_ep_ret = -float("inf")
-    avg_returns = deque(maxlen=config.num_envs)
-    desc = ""
-
-    for global_step in pbar:
-        # ALGO LOGIC: put action logic here
-        if global_step < config.learning_starts * 9 / 10:
-            actions = np.array([envs.single_action_space.sample() for _ in range(envs.num_envs)])
-        else:
-            torch_flat_obs = torch.tensor(flat_obs, dtype=torch.float, device=config.device)
-            normalizedflat_obs = normalize_obs(torch_flat_obs, obs_rmss[0], obs_rmss[1])
-            actions = policy(normalizedflat_obs)
-            actions = actions.cpu().numpy()
-
-        # TRY NOT TO MODIFY: execute the game and log data.
-        next_obs, rewards, terminations, truncations, infos = envs.step(actions)
-        rewards = np.asarray(rewards, dtype=np.float32)
-
-        # TRY NOT TO MODIFY: record rewards for plotting purposes
-        if "final_info" in infos:
-            # log episodic returns
-            for info in infos["final_info"]:
-                r = float(info["episode"]["r"][0])
-                max_ep_ret = max(max_ep_ret, r)
-                avg_returns.append(r)
-
-            avg_ret = torch.tensor(avg_returns).mean()
-            std_ret = torch.tensor(avg_returns).std()
-            log_dict = {"episodic_return": avg_ret, "episodic_return_std": std_ret}
-
-            desc = f"global_step={global_step}, episodic_return={avg_ret: 4.2f} (max={max_ep_ret: 4.2f})"
-            wandb.log(log_dict, step=global_step)
-
-            # update channel rms normalization
-            if global_step < config.learning_starts:
-                stored_flat_obs = np.concatenate(stored_flat_obs, axis=0)
-                update_channel_rmss(torch.tensor(stored_flat_obs), obs_rmss[0], obs_rmss[1])
-                stored_flat_obs = []
-
-            # get path gains
-            path_gains = [info["path_gain"] for info in infos["final_info"]]
-            next_path_gains = [info["next_path_gain"] for info in infos["final_info"]]
-        else:
-            path_gains = infos["path_gain"]
-            next_path_gains = infos["next_path_gain"]
-        path_gains = np.stack(path_gains)
-        next_path_gains = np.stack(next_path_gains)
-        path_gains = torch.as_tensor(path_gains, dtype=torch.float)
-        next_path_gains = torch.as_tensor(next_path_gains, dtype=torch.float)
-
-        # TRY NOT TO MODIFY: save data to reply buffer; handle `final_observation`
-        # next_obs: Tuple(batched_real, batched_imag, batched_pos)
-        real_next_obs = list(copy.deepcopy(next_obs))
-        for idx, trunc in enumerate(truncations):
-            if trunc:
-                real_next_obs = infos["final_observation"]
-                # List[Tuple(Real, Imag, Pos), Tuple(Real, Imag, Pos)]
-                # need to convert to Tuple(batched_real, batched_imag, batched_pos)
-                real_next_obs = list(zip(*real_next_obs))
-                real_next_obs = [np.stack(ob, axis=0) for ob in real_next_obs]
-                break
-        flat_real_next_obs = np.concatenate(
-            [ob.reshape(ob.shape[0], -1) for ob in real_next_obs], axis=-1
-        )
-
-        if global_step == config.total_timesteps - 1:
-            truncations = [True] * len(truncations)
-        transition = TensorDict(
-            observations=flat_obs,
-            next_observations=flat_real_next_obs,
-            actions=actions,
-            rewards=rewards,
-            terminations=terminations,
-            truncations=truncations,
-            path_gains=path_gains,
-            next_path_gains=next_path_gains,
-            batch_size=flat_obs.shape[0],
-        )
-        rb.extend(transition)
-
-        # TRY NOT TO MODIFY: CRUCIAL step easy to overlook
-        flat_next_obs = np.concatenate([ob.reshape(ob.shape[0], -1) for ob in next_obs], axis=-1)
-        flat_obs = flat_next_obs
-        stored_flat_obs.append(flat_obs)
-
-        # ALGO LOGIC: training.
-        if global_step > config.learning_starts:
-            log_infos = {}
-
-            for j in range(config.n_updates):
-                data = rb.sample()
-                data = {
-                    k: torch.as_tensor(v, device=config.device, dtype=torch.float)
-                    for k, v in data.items()
-                }
-                data["observations"] = normalize_obs(data["observations"], obs_rmss[0], obs_rmss[1])
-                data["next_observations"] = normalize_obs(
-                    data["next_observations"], obs_rmss[0], obs_rmss[1]
-                )
-                data["actions"] = preprocess_actions(data["actions"], config.action_scale)
-                data = TensorDict(data)
-
-                log_infos.update(update_critics(data))
-                if j % config.policy_frequency == 1:  # TD 3 Delayed update support
-                    for _ in range(config.policy_frequency):
-                        # compensate for the delay by doing 'actor_update_interval' instead of 1
-                        log_infos.update(update_actor(data))
-                        alpha.copy_(log_alpha.detach().exp())
-
-                # update the target networks
-                if j % config.target_network_frequency == 0:
-                    # lerp is defined as x' = x + w (y-x), which is equivalent to x' = (1-w) x + w y
-                    # update the target networks
-                    # lerp is defined as x' = x + w (y-x), which is equivalent to x' = (1-w) x + w y
-                    qnet_target_params.lerp_(qnet_params.data, args.tau)
-                    target_actor_params.lerp_(actor_params.data, args.tau)
-
-            if global_step > config.learning_starts + 3:
-                with torch.no_grad():
-                    q_lr = q_optimizer.param_groups[0]["lr"]
-                    a_lr = actor_optimizer.param_groups[0]["lr"]
-                    logs = {
-                        "actor_loss": log_infos["actor_loss"].mean(),
-                        "alpha_loss": log_infos.get("alpha_loss", 0).mean(),
-                        "qf_loss": log_infos["qf_loss"].mean(),
-                        "q_lr": q_lr,
-                        "a_lr": a_lr,
-                    }
-                wandb.log({**logs}, step=global_step)
-                pbar.set_description(
-                    desc
-                    + f" | actor_loss={logs['actor_loss']: 4.3f} | qf_loss={logs['qf_loss']: 4.3f}"
-                )
-
-            if global_step % config.save_interval == 0 or global_step == config.total_timesteps - 1:
-                torch.save(
-                    {
-                        "actor": actor.state_dict(),
-                        "qnet_params": qnet_params.state_dict(),
-                        "qnet_target_params": qnet_target_params.state_dict(),
-                        "log_alpha": log_alpha,
                         "obs_rmss": obs_rmss,
                     },
                     os.path.join(config.checkpoint_dir, f"model_{global_step}.pth"),
