@@ -33,7 +33,7 @@ import traceback
 import saris
 from saris.utils import utils, pytorch_utils, running_mean
 from saris.drl.agents import td3
-
+import matplotlib.pyplot as plt
 from saris.drl.envs import register_envs
 
 register_envs()
@@ -46,12 +46,13 @@ class TrainConfig:
     # General arguments
     command: str = "train"  # the command to run
     load_model: str = "-1"  # Model load file name for resume training, "-1" doesn't load
+    load_eval_model: str = "-1"  # Model load file name for evaluation, "-1" doesn't load
     checkpoint_dir: str = "-1"  # the path to save the model
     replay_buffer_dir: str = "-1"  # the path to save the replay buffer
     load_replay_buffer: str = "-1"  # the path to load the replay buffer
     verbose: bool = False  # whether to log to console
     seed: int = 1  # seed of the experiment
-    eval_seed: int = 100  # seed of the evaluation
+    eval_seed: int = 111  # seed of the evaluation
     save_interval: int = 100  # the interval to save the model
 
     # Environment specific arguments
@@ -59,19 +60,19 @@ class TrainConfig:
     sionna_config_file: str = "-1"  # Sionna config file
     num_envs: int = 8  # the number of parallel environments
     ep_len: int = 75  # the maximum length of an episode
-    eval_ep_len: int = 75  # the maximum length of an episode
+    eval_ep_len: int = 45  # the maximum length of an episode
 
     # Algorithm specific arguments
-    total_timesteps: int = 6_001  # total timesteps of the experiments
+    total_timesteps: int = 10_001  # total timesteps of the experiments
     n_updates: int = 20  # the number of updates per step
-    buffer_size: int = int(40_000)  # the replay memory buffer size
+    buffer_size: int = int(100_000)  # the replay memory buffer size
     gamma: float = 0.97  # the discount factor gamma
     tau: float = 0.005  # target smoothing coefficient (default: 0.005)
     batch_size: int = 256  # the batch size of sample from the reply memory
     learning_starts: int = 601  # the timestep to start learning
-    policy_lr: float = 1e-4  # the learning rate of the policy network optimizer
-    q_lr: float = 4e-4  # the learning rate of the q network optimizer
-    warmup_steps: int = 350  # the number of warmup steps
+    policy_lr: float = 3e-4  # the learning rate of the policy network optimizer
+    q_lr: float = 1e-3  # the learning rate of the q network optimizer
+    warmup_steps: int = 500  # the number of warmup steps
     policy_frequency: int = 2  # the frequency of training policy (delayed)
     target_network_frequency: int = 2  # the frequency of updates for the target nerworks
     policy_noise: float = 0.2  # the noise added to the actions
@@ -91,10 +92,12 @@ class TrainConfig:
 
         if self.checkpoint_dir == "-1":
             raise ValueError("Checkpoints dir is required for training")
-        if self.replay_buffer_dir == "-1":
-            raise ValueError("Replay buffer dir is required for training")
         if self.sionna_config_file == "-1":
             raise ValueError("Sionna config file is required for training")
+        if self.command.lower() == "train" and self.replay_buffer_dir == "-1":
+            raise ValueError("Replay buffer dir is required for training")
+        if self.command.lower() == "eval" and self.load_eval_model == "-1":
+            raise ValueError("Load eval model is required for evaluation")
 
         device = pytorch_utils.init_gpu()
         self.device = device
@@ -263,6 +266,8 @@ def main(config: TrainConfig):
     ), "only continuous action space is supported"
     print(f"Observation space: {envs.single_observation_space}")
     print(f"Action space: {envs.single_action_space}")
+    ob_space = envs.single_observation_space
+    ac_space = envs.single_action_space
 
     # Create running meanstd for normalization
     real_channel_len = math.prod(envs.single_observation_space[0].shape)
@@ -278,15 +283,19 @@ def main(config: TrainConfig):
         pyrallis.dump(config, f)
 
     # Load models
-    ob_space = envs.single_observation_space
-    ac_space = envs.single_action_space
-    if config.load_model != "-1":
-        print(f"Loading model from {config.load_model}")
-        checkpoint = torch.load(config.load_model, weights_only=False)
+    checkpoint = None
+    if config.command.lower() == "eval":
+        print(f"Loading model from {config.load_eval_model}")
+        checkpoint = torch.load(config.load_eval_model, weights_only=False)
+    else:
+        if config.load_model != "-1":
+            print(f"Loading model from {config.load_model}")
+            checkpoint = torch.load(config.load_model, weights_only=False)
 
     # Actor setup
     actor = td3.Actor(ob_space, ac_space, envs=envs, device=config.device)
-    if config.load_model != "-1":
+    if checkpoint != None:
+        print(f"Loading actor from checkpoint!")
         actor.load_state_dict(checkpoint["actor"])
     actor_detach = td3.Actor(ob_space, ac_space, envs=envs, device=config.device)
     total_ob_dim = sum([math.prod(ob.shape) for ob in ob_space])
@@ -330,7 +339,8 @@ def main(config: TrainConfig):
 
     del tmp_obs
 
-    if config.load_model != "-1":
+    if checkpoint != None:
+        print(f"Loading qnet and rmss from checkpoint!")
         obs_rmss = checkpoint["obs_rmss"]
         qnet_params.load_state_dict(checkpoint["qnet_params"])
         qnet_target_params.load_state_dict(checkpoint["qnet_target_params"])
@@ -369,35 +379,45 @@ def main(config: TrainConfig):
 
     envs.single_observation_space.dtype = np.float32
 
-    wandb_init(config)
-
-    try:
-        train_agent(
+    if config.command.lower() == "train":
+        try:
+            train_agent(
+                config,
+                envs,
+                obs_rmss,
+                actor,
+                policy,
+                qnet_params,
+                qnet_target_params,
+                qnet,
+                actor_params,
+                target_actor_params,
+                target_actor,
+                q_optimizer,
+                q_scheduler,
+                actor_optimizer,
+                actor_scheduler,
+                rb,
+            )
+        except Exception as e:
+            traceback.print_exc()
+            raise e
+        finally:
+            rb.dump(config.replay_buffer_dir)
+            wandb.finish()
+            envs.close()
+            envs.close_extras()
+    elif config.command.lower() == "eval":
+        eval(
             config,
             envs,
             obs_rmss,
             actor,
-            policy,
-            qnet_params,
-            qnet_target_params,
-            qnet,
-            actor_params,
-            target_actor_params,
-            target_actor,
-            q_optimizer,
-            q_scheduler,
-            actor_optimizer,
-            actor_scheduler,
-            rb,
         )
-    except Exception as e:
-        traceback.print_exc()
-        raise e
-    finally:
-        rb.dump(config.replay_buffer_dir)
-        wandb.finish()
         envs.close()
         envs.close_extras()
+    else:
+        raise ValueError(f"Invalid command: {config.command}, available commands: train, eval")
 
 
 def train_agent(
@@ -419,7 +439,8 @@ def train_agent(
     rb: ReplayBuffer,
 ):
 
-    # TODO: refactor
+    wandb_init(config)
+
     action_low, action_high = envs.single_action_space.low, envs.single_action_space.high
     action_low = torch.tensor(action_low, device=config.device, dtype=torch.float)
     action_high = torch.tensor(action_high, device=config.device, dtype=torch.float)
@@ -493,6 +514,12 @@ def train_agent(
     update_pol = CudaGraphModule(update_pol, in_keys=[], out_keys=[], warmup=5)
     policy = CudaGraphModule(policy)
 
+    # eval env setup
+    eval_envs = gym.vector.AsyncVectorEnv(
+        [make_env(config, i, eval_mode=False) for i in range(3)],
+        context="spawn",
+    )
+
     # TRY NOT TO MODIFY: start the game
     stored_flat_obs = []
     obs, _ = envs.reset(seed=config.seed)
@@ -501,7 +528,7 @@ def train_agent(
     # obs = torch.as_tensor(obs, device=device, dtype=torch.float)
     pbar = tqdm.tqdm(range(config.total_timesteps), dynamic_ncols=True)
     max_ep_ret = -float("inf")
-    avg_returns = deque(maxlen=config.num_envs)
+    avg_returns = deque(maxlen=envs.num_envs)
     desc = ""
 
     for global_step in pbar:
@@ -637,6 +664,7 @@ def train_agent(
                 )
 
             if global_step % config.save_interval == 0 or global_step == config.total_timesteps - 1:
+
                 torch.save(
                     {
                         "actor": actor.state_dict(),
@@ -646,6 +674,154 @@ def train_agent(
                     },
                     os.path.join(config.checkpoint_dir, f"model_{global_step}.pth"),
                 )
+                torch.save(
+                    {
+                        "actor": actor.state_dict(),
+                        "qnet_params": qnet_params.state_dict(),
+                        "qnet_target_params": qnet_target_params.state_dict(),
+                        "obs_rmss": obs_rmss,
+                    },
+                    os.path.join(config.checkpoint_dir, f"model.pth"),
+                )
+
+                # evaluate the model
+
+                eval_episodic_rets = eval(config, eval_envs, obs_rmss, actor, is_plot=False)
+                avg_ret = torch.tensor(eval_episodic_rets).mean()
+                std_ret = torch.tensor(eval_episodic_rets).std()
+                log_dict = {"eval/episodic_return": avg_ret, "eval/episodic_return_std": std_ret}
+                wandb.log(log_dict, step=global_step)
+
+    eval_envs.close()
+    eval_envs.close_extras()
+
+
+def eval(
+    config: TrainConfig,
+    envs: gym.vector.AsyncVectorEnv,
+    obs_rmss: Tuple[running_mean.RunningMeanStd, running_mean.RunningMeanStd],
+    actor: td3.Actor,
+    is_plot: bool = True,
+):
+
+    mode = "default"
+    actor = torch.compile(actor, mode=mode)
+    actor = CudaGraphModule(actor)
+
+    action_low, action_high = envs.single_action_space.low, envs.single_action_space.high
+    action_low = torch.tensor(action_low, device=config.device, dtype=torch.float)
+    action_high = torch.tensor(action_high, device=config.device, dtype=torch.float)
+
+    obs, _ = envs.reset(seed=config.seed)
+    flat_obs = np.concatenate([ob.reshape(ob.shape[0], -1) for ob in obs], axis=-1)
+    all_rewards = np.empty((config.eval_ep_len, envs.num_envs))
+    all_path_gains = np.empty((config.eval_ep_len, envs.num_envs, 3))
+    episodic_returns = np.zeros((envs.num_envs,))
+
+    for global_step in range(config.eval_ep_len):
+        torch_flat_obs = torch.tensor(flat_obs, dtype=torch.float, device=config.device)
+        normalized_flat_obs = normalize_obs(torch_flat_obs, obs_rmss[0], obs_rmss[1])
+        with torch.no_grad():
+            actions = actor(obs=normalized_flat_obs)
+            actions = actions.clamp(action_low, action_high).detach().cpu().numpy()
+
+        # TRY NOT TO MODIFY: execute the game and log data.
+        next_obs, rewards, terminations, truncations, infos = envs.step(actions)
+        rewards = np.asarray(rewards, dtype=np.float32)
+        episodic_returns += rewards
+
+        # TRY NOT TO MODIFY: record rewards for plotting purposes
+        if "final_info" in infos:
+            # get path gains
+            path_gains = [info["path_gain"] for info in infos["final_info"]]
+            next_path_gains = [info["next_path_gain"] for info in infos["final_info"]]
+        else:
+            path_gains = infos["path_gain"]
+            next_path_gains = infos["next_path_gain"]
+        path_gains = np.stack(path_gains)
+        next_path_gains = np.stack(next_path_gains)
+        path_gains = torch.as_tensor(path_gains, dtype=torch.float)
+        next_path_gains = torch.as_tensor(next_path_gains, dtype=torch.float)
+
+        all_rewards[global_step, :] = rewards
+        all_path_gains[global_step, ...] = path_gains
+
+        # TRY NOT TO MODIFY: save data to reply buffer; handle `final_observation`
+        # next_obs: Tuple(batched_real, batched_imag, batched_pos)
+        real_next_obs = list(copy.deepcopy(next_obs))
+        for idx, trunc in enumerate(truncations):
+            if trunc:
+                real_next_obs = infos["final_observation"]
+                # List[Tuple(Real, Imag, Pos), Tuple(Real, Imag, Pos)]
+                # need to convert to Tuple(batched_real, batched_imag, batched_pos)
+                real_next_obs = list(zip(*real_next_obs))
+                real_next_obs = [np.stack(ob, axis=0) for ob in real_next_obs]
+                break
+        flat_real_next_obs = np.concatenate(
+            [ob.reshape(ob.shape[0], -1) for ob in real_next_obs], axis=-1
+        )
+
+        # TRY NOT TO MODIFY: CRUCIAL step easy to overlook
+        flat_next_obs = np.concatenate([ob.reshape(ob.shape[0], -1) for ob in next_obs], axis=-1)
+        flat_obs = flat_next_obs
+
+    if is_plot:
+        record_path_gain_statistics(config, envs, all_rewards, all_path_gains)
+
+    return episodic_returns
+
+
+def record_path_gain_statistics(config, envs, all_rewards, all_path_gains):
+
+    # plot path gains
+    linear_path_gains = 10 ** (all_path_gains / 10)
+    sum_path_gains = np.sum(linear_path_gains, axis=-1)
+    db_sum_path_gains = 10 * np.log10(sum_path_gains)
+    mean_path_gains = np.mean(db_sum_path_gains, axis=1)
+    std_path_gains = np.std(db_sum_path_gains, axis=1)
+    fig, ax = plt.subplots()
+    ax.plot(mean_path_gains)
+    ax.fill_between(
+        range(config.eval_ep_len),
+        mean_path_gains - std_path_gains,
+        mean_path_gains + std_path_gains,
+        alpha=0.2,
+    )
+    ax.set_xlabel("Steps")
+    ax.set_ylabel("Path Gain")
+    ax.set_title("Path Gain")
+    ax.grid()
+    plt.savefig(os.path.join(config.checkpoint_dir, "path_gain.png"))
+
+    # Plot each of dm_sum_path_gains
+    fig, ax = plt.subplots()
+    for i in range(envs.num_envs):
+        ax.plot(db_sum_path_gains[:, i])
+    ax.set_xlabel("Steps")
+    ax.set_ylabel("Path Gain")
+    ax.set_title("Path Gain")
+    labels = ["env" + str(i + config.eval_seed) for i in range(envs.num_envs)]
+    ax.legend(labels)
+    ax.grid()
+    plt.savefig(os.path.join(config.checkpoint_dir, "all_path_gain.png"))
+
+    # plot rewards
+    mean_rewards = np.mean(all_rewards, axis=1)
+    std_rewards = np.std(all_rewards, axis=1)
+    fig, ax = plt.subplots()
+    ax.plot(mean_rewards)
+    ax.fill_between(
+        range(config.eval_ep_len), mean_rewards - std_rewards, mean_rewards + std_rewards, alpha=0.2
+    )
+    ax.set_xlabel("Steps")
+    ax.set_ylabel("Reward")
+    ax.set_title("Rewards")
+    ax.grid()
+    plt.savefig(os.path.join(config.checkpoint_dir, "rewards.png"))
+
+    # Save all_rewards and all_path_gains
+    np.save(os.path.join(config.checkpoint_dir, "all_rewards.npy"), all_rewards)
+    np.save(os.path.join(config.checkpoint_dir, "all_path_gains.npy"), all_path_gains)
 
 
 if __name__ == "__main__":

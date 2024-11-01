@@ -18,12 +18,13 @@ class TrainConfig:
     # General arguments
     command: str = "train"  # the command to run
     load_model: str = "-1"  # Model load file name for resume training, "-1" doesn't load
+    load_eval_model: str = "-1"  # Model load file name for evaluation, "-1" doesn't load
     checkpoint_dir: str = "-1"  # the path to save the model
     replay_buffer_dir: str = "-1"  # the path to save the replay buffer
     load_replay_buffer: str = "-1"  # the path to load the replay buffer
     verbose: bool = False  # whether to log to console
     seed: int = 1  # seed of the experiment
-    eval_seed: int = 100  # seed of the evaluation
+    eval_seed: int = 111  # seed of the evaluation
     save_interval: int = 100  # the interval to save the model
 
     # Environment specific arguments
@@ -31,19 +32,19 @@ class TrainConfig:
     sionna_config_file: str = "-1"  # Sionna config file
     num_envs: int = 8  # the number of parallel environments
     ep_len: int = 75  # the maximum length of an episode
-    eval_ep_len: int = 75  # the maximum length of an episode
+    eval_ep_len: int = 45  # the maximum length of an episode
 
     # Algorithm specific arguments
-    total_timesteps: int = 6_001  # total timesteps of the experiments
+    total_timesteps: int = 10_001  # total timesteps of the experiments
     n_updates: int = 20  # the number of updates per step
-    buffer_size: int = int(40_000)  # the replay memory buffer size
+    buffer_size: int = int(100_000)  # the replay memory buffer size
     gamma: float = 0.97  # the discount factor gamma
     tau: float = 0.005  # target smoothing coefficient (default: 0.005)
     batch_size: int = 256  # the batch size of sample from the reply memory
     learning_starts: int = 601  # the timestep to start learning
-    policy_lr: float = 1e-4  # the learning rate of the policy network optimizer
-    q_lr: float = 4e-4  # the learning rate of the q network optimizer
-    warmup_steps: int = 350  # the number of warmup steps
+    policy_lr: float = 3e-4  # the learning rate of the policy network optimizer
+    q_lr: float = 1e-3  # the learning rate of the q network optimizer
+    warmup_steps: int = 500  # the number of warmup steps
     policy_frequency: int = 2  # the frequency of training policy (delayed)
     target_network_frequency: int = 2  # the frequency of updates for the target nerworks
     policy_noise: float = 0.2  # the noise added to the actions
@@ -73,6 +74,50 @@ class TrainConfig:
 @pyrallis.wrap()
 def main(config: TrainConfig):
 
+    base_cmd = get_base_cmd(config)
+
+    if config.load_eval_model == "-1":
+
+        def handle_interrupt(signum, frame):
+            print("Gracefully exiting subprocess...")
+            process.send_signal(signal.SIGINT)  # Send SIGINT to the subprocess
+            process.wait(timeout=10.0)  # Wait for the subprocess to finish
+            exit(0)
+
+        signal.signal(signal.SIGINT, handle_interrupt)
+
+        try:
+            print()
+            print("*" * 50)
+            print(f"TRAINING: Training the DRL Agent on {config.env_id}")
+            print("*" * 50)
+            print()
+            train_cmd = base_cmd + ["--command", "train"]
+            process = subprocess.Popen(train_cmd)
+            process.wait()  # Wait for the subprocess to finish
+        except KeyboardInterrupt:
+            handle_interrupt(signal.SIGINT, None)
+
+        print()
+        print("*" * 50)
+        print(f"EVALUATION: Use the latest model from {config.checkpoint_dir} for evaluation")
+        print("*" * 50)
+        print()
+        config.load_eval_model = os.path.join(config.checkpoint_dir, "model.pth")
+    else:
+        print()
+        print("*" * 50)
+        print(f"EVALUATION: Use the model at {config.load_eval_model} for evaluation")
+        print("*" * 50)
+        print()
+
+    eval_cmd = base_cmd + ["--command", "eval"]
+    eval_cmd = eval_cmd + ["--load_eval_model", str(config.load_eval_model)]
+
+    subprocess.run(eval_cmd, check=True)
+
+
+def get_base_cmd(config: TrainConfig):
     base_cmd = ["python", "./saris/train_td3.py"]
     base_cmd += [
         # general arguments
@@ -144,24 +189,7 @@ def main(config: TrainConfig):
         "--name",
         str(config.name),
     ]
-
-    def handle_interrupt(signum, frame):
-        print("Gracefully exiting subprocess...")
-        process.send_signal(signal.SIGINT)  # Send SIGINT to the subprocess
-        process.wait(timeout=10.0)  # Wait for the subprocess to finish
-        exit(0)
-
-    signal.signal(signal.SIGINT, handle_interrupt)
-
-    try:
-        train_cmd = base_cmd + ["--command", "train"]
-        process = subprocess.Popen(train_cmd)
-        process.wait()  # Wait for the subprocess to finish
-    except KeyboardInterrupt:
-        handle_interrupt(signal.SIGINT, None)
-
-    # train_cmd = base_cmd + ["--command", "eval"]
-    # subprocess.run(train_cmd, check=True)
+    return base_cmd
 
 
 if __name__ == "__main__":
