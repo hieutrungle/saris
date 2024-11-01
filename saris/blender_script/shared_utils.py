@@ -30,8 +30,8 @@ def get_reflector_config():
     """
     Set up reflector configuration.
     """
-    max_delta = math.radians(45.0)
-    min_delta = math.radians(-45.0)
+    max_delta = math.radians(44.99)
+    min_delta = math.radians(-44.99)
 
     # zenith angle
     init_theta = math.radians(90.0)
@@ -87,7 +87,7 @@ def constraint_angle(angle: float, angle_delta: Sequence[float]) -> float:
         The maximum and minimum angle deltas. Unit: degree.
     """
     min_angle = angle_delta[0]
-    angle = min_angle if angle < min_angle else angle
+    angle = min_angle if angle <= min_angle else angle
     max_angle = angle_delta[1]
-    angle = max_angle if angle > max_angle else angle
+    angle = max_angle if angle >= max_angle else angle
     return angle
