@@ -161,27 +161,28 @@ def normalize_obs(
     imag_channel_rms: running_mean.RunningMeanStd,
     epsilon: float = 1e-10,
 ):
-    # real_mean = real_channel_rms.mean.to(flat_obs.device)
-    # real_var = real_channel_rms.var.to(flat_obs.device)
+
     real_channel_len = real_channel_rms.mean.shape[0]
     real_channels = flat_obs[..., :real_channel_len]
     # # whittening
-    # real_channels = (real_channels - real_mean) / torch.sqrt(real_var + epsilon)
+    real_mean = real_channel_rms.mean.to(flat_obs.device)
+    real_var = real_channel_rms.var.to(flat_obs.device)
+    real_channels = (real_channels - real_mean) / torch.sqrt(real_var + epsilon)
     # scaling
-    min_ = real_channel_rms.min.to(flat_obs.device)
-    max_ = real_channel_rms.max.to(flat_obs.device)
-    real_channels = (real_channels - min_) / (max_ - min_ + epsilon)
+    # min_ = real_channel_rms.min.to(flat_obs.device)
+    # max_ = real_channel_rms.max.to(flat_obs.device)
+    # real_channels = (real_channels - min_) / (max_ - min_ + epsilon)
 
-    # imag_mean = imag_channel_rms.mean.to(flat_obs.device)
-    # imag_var = imag_channel_rms.var.to(flat_obs.device)
     imag_channel_len = imag_channel_rms.mean.shape[0]
     imag_channels = flat_obs[..., real_channel_len : real_channel_len + imag_channel_len]
-    # # whittening
-    # imag_channels = (imag_channels - imag_mean) / torch.sqrt(imag_var + epsilon)
+    # whittening
+    imag_mean = imag_channel_rms.mean.to(flat_obs.device)
+    imag_var = imag_channel_rms.var.to(flat_obs.device)
+    imag_channels = (imag_channels - imag_mean) / torch.sqrt(imag_var + epsilon)
     # scaling
-    min_ = imag_channel_rms.min.to(flat_obs.device)
-    max_ = imag_channel_rms.max.to(flat_obs.device)
-    imag_channels = (imag_channels - min_) / (max_ - min_ + epsilon)
+    # min_ = imag_channel_rms.min.to(flat_obs.device)
+    # max_ = imag_channel_rms.max.to(flat_obs.device)
+    # imag_channels = (imag_channels - min_) / (max_ - min_ + epsilon)
 
     # angles
     angle_len = 72
@@ -564,6 +565,9 @@ def train_agent(
             if global_step < config.learning_starts:
                 stored_flat_obs = np.concatenate(stored_flat_obs, axis=0)
                 update_channel_rmss(torch.tensor(stored_flat_obs), obs_rmss[0], obs_rmss[1])
+                torch.save(
+                    {"obs_rmss": obs_rmss}, os.path.join(config.checkpoint_dir, "obs_rmss.pth")
+                )
                 stored_flat_obs = []
 
             # get path gains
@@ -684,8 +688,11 @@ def train_agent(
                     os.path.join(config.checkpoint_dir, f"model.pth"),
                 )
 
+            if (
+                global_step % int(1.5 * config.save_interval) == 0
+                or global_step == config.total_timesteps - 1
+            ):
                 # evaluate the model
-
                 eval_episodic_rets = eval(config, eval_envs, obs_rmss, actor, is_plot=False)
                 avg_ret = torch.tensor(eval_episodic_rets).mean()
                 std_ret = torch.tensor(eval_episodic_rets).std()
@@ -704,6 +711,7 @@ def eval(
     is_plot: bool = True,
 ):
 
+    # print(obs_rmss)
     mode = "default"
     actor = torch.compile(actor, mode=mode)
     actor = CudaGraphModule(actor)
@@ -719,6 +727,7 @@ def eval(
     episodic_returns = np.zeros((envs.num_envs,))
 
     for global_step in range(config.eval_ep_len):
+        # print(f"\nSTEP: {global_step}")
         torch_flat_obs = torch.tensor(flat_obs, dtype=torch.float, device=config.device)
         normalized_flat_obs = normalize_obs(torch_flat_obs, obs_rmss[0], obs_rmss[1])
         with torch.no_grad():
