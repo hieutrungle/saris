@@ -33,14 +33,14 @@ def get_reflector_config():
     max_delta = math.radians(45.0)
     min_delta = math.radians(-45.0)
 
-    # Rotation in x-y plane
-    init_theta = math.radians(135.0)
+    # zenith angle
+    init_theta = math.radians(90.0)
     theta_min = init_theta + min_delta
     theta_max = init_theta + max_delta
     theta_config = (init_theta, theta_min, theta_max)
 
-    # Rotation in x-z plane
-    init_phi = math.radians(90.0)
+    # azimuthal angle
+    init_phi = math.radians(135.0)
     phi_min = init_phi + min_delta
     phi_max = init_phi + max_delta
     phi_config = (init_phi, phi_min, phi_max)
@@ -87,7 +87,7 @@ def constraint_angle(angle: float, angle_delta: Sequence[float]) -> float:
         The maximum and minimum angle deltas. Unit: degree.
     """
     min_angle = angle_delta[0]
+    angle = min_angle if angle < min_angle else angle
     max_angle = angle_delta[1]
-    angle = min(angle, max_angle)
-    angle = max(angle, min_angle)
+    angle = max_angle if angle > max_angle else angle
     return angle

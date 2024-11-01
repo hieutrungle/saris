@@ -21,8 +21,13 @@ def export_drl_hallway_hex(args):
     theta_config, phi_config, num_groups, num_elements_per_group = (
         shared_utils.get_reflector_config()
     )
+    # print(f"theta_config: {[math.degrees(x) for x in theta_config]}")
+    # print(f"phi_config: {[math.degrees(x) for x in phi_config]}")
+
     theta_range = (theta_config[1], theta_config[2])
     phi_range = (phi_config[1], phi_config[2])
+    # print(f"theta_range: {[math.degrees(x) for x in theta_range]}")
+    # print(f"phi_range: {[math.degrees(x) for x in phi_range]}")
 
     devices_names = []
     object_dict = {f"Group{i:02d}": [] for i in range(1, num_groups + 1)}
@@ -47,18 +52,22 @@ def export_drl_hallway_hex(args):
     for i, (group_name, objects) in enumerate(object_dict.items()):
         mid_tile = objects[num_elements_per_group // 2]
         r_mid, theta_mid, phi_mid = spherical_focal_vecs[i]
+        # print(
+        #     f"r_mid: {r_mid}, theta_mid: {math.degrees(theta_mid)}, phi_mid: {math.degrees(phi_mid)}"
+        # )
         focal_vec = bl_utils.spherical2cartesian(r_mid, theta_mid, phi_mid)
         focal_pt = bl_utils.get_center_bbox(mid_tile) + Vector(focal_vec)
         theta_mid = shared_utils.constraint_angle(theta_mid, theta_range)
-        angles[i * (num_elements_per_group + 1)] = theta_mid
+        angles[i * (num_elements_per_group + 1)] = phi_mid
 
         for j, obj in enumerate(objects):
             center = bl_utils.get_center_bbox(obj)
             r, theta, phi = bl_utils.compute_rot_angle(center, focal_pt)
             theta = shared_utils.constraint_angle(theta, theta_range)
             phi = shared_utils.constraint_angle(phi, phi_range)
-            obj.rotation_euler = [0, phi, theta]
-            angles[i * (num_elements_per_group + 1) + j + 1] = phi
+            # print(f"r: {r}, theta: {math.degrees(theta)}, phi: {math.degrees(phi)}")
+            obj.rotation_euler = [0, theta, phi]
+            angles[i * (num_elements_per_group + 1) + j + 1] = theta
 
     result_path = args.input_path
     with open(result_path, "wb") as f:

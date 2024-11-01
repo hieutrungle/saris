@@ -187,14 +187,16 @@ def compute_rot_angle(pt1: list, pt2: list) -> Tuple[float, float, float]:
 
 
 def cartesian2spherical(x: float, y: float, z: float) -> Tuple[float, float, float]:
+    # theta: zenith angle (0, pi), phi: azimuthal angle (0, 2pi)
     r = math.sqrt(x**2 + y**2 + z**2)
-    theta = math.atan2(y, x)
-    phi = math.acos(z / r)
+    theta = math.acos(z / r)
+    phi = math.atan2(y, x)
     return r, theta, phi
 
 
 def spherical2cartesian(r: float, theta: float, phi: float) -> Tuple[float, float, float]:
-    x = r * math.sin(phi) * math.cos(theta)
-    y = r * math.sin(phi) * math.sin(theta)
-    z = r * math.cos(phi)
+    # theta: zenith angle (0, pi), phi: azimuthal angle (0, 2pi)
+    x = r * math.sin(theta) * math.cos(phi)
+    y = r * math.sin(theta) * math.sin(phi)
+    z = r * math.cos(theta)
     return x, y, z
