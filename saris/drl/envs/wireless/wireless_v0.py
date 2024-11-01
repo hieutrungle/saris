@@ -45,8 +45,6 @@ class WirelessEnvV0(Env):
         self.seed = seed + idx
         self.np_rng = np.random.default_rng(self.seed)
 
-        policy = tf.keras.mixed_precision.Policy("mixed_bfloat16")
-        tf.keras.mixed_precision.set_global_policy(policy)
         tf.config.experimental.set_memory_growth(
             tf.config.experimental.list_physical_devices("GPU")[0], True
         )
@@ -57,7 +55,7 @@ class WirelessEnvV0(Env):
         ris_pos = self.sionna_config["ris_positions"][0]
         tx_pos = self.sionna_config["tx_positions"][0]
         r, theta, phi = compute_rot_angle(tx_pos, ris_pos)
-        self.sionna_config["tx_orientations"] = [[theta, math.pi / 2 - phi, 0.0]]
+        self.sionna_config["tx_orientations"] = [[phi, math.pi / 2 - theta, 0.0]]
 
         # Set up logging
         self.current_time = "_" + time.strftime("%d-%m-%Y_%H-%M-%S")
@@ -71,20 +69,20 @@ class WirelessEnvV0(Env):
         self.num_elements_per_group = reflector_config[3]
 
         # angles = [theta, phi] for each tile
-        # theta: azimuth angle, phi: elevation angle
+        # theta: zenith angle, phi: azimuth angle
         init_theta = self.theta_config[0]
         init_phi = self.phi_config[0]
-        init_per_group = [init_theta] + [init_phi] * self.num_elements_per_group
+        init_per_group = [init_phi] + [init_theta] * self.num_elements_per_group
         self.init_angles = np.concatenate([init_per_group] * self.num_groups)
 
         # angles space
         theta_high = self.theta_config[2]
         phi_high = self.phi_config[2]
-        per_group_high = [theta_high] + [phi_high] * self.num_elements_per_group
+        per_group_high = [phi_high] + [theta_high] * self.num_elements_per_group
         angle_high = np.concatenate([per_group_high] * self.num_groups)
         theta_low = self.theta_config[1]
         phi_low = self.phi_config[1]
-        per_group_low = [theta_low] + [phi_low] * self.num_elements_per_group
+        per_group_low = [phi_low] + [theta_low] * self.num_elements_per_group
         angle_low = np.concatenate([per_group_low] * self.num_groups)
         self.angle_space = spaces.Box(low=angle_low, high=angle_high, dtype=np.float32)
 
@@ -207,12 +205,21 @@ class WirelessEnvV0(Env):
         self.cur_gain = self.next_gain
 
         # action: [num_groups * 3]: num_groups * [phi, theta, r]
+        # tmp = np.reshape(copy.deepcopy(action), (self.num_groups, 3))
+        # tmp[:, 1:] = np.rad2deg(tmp[:, 1:])
+        # print(f"action: {tmp}")
+
         self.spherical_focal_vecs = self.spherical_focal_vecs + action
         self.spherical_focal_vecs = np.clip(
             self.spherical_focal_vecs, self.focal_vec_space.low, self.focal_vec_space.high
         )
 
+        # tmp = np.reshape(copy.deepcopy(self.spherical_focal_vecs), (self.num_groups, 3))
+        # tmp[:, 1:] = np.rad2deg(tmp[:, 1:])
+        # print(f"spherical_focal_vecs: {tmp}")
+
         self.angles = self._blender_step(self.spherical_focal_vecs)
+        # print(f"angles: {np.rad2deg(self.angles).reshape(-1, 8)}")
         # if angles values are out of bounds, print warning
         if np.any(self.angles < self.angle_space.low) or np.any(
             self.angles > self.angle_space.high
@@ -241,17 +248,20 @@ class WirelessEnvV0(Env):
         self, cur_gains: np.ndarray, next_gains: np.ndarray, time_taken: float
     ) -> float:
 
-        total_gain = np.sum(utils.dB2linear(cur_gains))
-        total_gain = utils.linear2dB(total_gain)  # dB
-
+        adjusted_gains = np.mean(cur_gains, axis=-1) + 90
         gain_diff = np.sum(next_gains - cur_gains)
-        cost_time = time_taken
+        reward = (adjusted_gains + 0.03 * gain_diff - 0.02 * time_taken) / 20
 
-        lower_ = -100.0
-        upper_ = -80.0
+        # total_gain = np.sum(utils.dB2linear(cur_gains))
+        # total_gain = utils.linear2dB(total_gain)  # dB
 
-        reward = total_gain + 0.1 * gain_diff - 0.02 * cost_time
-        reward = (reward - lower_) / (upper_ - lower_)
+        # cost_time = time_taken
+
+        # lower_ = -100.0
+        # upper_ = -80.0
+
+        # reward = total_gain + 0.1 * gain_diff - 0.02 * cost_time
+        # reward = (reward - lower_) / (upper_ - lower_)
 
         return float(reward)
 
@@ -290,6 +300,7 @@ class WirelessEnvV0(Env):
             blender_output_dir,
         ]
         bl_output_txt = os.path.join(tmp_dir, "bl_outputs.txt")
+        # subprocess.run(blender_cmd, check=True)
         subprocess.run(blender_cmd, check=True, stdout=open(bl_output_txt, "w"))
 
         with open(data_path, "rb") as f:
@@ -358,14 +369,16 @@ def compute_rot_angle(pt1: list, pt2: list) -> Tuple[float, float, float]:
 
 
 def cartesian2spherical(x: float, y: float, z: float) -> Tuple[float, float, float]:
+    # theta: zenith angle (0, pi), phi: azimuthal angle (0, 2pi)
     r = math.sqrt(x**2 + y**2 + z**2)
-    theta = math.atan2(y, x)
-    phi = math.acos(z / r)
+    theta = math.acos(z / r)
+    phi = math.atan2(y, x)
     return r, theta, phi
 
 
 def spherical2cartesian(r: float, theta: float, phi: float) -> Tuple[float, float, float]:
-    x = r * math.sin(phi) * math.cos(theta)
-    y = r * math.sin(phi) * math.sin(theta)
-    z = r * math.cos(phi)
+    # theta: zenith angle (0, pi), phi: azimuthal angle (0, 2pi)
+    x = r * math.sin(theta) * math.cos(phi)
+    y = r * math.sin(theta) * math.sin(phi)
+    z = r * math.cos(theta)
     return x, y, z
