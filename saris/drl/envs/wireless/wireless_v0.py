@@ -249,7 +249,7 @@ class WirelessEnvV0(Env):
     ) -> float:
 
         adjusted_gains = np.mean(cur_gains, axis=-1) + 90
-        gain_diff = np.sum(next_gains - cur_gains)
+        gain_diff = np.mean(next_gains - cur_gains)
         reward = (adjusted_gains + 0.03 * gain_diff - 0.02 * time_taken) / 20
 
         # total_gain = np.sum(utils.dB2linear(cur_gains))
