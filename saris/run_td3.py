@@ -23,27 +23,27 @@ class TrainConfig:
     replay_buffer_dir: str = "-1"  # the path to save the replay buffer
     load_replay_buffer: str = "-1"  # the path to load the replay buffer
     verbose: bool = False  # whether to log to console
-    seed: int = 1  # seed of the experiment
-    eval_seed: int = 111  # seed of the evaluation
-    save_interval: int = 100  # the interval to save the model
+    seed: int = 10  # seed of the experiment
+    eval_seed: int = 100  # seed of the evaluation
+    save_interval: int = 150  # the interval to save the model
 
     # Environment specific arguments
     env_id: str = "wireless-sigmap-v0"  # the environment id of the task
     sionna_config_file: str = "-1"  # Sionna config file
     num_envs: int = 8  # the number of parallel environments
-    ep_len: int = 75  # the maximum length of an episode
+    ep_len: int = 200  # the maximum length of an episode
     eval_ep_len: int = 50  # the maximum length of an episode
 
     # Algorithm specific arguments
     total_timesteps: int = 11_001  # total timesteps of the experiments
     n_updates: int = 20  # the number of updates per step
     buffer_size: int = int(100_000)  # the replay memory buffer size
-    gamma: float = 0.97  # the discount factor gamma
+    gamma: float = 0.98  # the discount factor gamma
     tau: float = 0.005  # target smoothing coefficient (default: 0.005)
     batch_size: int = 256  # the batch size of sample from the reply memory
     learning_starts: int = 701  # the timestep to start learning
     policy_lr: float = 3e-4  # the learning rate of the policy network optimizer
-    q_lr: float = 9e-4  # the learning rate of the q network optimizer
+    q_lr: float = 1e-3  # the learning rate of the q network optimizer
     warmup_steps: int = 500  # the number of warmup steps
     policy_frequency: int = 2  # the frequency of training policy (delayed)
     target_network_frequency: int = 2  # the frequency of updates for the target nerworks
