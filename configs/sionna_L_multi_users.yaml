@@ -14,8 +14,8 @@ synthetic_array: true
 ris_positions: [[2.09223, -3.88804, 2.06059]]
 
 # Transmitter and receiver parameters
-tx_num_rows: 4
-tx_num_cols: 4
+tx_num_rows: 2
+tx_num_cols: 2
 tx_vertical_spacing: 0.5
 tx_horizontal_spacing: 0.5
 tx_pattern: tr38901
