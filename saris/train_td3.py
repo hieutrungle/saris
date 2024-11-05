@@ -214,10 +214,10 @@ def update_channel_rmss(
 
 def create_scheduler(optimizer, warmup_steps, num_train_steps, lr):
     warmup_scheduler = optim.lr_scheduler.LinearLR(
-        optimizer, start_factor=1 / 12, total_iters=warmup_steps
+        optimizer, start_factor=0.1, total_iters=warmup_steps
     )
     cosine_scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(
-        optimizer, num_train_steps - warmup_steps, eta_min=lr / 12
+        optimizer, num_train_steps - warmup_steps, eta_min=lr / 10
     )
     scheduler = optim.lr_scheduler.SequentialLR(
         optimizer, [warmup_scheduler, cosine_scheduler], [warmup_steps]

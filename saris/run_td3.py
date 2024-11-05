@@ -35,7 +35,7 @@ class TrainConfig:
     eval_ep_len: int = 50  # the maximum length of an episode
 
     # Algorithm specific arguments
-    total_timesteps: int = 11_001  # total timesteps of the experiments
+    total_timesteps: int = 7_001  # total timesteps of the experiments
     n_updates: int = 20  # the number of updates per step
     buffer_size: int = int(100_000)  # the replay memory buffer size
     gamma: float = 0.98  # the discount factor gamma
