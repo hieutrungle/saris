@@ -55,14 +55,13 @@ class WirelessEnvV0(Env):
         ris_pos = self.sionna_config["ris_positions"][0]
         tx_pos = self.sionna_config["tx_positions"][0]
         r, theta, phi = compute_rot_angle(tx_pos, ris_pos)
-        self.sionna_config["tx_orientations"] = [[phi, math.pi / 2 - theta, 0.0]]
+        self.sionna_config["tx_orientations"] = [[phi, theta - math.pi / 2, 0.0]]
 
         # Set up logging
         self.current_time = "_" + time.strftime("%d-%m-%Y_%H-%M-%S")
 
         # Set up action and observation space
         reflector_config = shared_utils.get_reflector_config()
-
         self.theta_config = reflector_config[0]
         self.phi_config = reflector_config[1]
         self.num_groups = reflector_config[2]
@@ -107,7 +106,7 @@ class WirelessEnvV0(Env):
 
         # channels space
         self.bandwidth = 100e6  # 100MHz
-        self.maximum_delay_spread = 100e-9  # 300ns
+        self.maximum_delay_spread = 10e-9  # 10ns
         # self.maximum_delay_spread = 1e-6  # 1us
         (self.l_min, self.l_max) = time_lag_discrete_time_channel(
             self.bandwidth, self.maximum_delay_spread
@@ -252,13 +251,18 @@ class WirelessEnvV0(Env):
 
         mean_gain = np.mean(cur_gains)
         if mean_gain < -95:
-            adjusted_gain = -1.5 + np.exp(mean_gain + 95)
+            adjusted_gain = -1.1 + np.exp(mean_gain + 95)
         elif mean_gain < -85:
             # linear increase from -0.5 to 0 between -95 and -85
             adjusted_gain = -0.5 + (mean_gain + 95) / 20
         else:
             adjusted_gain = np.log(1 + 85 + mean_gain)
-        reward = adjusted_gain
+
+        gain_diff = np.mean(next_gains - cur_gains)
+
+        reward = adjusted_gain + 0.1 * gain_diff
+
+        # print(f"mean_gain: {mean_gain}, adjusted_gain: {adjusted_gain}, reward: {reward}")
 
         # ! TODO: Failed
         # adjusted_gains = np.mean(cur_gains, axis=-1) + 90
