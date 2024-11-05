@@ -41,7 +41,7 @@ class TrainConfig:
     gamma: float = 0.98  # the discount factor gamma
     tau: float = 0.005  # target smoothing coefficient (default: 0.005)
     batch_size: int = 256  # the batch size of sample from the reply memory
-    learning_starts: int = 701  # the timestep to start learning
+    learning_starts: int = 601  # the timestep to start learning
     policy_lr: float = 3e-4  # the learning rate of the policy network optimizer
     q_lr: float = 1e-3  # the learning rate of the q network optimizer
     warmup_steps: int = 500  # the number of warmup steps
