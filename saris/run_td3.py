@@ -35,13 +35,13 @@ class TrainConfig:
     eval_ep_len: int = 50  # the maximum length of an episode
 
     # Algorithm specific arguments
-    total_timesteps: int = 20_001  # total timesteps of the experiments
+    total_timesteps: int = 11_001  # total timesteps of the experiments
     n_updates: int = 20  # the number of updates per step
     buffer_size: int = int(100_000)  # the replay memory buffer size
     gamma: float = 0.97  # the discount factor gamma
     tau: float = 0.005  # target smoothing coefficient (default: 0.005)
     batch_size: int = 256  # the batch size of sample from the reply memory
-    learning_starts: int = 3_001  # the timestep to start learning
+    learning_starts: int = 701  # the timestep to start learning
     policy_lr: float = 3e-4  # the learning rate of the policy network optimizer
     q_lr: float = 9e-4  # the learning rate of the q network optimizer
     warmup_steps: int = 500  # the number of warmup steps
@@ -55,7 +55,7 @@ class TrainConfig:
     wandb_mode: str = "online"  # wandb mode
     project: str = "SARIS"  # wandb project name
     group: str = "TD3"  # wandb group name
-    name: str = "Online-Learning"  # wandb run name
+    name: str = "Reward-Log-Scale"  # wandb run name
 
     def __post_init__(self):
         lib_dir = importlib.resources.files(saris)

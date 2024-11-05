@@ -185,7 +185,9 @@ class WirelessEnvV0(Env):
         self.spherical_focal_vecs = np.clip(
             self.spherical_focal_vecs, self.focal_vec_space.low, self.focal_vec_space.high
         )
+        # print(f"init_focal_vecs: {self.spherical_focal_vecs.reshape(-1, 3)}")
         self.angles = self._blender_step(self.spherical_focal_vecs)
+        # print(f"angles: {np.rad2deg(self.angles).reshape(-1, 8)}")
         self.angles = np.clip(self.angles, self.angle_space.low, self.angle_space.high)
 
         self.channels, self.cur_gain = self._run_sionna_dB(eval_mode=self.eval_mode)
@@ -248,18 +250,27 @@ class WirelessEnvV0(Env):
         self, cur_gains: np.ndarray, next_gains: np.ndarray, time_taken: float
     ) -> float:
 
-        adjusted_gains = np.mean(cur_gains, axis=-1) + 90
-        gain_diff = np.mean(next_gains - cur_gains)
-        reward = (adjusted_gains + 0.03 * gain_diff - 0.02 * time_taken) / 20
+        mean_gain = np.mean(cur_gains)
+        if mean_gain < -95:
+            adjusted_gain = -1.5 + np.exp(mean_gain + 95)
+        elif mean_gain < -85:
+            # linear increase from -0.5 to 0 between -95 and -85
+            adjusted_gain = -0.5 + (mean_gain + 95) / 20
+        else:
+            adjusted_gain = np.log(1 + 85 + mean_gain)
+        reward = adjusted_gain
 
+        # ! TODO: Failed
+        # adjusted_gains = np.mean(cur_gains, axis=-1) + 90
+        # gain_diff = np.mean(next_gains - cur_gains)
+        # reward = (adjusted_gains + 0.03 * gain_diff - 0.02 * time_taken) / 20
+
+        # ! TODO: Failed
         # total_gain = np.sum(utils.dB2linear(cur_gains))
         # total_gain = utils.linear2dB(total_gain)  # dB
-
         # cost_time = time_taken
-
         # lower_ = -100.0
         # upper_ = -80.0
-
         # reward = total_gain + 0.1 * gain_diff - 0.02 * cost_time
         # reward = (reward - lower_) / (upper_ - lower_)
 
