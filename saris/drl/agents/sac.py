@@ -4,7 +4,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.distributions import Normal, TanhTransform, TransformedDistribution
 import numpy as np
-from gymnasium import spaces
+from gymnasium import spaces, vector
 
 
 def init_module_weights(module: torch.nn.Module, orthogonal_init: bool = False):
@@ -82,16 +82,12 @@ class Embedder(nn.Module):
         return encoded_inputs
 
 
-class Actor(nn.Module):
+class SoftQNetwork(nn.Module):
     def __init__(
         self,
         ob_space: spaces.Tuple,
         ac_space: spaces.Box,
-        action_scale: float = 1.0,
-        log_std_multiplier: float = 1.0,
-        log_std_offset: float = 0.0,
-        log_std_min: float = -5.0,
-        log_std_max: float = 2.0,
+        device: torch.device = torch.device("cpu"),
     ):
         super().__init__()
         self.real_channel_shape = ob_space[0].shape
@@ -110,9 +106,140 @@ class Actor(nn.Module):
         self.angle_start = self.imag_start + self.imag_channel_dim
         self.pos_start = self.angle_start + self.angle_dim
 
-        self.action_scale = action_scale
-        self.log_std_min = log_std_min
-        self.log_std_max = log_std_max
+        ff_dim = 128
+
+        # positions
+        self.pos_embed = Embedder(np.prod(self.position_shape), num_freqs=5)
+        pos_out_dim = self.pos_embed.out_dim
+        self.pos_layers = [
+            nn.Linear(pos_out_dim, ff_dim, device=device),
+            nn.GELU(),
+            MLPBlock(ff_dim, ff_dim, device=device),
+        ]
+        self.pos_network = nn.Sequential(*self.pos_layers)
+
+        # angles
+        self.angle_layers = [
+            nn.Linear(self.angle_dim, ff_dim, device=device),
+            nn.GELU(),
+            MLPBlock(ff_dim, ff_dim, device=device),
+            MLPBlock(ff_dim, ff_dim, device=device),
+        ]
+        self.angle_network = nn.Sequential(*self.angle_layers)
+
+        # channels
+        self.real_channel_layers = [
+            nn.Linear(np.prod(self.real_channel_shape), ff_dim * 2, device=device),
+            nn.GELU(),
+            MLPBlock(ff_dim * 2, ff_dim, device=device),
+            MLPBlock(ff_dim, ff_dim, device=device),
+        ]
+        self.real_channel_network = nn.Sequential(*self.real_channel_layers)
+
+        self.imag_channel_layers = [
+            nn.Linear(np.prod(self.imag_channel_shape), ff_dim * 2, device=device),
+            nn.GELU(),
+            MLPBlock(ff_dim * 2, ff_dim, device=device),
+            MLPBlock(ff_dim, ff_dim, device=device),
+        ]
+        self.imag_channel_network = nn.Sequential(*self.imag_channel_layers)
+
+        self.chanel_combine_layer = [nn.Linear(ff_dim * 2, ff_dim, device=device), nn.GELU()]
+        self.channel_connect_network = nn.Sequential(*self.chanel_combine_layer)
+
+        # Connect channel + pos + angles
+        self.connect_layer = [nn.Linear(ff_dim * 3, ff_dim, device=device), nn.GELU()]
+        self.connect_network = nn.Sequential(*self.connect_layer)
+
+        # action
+        action_layers = [
+            nn.Linear(np.prod(ac_space.shape), ff_dim, device=device),
+            nn.GELU(),
+            MLPBlock(ff_dim, ff_dim, device=device),
+        ]
+        self.action_network = nn.Sequential(*action_layers)
+
+        # Combine all
+        self.combine_network = nn.Sequential(
+            nn.Linear(ff_dim * 2, ff_dim, device=device), nn.GELU()
+        )
+        self.combine_layer = nn.Linear(ff_dim, 1, device=device)
+
+    def forward(self, obs, acs):
+        batch_size = obs.shape[0]
+        real_channel = obs[:batch_size, self.real_start : self.imag_start].reshape(
+            batch_size, *self.real_channel_shape
+        )
+        imag_channel = obs[:batch_size, self.imag_start : self.angle_start].reshape(
+            batch_size, *self.imag_channel_shape
+        )
+        angles = angles = obs[:batch_size, self.angle_start : self.pos_start].reshape(
+            batch_size, *self.angle_shape
+        )
+        pos = obs[:batch_size, self.pos_start :].reshape(batch_size, *self.position_shape)
+
+        # positions
+        pos = self.pos_embed(pos)
+        pos = self.pos_network(pos)
+
+        # angles
+        angles = obs[
+            :batch_size, self.real_channel_dim + self.imag_channel_dim + self.position_dim :
+        ].reshape(batch_size, *self.angle_shape)
+        angles = self.angle_network(angles)
+
+        # channels
+        real_channel = real_channel.reshape(real_channel.shape[0], -1)
+        real_channel = self.real_channel_network(real_channel)
+
+        imag_channel = imag_channel.reshape(imag_channel.shape[0], -1)
+        imag_channel = self.imag_channel_network(imag_channel)
+
+        channel = torch.cat([real_channel, imag_channel], dim=-1)
+        channel = self.channel_connect_network(channel)
+
+        # connect
+        combined = torch.cat([channel, angles, pos], dim=-1)
+        combined = self.connect_network(combined)
+
+        # action
+        action = self.action_network(acs)
+
+        # combine
+        ob_ac = self.combine_network(torch.cat([combined, action], dim=-1))
+        q_values = self.combine_layer(ob_ac)
+        return q_values
+
+
+LOG_STD_MAX = 2
+LOG_STD_MIN = -5
+
+
+class Actor(nn.Module):
+    def __init__(
+        self,
+        ob_space: spaces.Tuple,
+        ac_space: spaces.Box,
+        envs: vector.VectorEnv,
+        exploration_noise: float = 0.5,
+        device: torch.device = torch.device("cpu"),
+    ):
+        super().__init__()
+        self.real_channel_shape = ob_space[0].shape
+        self.imag_channel_shape = ob_space[1].shape
+        self.angle_shape = ob_space[2].shape
+        self.position_shape = ob_space[3].shape
+        self.ac_shape = ac_space.shape
+
+        self.real_channel_dim = np.prod(self.real_channel_shape)
+        self.imag_channel_dim = np.prod(self.imag_channel_shape)
+        self.angle_dim = np.prod(self.angle_shape)
+        self.position_dim = np.prod(self.position_shape)
+
+        self.real_start = 0
+        self.imag_start = self.real_channel_dim
+        self.angle_start = self.imag_start + self.imag_channel_dim
+        self.pos_start = self.angle_start + self.angle_dim
 
         ff_dim = 128
 
@@ -120,76 +247,86 @@ class Actor(nn.Module):
         self.pos_embed = Embedder(np.prod(self.position_shape), num_freqs=5)
         pos_out_dim = self.pos_embed.out_dim
         self.pos_layers = [
-            nn.Linear(pos_out_dim, ff_dim),
+            nn.Linear(pos_out_dim, ff_dim, device=device),
             nn.GELU(),
-            MLPBlock(ff_dim, ff_dim),
+            MLPBlock(ff_dim, ff_dim, device=device),
         ]
         self.pos_network = nn.Sequential(*self.pos_layers)
 
         # angles
         self.angle_layers = [
-            nn.Linear(self.angle_dim, ff_dim),
+            nn.Linear(self.angle_dim, ff_dim, device=device),
             nn.GELU(),
-            MLPBlock(ff_dim, ff_dim),
-            MLPBlock(ff_dim, ff_dim),
-            MLPBlock(ff_dim, ff_dim),
+            MLPBlock(ff_dim, ff_dim, device=device),
+            MLPBlock(ff_dim, ff_dim, device=device),
         ]
         self.angle_network = nn.Sequential(*self.angle_layers)
 
         # channels
         self.real_channel_layers = [
-            nn.Linear(np.prod(self.real_channel_shape), ff_dim * 2),
+            nn.Linear(np.prod(self.real_channel_shape), ff_dim * 2, device=device),
             nn.GELU(),
-            MLPBlock(ff_dim * 2, ff_dim),
-            MLPBlock(ff_dim, ff_dim),
-            MLPBlock(ff_dim, ff_dim),
+            MLPBlock(ff_dim * 2, ff_dim, device=device),
+            MLPBlock(ff_dim, ff_dim, device=device),
         ]
         self.real_channel_network = nn.Sequential(*self.real_channel_layers)
 
         self.imag_channel_layers = [
-            nn.Linear(np.prod(self.imag_channel_shape), ff_dim * 2),
+            nn.Linear(np.prod(self.imag_channel_shape), ff_dim * 2, device=device),
             nn.GELU(),
-            MLPBlock(ff_dim * 2, ff_dim),
-            MLPBlock(ff_dim, ff_dim),
-            MLPBlock(ff_dim, ff_dim),
+            MLPBlock(ff_dim * 2, ff_dim, device=device),
+            MLPBlock(ff_dim, ff_dim, device=device),
         ]
         self.imag_channel_network = nn.Sequential(*self.imag_channel_layers)
 
-        self.chanel_combine_layer = [nn.Linear(ff_dim * 2, ff_dim), nn.GELU()]
+        self.chanel_combine_layer = [nn.Linear(ff_dim * 2, ff_dim, device=device), nn.GELU()]
         self.channel_connect_network = nn.Sequential(*self.chanel_combine_layer)
 
         # Connect channel + pos + angles
-        self.connect_layer = [nn.Linear(ff_dim * 3, ff_dim), nn.GELU()]
+        self.connect_layer = [nn.Linear(ff_dim * 3, ff_dim, device=device), nn.GELU()]
         self.connect_network = nn.Sequential(*self.connect_layer)
 
-        self.fc_mean = nn.Linear(ff_dim, np.prod(self.ac_shape))
-        self.fc_log_std = nn.Linear(ff_dim, np.prod(self.ac_shape))
+        self.fc_mean = nn.Linear(ff_dim, np.prod(self.ac_shape), device=device)
+        self.fc_log_std = nn.Linear(ff_dim, np.prod(self.ac_shape), device=device)
 
-        self.pos_network.apply(lambda m: init_module_weights(m, True))
-        self.real_channel_network.apply(lambda m: init_module_weights(m, True))
-        self.imag_channel_network.apply(lambda m: init_module_weights(m, True))
-        self.connect_network.apply(lambda m: init_module_weights(m, True))
+        # action rescaling
+        self.register_buffer(
+            "action_scale",
+            torch.tensor(
+                (envs.single_action_space.high - envs.single_action_space.low) / 2.0,
+                dtype=torch.float32,
+                device=device,
+            ),
+        )
+        self.register_buffer(
+            "action_bias",
+            torch.tensor(
+                (envs.single_action_space.high + envs.single_action_space.low) / 2.0,
+                dtype=torch.float32,
+                device=device,
+            ),
+        )
+        self.register_buffer("exploration_noise", torch.as_tensor(exploration_noise))
 
-    def forward(self, observations: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-
-        batch_size = observations.shape[0]
-        real_channel = observations[:batch_size, self.real_start : self.imag_start].reshape(
+    def forward(self, obs):
+        batch_size = obs.shape[0]
+        real_channel = obs[:batch_size, self.real_start : self.imag_start].reshape(
             batch_size, *self.real_channel_shape
         )
-        imag_channel = observations[:batch_size, self.imag_start : self.angle_start].reshape(
+        imag_channel = obs[:batch_size, self.imag_start : self.angle_start].reshape(
             batch_size, *self.imag_channel_shape
         )
-        angles = angles = observations[:batch_size, self.angle_start : self.pos_start].reshape(
+        angles = angles = obs[:batch_size, self.angle_start : self.pos_start].reshape(
             batch_size, *self.angle_shape
         )
-        pos = observations[:batch_size, self.pos_start :].reshape(batch_size, *self.position_shape)
+        pos = obs[:batch_size, self.pos_start :].reshape(batch_size, *self.position_shape)
 
         # positions
         pos = self.pos_embed(pos)
         pos = self.pos_network(pos)
 
         # angles
-        angles = observations[
+        angles = obs[
             :batch_size, self.real_channel_dim + self.imag_channel_dim + self.position_dim :
         ].reshape(batch_size, *self.angle_shape)
         angles = self.angle_network(angles)
@@ -211,177 +348,328 @@ class Actor(nn.Module):
         # mean and log_std
         mean = self.fc_mean(combined)
         log_std = self.fc_log_std(combined)
-        log_std = self.log_std_min + 0.5 * (self.log_std_max - self.log_std_min) * (log_std + 1)
+        log_std = torch.tanh(log_std)
+        log_std = LOG_STD_MIN + 0.5 * (LOG_STD_MAX - LOG_STD_MIN) * (
+            log_std + 1
+        )  # From SpinUp / Denis Yarats
 
         return mean, log_std
 
-    def get_action(self, obs: torch.Tensor):
-
-        # action
-        mean, log_std = self.forward(obs)
-        std = torch.exp(log_std)
+    def get_action(self, x):
+        mean, log_std = self(x)
+        std = log_std.exp()
         normal = torch.distributions.Normal(mean, std)
-        x_t = normal.rsample()
+        x_t = normal.rsample()  # for reparameterization trick (mean + std * N(0,1))
         y_t = torch.tanh(x_t)
-        actions = self.action_scale * y_t
-
-        # log_prob
+        action = y_t * self.action_scale + self.action_bias
         log_prob = normal.log_prob(x_t)
-
         # Enforcing Action Bound
         log_prob -= torch.log(self.action_scale * (1 - y_t.pow(2)) + 1e-6)
-        log_prob = log_prob.sum(-1, keepdim=True)
-        mean = torch.tanh(mean) * self.action_scale
-
-        actions = self.modify_action(actions)
-        mean = self.modify_action(mean)
-
-        return actions, log_prob, mean
-
-    def modify_action(self, acts: torch.tensor):
-        action_shape = acts.shape
-        last_dim = acts.shape[-1]
-        all_but_last_dim = acts.shape[:-1]
-        acts = acts.reshape(*all_but_last_dim, last_dim // 3, 3)
-        acts[..., 0] = torch.div(acts[..., 0], 3.0)
-        acts[..., 1:] = torch.deg2rad(acts[..., 1:])
-        acts = acts.reshape(*action_shape)
-        return acts
+        log_prob = log_prob.sum(1, keepdim=True)
+        mean = torch.tanh(mean) * self.action_scale + self.action_bias
+        return action, log_prob, mean
 
 
-class SoftQNetwork(nn.Module):
-    def __init__(self, ob_space: spaces.Tuple, ac_space: spaces.Box):
-        super().__init__()
-        self.real_channel_shape = ob_space[0].shape
-        self.imag_channel_shape = ob_space[1].shape
-        self.angle_shape = ob_space[2].shape
-        self.position_shape = ob_space[3].shape
-        self.ac_shape = ac_space.shape
+# class Actor(nn.Module):
+#     def __init__(
+#         self,
+#         ob_space: spaces.Tuple,
+#         ac_space: spaces.Box,
+#         action_scale: float = 1.0,
+#         log_std_multiplier: float = 1.0,
+#         log_std_offset: float = 0.0,
+#         log_std_min: float = -5.0,
+#         log_std_max: float = 2.0,
+#     ):
+#         super().__init__()
+#         self.real_channel_shape = ob_space[0].shape
+#         self.imag_channel_shape = ob_space[1].shape
+#         self.angle_shape = ob_space[2].shape
+#         self.position_shape = ob_space[3].shape
+#         self.ac_shape = ac_space.shape
 
-        self.real_channel_dim = np.prod(self.real_channel_shape)
-        self.imag_channel_dim = np.prod(self.imag_channel_shape)
-        self.angle_dim = np.prod(self.angle_shape)
-        self.position_dim = np.prod(self.position_shape)
+#         self.real_channel_dim = np.prod(self.real_channel_shape)
+#         self.imag_channel_dim = np.prod(self.imag_channel_shape)
+#         self.angle_dim = np.prod(self.angle_shape)
+#         self.position_dim = np.prod(self.position_shape)
 
-        self.real_start = 0
-        self.imag_start = self.real_channel_dim
-        self.angle_start = self.imag_start + self.imag_channel_dim
-        self.pos_start = self.angle_start + self.angle_dim
+#         self.real_start = 0
+#         self.imag_start = self.real_channel_dim
+#         self.angle_start = self.imag_start + self.imag_channel_dim
+#         self.pos_start = self.angle_start + self.angle_dim
 
-        ff_dim = 128
+#         self.action_scale = action_scale
+#         self.log_std_min = log_std_min
+#         self.log_std_max = log_std_max
 
-        # positions
-        self.pos_embed = Embedder(np.prod(self.position_shape), num_freqs=5)
-        pos_out_dim = self.pos_embed.out_dim
-        self.pos_layers = [
-            nn.Linear(pos_out_dim, ff_dim),
-            nn.GELU(),
-            MLPBlock(ff_dim, ff_dim),
-        ]
-        self.pos_network = nn.Sequential(*self.pos_layers)
+#         ff_dim = 128
 
-        # angles
-        self.angle_layers = [
-            nn.Linear(self.angle_dim, ff_dim),
-            nn.GELU(),
-            MLPBlock(ff_dim, ff_dim),
-            MLPBlock(ff_dim, ff_dim),
-            MLPBlock(ff_dim, ff_dim),
-        ]
-        self.angle_network = nn.Sequential(*self.angle_layers)
+#         # positions
+#         self.pos_embed = Embedder(np.prod(self.position_shape), num_freqs=5)
+#         pos_out_dim = self.pos_embed.out_dim
+#         self.pos_layers = [
+#             nn.Linear(pos_out_dim, ff_dim),
+#             nn.GELU(),
+#             MLPBlock(ff_dim, ff_dim),
+#         ]
+#         self.pos_network = nn.Sequential(*self.pos_layers)
 
-        # channels
-        self.real_channel_layers = [
-            nn.Linear(np.prod(self.real_channel_shape), ff_dim * 2),
-            nn.GELU(),
-            MLPBlock(ff_dim * 2, ff_dim),
-            MLPBlock(ff_dim, ff_dim),
-            MLPBlock(ff_dim, ff_dim),
-        ]
-        self.real_channel_network = nn.Sequential(*self.real_channel_layers)
+#         # angles
+#         self.angle_layers = [
+#             nn.Linear(self.angle_dim, ff_dim),
+#             nn.GELU(),
+#             MLPBlock(ff_dim, ff_dim),
+#             MLPBlock(ff_dim, ff_dim),
+#             MLPBlock(ff_dim, ff_dim),
+#         ]
+#         self.angle_network = nn.Sequential(*self.angle_layers)
 
-        self.imag_channel_layers = [
-            nn.Linear(np.prod(self.real_channel_shape), ff_dim * 2),
-            nn.GELU(),
-            MLPBlock(ff_dim * 2, ff_dim),
-            MLPBlock(ff_dim, ff_dim),
-            MLPBlock(ff_dim, ff_dim),
-        ]
-        self.imag_channel_network = nn.Sequential(*self.imag_channel_layers)
+#         # channels
+#         self.real_channel_layers = [
+#             nn.Linear(np.prod(self.real_channel_shape), ff_dim * 2),
+#             nn.GELU(),
+#             MLPBlock(ff_dim * 2, ff_dim),
+#             MLPBlock(ff_dim, ff_dim),
+#             MLPBlock(ff_dim, ff_dim),
+#         ]
+#         self.real_channel_network = nn.Sequential(*self.real_channel_layers)
 
-        self.chanel_combine_layer = [nn.Linear(ff_dim * 2, ff_dim), nn.GELU()]
-        self.channel_connect_network = nn.Sequential(*self.chanel_combine_layer)
+#         self.imag_channel_layers = [
+#             nn.Linear(np.prod(self.imag_channel_shape), ff_dim * 2),
+#             nn.GELU(),
+#             MLPBlock(ff_dim * 2, ff_dim),
+#             MLPBlock(ff_dim, ff_dim),
+#             MLPBlock(ff_dim, ff_dim),
+#         ]
+#         self.imag_channel_network = nn.Sequential(*self.imag_channel_layers)
 
-        # Connect channel + pos + angles
-        self.connect_layer = [nn.Linear(ff_dim * 3, ff_dim), nn.GELU()]
-        self.connect_network = nn.Sequential(*self.connect_layer)
+#         self.chanel_combine_layer = [nn.Linear(ff_dim * 2, ff_dim), nn.GELU()]
+#         self.channel_connect_network = nn.Sequential(*self.chanel_combine_layer)
 
-        # action
-        action_layers = [
-            nn.Linear(np.prod(ac_space.shape), ff_dim),
-            nn.GELU(),
-            MLPBlock(ff_dim, ff_dim),
-        ]
-        self.action_network = nn.Sequential(*action_layers)
+#         # Connect channel + pos + angles
+#         self.connect_layer = [nn.Linear(ff_dim * 3, ff_dim), nn.GELU()]
+#         self.connect_network = nn.Sequential(*self.connect_layer)
 
-        # Combine all
-        self.combine_network = nn.Sequential(nn.Linear(ff_dim * 2, ff_dim // 2), nn.GELU())
-        self.combine_layer = nn.Linear(ff_dim // 2, 1)
+#         self.fc_mean = nn.Linear(ff_dim, np.prod(self.ac_shape))
+#         self.fc_log_std = nn.Linear(ff_dim, np.prod(self.ac_shape))
 
-        self.pos_network.apply(lambda m: init_module_weights(m, True))
-        self.real_channel_network.apply(lambda m: init_module_weights(m, True))
-        self.imag_channel_network.apply(lambda m: init_module_weights(m, True))
-        self.connect_network.apply(lambda m: init_module_weights(m, True))
-        self.action_network.apply(lambda m: init_module_weights(m, True))
-        self.combine_network.apply(lambda m: init_module_weights(m, True))
-        self.combine_layer.apply(lambda m: init_module_weights(m, True))
+#         self.pos_network.apply(lambda m: init_module_weights(m, True))
+#         self.real_channel_network.apply(lambda m: init_module_weights(m, True))
+#         self.imag_channel_network.apply(lambda m: init_module_weights(m, True))
+#         self.connect_network.apply(lambda m: init_module_weights(m, True))
 
-    def forward(self, observations: torch.Tensor, actions: torch.Tensor) -> torch.Tensor:
+#     def forward(self, observations: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
 
-        batch_size = observations.shape[0]
-        real_channel = observations[:batch_size, self.real_start : self.imag_start].reshape(
-            batch_size, *self.real_channel_shape
-        )
-        imag_channel = observations[:batch_size, self.imag_start : self.angle_start].reshape(
-            batch_size, *self.imag_channel_shape
-        )
-        angles = angles = observations[:batch_size, self.angle_start : self.pos_start].reshape(
-            batch_size, *self.angle_shape
-        )
-        pos = observations[:batch_size, self.pos_start :].reshape(batch_size, *self.position_shape)
+#         batch_size = observations.shape[0]
+#         real_channel = observations[:batch_size, self.real_start : self.imag_start].reshape(
+#             batch_size, *self.real_channel_shape
+#         )
+#         imag_channel = observations[:batch_size, self.imag_start : self.angle_start].reshape(
+#             batch_size, *self.imag_channel_shape
+#         )
+#         angles = angles = observations[:batch_size, self.angle_start : self.pos_start].reshape(
+#             batch_size, *self.angle_shape
+#         )
+#         pos = observations[:batch_size, self.pos_start :].reshape(batch_size, *self.position_shape)
 
-        # positions
-        pos = self.pos_embed(pos)
-        pos = self.pos_network(pos)
+#         # positions
+#         pos = self.pos_embed(pos)
+#         pos = self.pos_network(pos)
 
-        # angles
-        angles = observations[
-            :batch_size, self.real_channel_dim + self.imag_channel_dim + self.position_dim :
-        ].reshape(batch_size, *self.angle_shape)
-        angles = self.angle_network(angles)
+#         # angles
+#         angles = observations[
+#             :batch_size, self.real_channel_dim + self.imag_channel_dim + self.position_dim :
+#         ].reshape(batch_size, *self.angle_shape)
+#         angles = self.angle_network(angles)
 
-        # channels
-        real_channel = real_channel.reshape(real_channel.shape[0], -1)
-        real_channel = self.real_channel_network(real_channel)
+#         # channels
+#         real_channel = real_channel.reshape(real_channel.shape[0], -1)
+#         real_channel = self.real_channel_network(real_channel)
 
-        imag_channel = imag_channel.reshape(imag_channel.shape[0], -1)
-        imag_channel = self.imag_channel_network(imag_channel)
+#         imag_channel = imag_channel.reshape(imag_channel.shape[0], -1)
+#         imag_channel = self.imag_channel_network(imag_channel)
 
-        channel = torch.cat([real_channel, imag_channel], dim=-1)
-        channel = self.channel_connect_network(channel)
+#         channel = torch.cat([real_channel, imag_channel], dim=-1)
+#         channel = self.channel_connect_network(channel)
 
-        # connect
-        combined = torch.cat([channel, angles, pos], dim=-1)
-        combined = self.connect_network(combined)
+#         # connect
+#         combined = torch.cat([channel, angles, pos], dim=-1)
+#         combined = self.connect_network(combined)
 
-        # action
-        action = self.action_network(actions)
+#         # mean and log_std
+#         mean = self.fc_mean(combined)
+#         log_std = self.fc_log_std(combined)
+#         log_std = self.log_std_min + 0.5 * (self.log_std_max - self.log_std_min) * (log_std + 1)
 
-        # combine
-        ob_ac = self.combine_network(torch.cat([combined, action], dim=-1))
-        q_values = self.combine_layer(ob_ac)
+#         return mean, log_std
 
-        return q_values
+#     def get_action(self, obs: torch.Tensor):
+
+#         # action
+#         mean, log_std = self.forward(obs)
+#         std = torch.exp(log_std)
+#         normal = torch.distributions.Normal(mean, std)
+#         x_t = normal.rsample()
+#         y_t = torch.tanh(x_t)
+#         actions = self.action_scale * y_t
+
+#         # log_prob
+#         log_prob = normal.log_prob(x_t)
+
+#         # Enforcing Action Bound
+#         log_prob -= torch.log(self.action_scale * (1 - y_t.pow(2)) + 1e-6)
+#         log_prob = log_prob.sum(-1, keepdim=True)
+#         mean = torch.tanh(mean) * self.action_scale
+
+#         actions = self.modify_action(actions)
+#         mean = self.modify_action(mean)
+
+#         return actions, log_prob, mean
+
+#     def modify_action(self, acts: torch.tensor):
+#         action_shape = acts.shape
+#         last_dim = acts.shape[-1]
+#         all_but_last_dim = acts.shape[:-1]
+#         acts = acts.reshape(*all_but_last_dim, last_dim // 3, 3)
+#         acts[..., 0] = torch.div(acts[..., 0], 3.0)
+#         acts[..., 1:] = torch.deg2rad(acts[..., 1:])
+#         acts = acts.reshape(*action_shape)
+#         return acts
+
+
+# class SoftQNetwork(nn.Module):
+#     def __init__(self, ob_space: spaces.Tuple, ac_space: spaces.Box):
+#         super().__init__()
+#         self.real_channel_shape = ob_space[0].shape
+#         self.imag_channel_shape = ob_space[1].shape
+#         self.angle_shape = ob_space[2].shape
+#         self.position_shape = ob_space[3].shape
+#         self.ac_shape = ac_space.shape
+
+#         self.real_channel_dim = np.prod(self.real_channel_shape)
+#         self.imag_channel_dim = np.prod(self.imag_channel_shape)
+#         self.angle_dim = np.prod(self.angle_shape)
+#         self.position_dim = np.prod(self.position_shape)
+
+#         self.real_start = 0
+#         self.imag_start = self.real_channel_dim
+#         self.angle_start = self.imag_start + self.imag_channel_dim
+#         self.pos_start = self.angle_start + self.angle_dim
+
+#         ff_dim = 128
+
+#         # positions
+#         self.pos_embed = Embedder(np.prod(self.position_shape), num_freqs=5)
+#         pos_out_dim = self.pos_embed.out_dim
+#         self.pos_layers = [
+#             nn.Linear(pos_out_dim, ff_dim),
+#             nn.GELU(),
+#             MLPBlock(ff_dim, ff_dim),
+#         ]
+#         self.pos_network = nn.Sequential(*self.pos_layers)
+
+#         # angles
+#         self.angle_layers = [
+#             nn.Linear(self.angle_dim, ff_dim),
+#             nn.GELU(),
+#             MLPBlock(ff_dim, ff_dim),
+#             MLPBlock(ff_dim, ff_dim),
+#             MLPBlock(ff_dim, ff_dim),
+#         ]
+#         self.angle_network = nn.Sequential(*self.angle_layers)
+
+#         # channels
+#         self.real_channel_layers = [
+#             nn.Linear(np.prod(self.real_channel_shape), ff_dim * 2),
+#             nn.GELU(),
+#             MLPBlock(ff_dim * 2, ff_dim),
+#             MLPBlock(ff_dim, ff_dim),
+#             MLPBlock(ff_dim, ff_dim),
+#         ]
+#         self.real_channel_network = nn.Sequential(*self.real_channel_layers)
+
+#         self.imag_channel_layers = [
+#             nn.Linear(np.prod(self.real_channel_shape), ff_dim * 2),
+#             nn.GELU(),
+#             MLPBlock(ff_dim * 2, ff_dim),
+#             MLPBlock(ff_dim, ff_dim),
+#             MLPBlock(ff_dim, ff_dim),
+#         ]
+#         self.imag_channel_network = nn.Sequential(*self.imag_channel_layers)
+
+#         self.chanel_combine_layer = [nn.Linear(ff_dim * 2, ff_dim), nn.GELU()]
+#         self.channel_connect_network = nn.Sequential(*self.chanel_combine_layer)
+
+#         # Connect channel + pos + angles
+#         self.connect_layer = [nn.Linear(ff_dim * 3, ff_dim), nn.GELU()]
+#         self.connect_network = nn.Sequential(*self.connect_layer)
+
+#         # action
+#         action_layers = [
+#             nn.Linear(np.prod(ac_space.shape), ff_dim),
+#             nn.GELU(),
+#             MLPBlock(ff_dim, ff_dim),
+#         ]
+#         self.action_network = nn.Sequential(*action_layers)
+
+#         # Combine all
+#         self.combine_network = nn.Sequential(nn.Linear(ff_dim * 2, ff_dim // 2), nn.GELU())
+#         self.combine_layer = nn.Linear(ff_dim // 2, 1)
+
+#         self.pos_network.apply(lambda m: init_module_weights(m, True))
+#         self.real_channel_network.apply(lambda m: init_module_weights(m, True))
+#         self.imag_channel_network.apply(lambda m: init_module_weights(m, True))
+#         self.connect_network.apply(lambda m: init_module_weights(m, True))
+#         self.action_network.apply(lambda m: init_module_weights(m, True))
+#         self.combine_network.apply(lambda m: init_module_weights(m, True))
+#         self.combine_layer.apply(lambda m: init_module_weights(m, True))
+
+#     def forward(self, observations: torch.Tensor, actions: torch.Tensor) -> torch.Tensor:
+
+#         batch_size = observations.shape[0]
+#         real_channel = observations[:batch_size, self.real_start : self.imag_start].reshape(
+#             batch_size, *self.real_channel_shape
+#         )
+#         imag_channel = observations[:batch_size, self.imag_start : self.angle_start].reshape(
+#             batch_size, *self.imag_channel_shape
+#         )
+#         angles = angles = observations[:batch_size, self.angle_start : self.pos_start].reshape(
+#             batch_size, *self.angle_shape
+#         )
+#         pos = observations[:batch_size, self.pos_start :].reshape(batch_size, *self.position_shape)
+
+#         # positions
+#         pos = self.pos_embed(pos)
+#         pos = self.pos_network(pos)
+
+#         # angles
+#         angles = observations[
+#             :batch_size, self.real_channel_dim + self.imag_channel_dim + self.position_dim :
+#         ].reshape(batch_size, *self.angle_shape)
+#         angles = self.angle_network(angles)
+
+#         # channels
+#         real_channel = real_channel.reshape(real_channel.shape[0], -1)
+#         real_channel = self.real_channel_network(real_channel)
+
+#         imag_channel = imag_channel.reshape(imag_channel.shape[0], -1)
+#         imag_channel = self.imag_channel_network(imag_channel)
+
+#         channel = torch.cat([real_channel, imag_channel], dim=-1)
+#         channel = self.channel_connect_network(channel)
+
+#         # connect
+#         combined = torch.cat([channel, angles, pos], dim=-1)
+#         combined = self.connect_network(combined)
+
+#         # action
+#         action = self.action_network(actions)
+
+#         # combine
+#         ob_ac = self.combine_network(torch.cat([combined, action], dim=-1))
+#         q_values = self.combine_layer(ob_ac)
+
+#         return q_values
 
 
 """
@@ -1663,14 +1951,16 @@ class TransformerBlock(nn.Module):
 
 
 class MLPBlock(nn.Module):
-    def __init__(self, in_features: int, out_features: int, multiplier: int = 2):
+    def __init__(
+        self, in_features: int, out_features: int, multiplier: int = 2, device=torch.device("cpu")
+    ):
         super().__init__()
         self.block = nn.Sequential(
-            nn.Linear(in_features, out_features * multiplier, bias=False),
+            nn.Linear(in_features, out_features * multiplier, bias=False, device=device),
             nn.GELU(),
-            nn.Linear(out_features * multiplier, out_features, bias=False),
+            nn.Linear(out_features * multiplier, out_features, bias=False, device=device),
         )
-        self.layer_norm = nn.LayerNorm(out_features)
+        self.layer_norm = nn.LayerNorm(out_features, device=device)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.layer_norm(self.block(x))
