@@ -249,16 +249,28 @@ class WirelessEnvV0(Env):
         self, cur_gains: np.ndarray, next_gains: np.ndarray, time_taken: float
     ) -> float:
 
-        mean_gain = np.mean(cur_gains)
-        if mean_gain < -95:
-            adjusted_gain = np.exp(mean_gain + 95) / 20
-        elif mean_gain < -85:
-            # linear increase from -0.5 to 0 between -95 and -85
-            adjusted_gain = -0.5 + (mean_gain + 95) / 20
-        else:
-            adjusted_gain = np.log(1 + 85 + mean_gain) + 0.3
-
+        adjusted_gains = np.where(
+            cur_gains < -95,
+            np.exp(cur_gains + 95) / 20,
+            np.where(
+                cur_gains < -85,
+                0.05 + (0.3 - 0.05) * (cur_gains + 95) / 10,
+                np.log(1 + 85 + cur_gains) + 0.3,
+            ),
+        )
+        adjusted_gain = np.mean(adjusted_gains)
         gain_diff = np.mean(next_gains - cur_gains)
+
+        # mean_gain = np.mean(cur_gains)
+        # if mean_gain < -95:
+        #     adjusted_gain = np.exp(mean_gain + 95) / 20
+        # elif mean_gain < -85:
+        #     # linear increase from -0.5 to 0 between -95 and -85
+        #     adjusted_gain = -0.5 + (mean_gain + 95) / 20
+        # else:
+        #     adjusted_gain = np.log(1 + 85 + mean_gain) + 0.3
+
+        # gain_diff = np.mean(next_gains - cur_gains)
 
         reward = adjusted_gain + 0.05 * gain_diff
 

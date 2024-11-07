@@ -23,8 +23,8 @@ class TrainConfig:
     replay_buffer_dir: str = "-1"  # the path to save the replay buffer
     load_replay_buffer: str = "-1"  # the path to load the replay buffer
     verbose: bool = False  # whether to log to console
-    seed: int = 10  # seed of the experiment
-    eval_seed: int = 100  # seed of the evaluation
+    seed: int = 24  # seed of the experiment
+    eval_seed: int = 65  # seed of the evaluation
     save_interval: int = 150  # the interval to save the model
 
     # Environment specific arguments
@@ -38,7 +38,7 @@ class TrainConfig:
     total_timesteps: int = 7_001  # total timesteps of the experiments
     n_updates: int = 20  # the number of updates per step
     buffer_size: int = int(100_000)  # the replay memory buffer size
-    gamma: float = 0.98  # the discount factor gamma
+    gamma: float = 0.99  # the discount factor gamma
     tau: float = 0.005  # target smoothing coefficient (default: 0.005)
     batch_size: int = 256  # the batch size of sample from the reply memory
     learning_starts: int = 601  # the timestep to start learning
@@ -55,7 +55,7 @@ class TrainConfig:
     wandb_mode: str = "online"  # wandb mode
     project: str = "SARIS"  # wandb project name
     group: str = "TD3"  # wandb group name
-    name: str = "Reward-Log-Scale"  # wandb run name
+    name: str = "Reward_three_distinct"  # wandb run name
 
     def __post_init__(self):
         lib_dir = importlib.resources.files(saris)
