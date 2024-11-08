@@ -251,7 +251,7 @@ class WirelessEnvV0(Env):
 
         adjusted_gains = np.where(
             cur_gains < -95,
-            np.exp(cur_gains + 95) / 20,
+            -0.1 + (0.05 + 0.1) * (np.exp(cur_gains + 120) - 1) / (np.exp(-95 + 120) - 1),
             np.where(
                 cur_gains < -85,
                 0.05 + (0.3 - 0.05) * (cur_gains + 95) / 10,

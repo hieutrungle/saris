@@ -25,7 +25,7 @@ class TrainConfig:
     verbose: bool = False  # whether to log to console
     seed: int = 1  # seed of the experiment
     eval_seed: int = 111  # seed of the evaluation
-    save_interval: int = 100  # the interval to save the model
+    save_interval: int = 150  # the interval to save the model
 
     # Environment specific arguments
     env_id: str = "wireless-sigmap-v0"  # the environment id of the task
@@ -53,7 +53,7 @@ class TrainConfig:
     wandb_mode: str = "online"  # wandb mode
     project: str = "SARIS"  # wandb project name
     group: str = "SAC"  # wandb group name
-    name: str = "Reward_split"  # wandb run name
+    name: str = "Reward_Split"  # wandb run name
 
     def __post_init__(self):
         lib_dir = importlib.resources.files(saris)
