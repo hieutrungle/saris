@@ -363,8 +363,8 @@ def main(config: TrainConfig):
         lr=config.policy_lr,
         #   capturable=True
     )
-    warmup_steps = int(config.n_updates / config.policy_frequency * config.warmup_steps)
-    total_train_steps = int(config.n_updates / config.policy_frequency * config.total_timesteps)
+    warmup_steps = int(config.n_updates * config.warmup_steps)
+    total_train_steps = int(config.n_updates * config.total_timesteps)
     actor_scheduler = create_scheduler(
         actor_optimizer, warmup_steps, total_train_steps, config.policy_lr
     )
@@ -508,6 +508,7 @@ def train_agent(
             alpha=alpha.detach(),
             actor_loss=actor_loss.detach(),
             alpha_loss=alpha_loss.detach(),
+            entropy=-(log_pi.exp() * log_pi).mean().detach(),
         )
 
     mode = "default"  # "reduce-overhead" if not config.cudagraphs else None
@@ -548,6 +549,8 @@ def train_agent(
         # TRY NOT TO MODIFY: execute the game and log data.
         next_obs, rewards, terminations, truncations, infos = envs.step(actions)
         rewards = np.asarray(rewards, dtype=np.float32)
+        print(f"actions: {actions}")
+        print(f"rewards: {rewards}")
 
         # TRY NOT TO MODIFY: record rewards for plotting purposes
         if "final_info" in infos:
