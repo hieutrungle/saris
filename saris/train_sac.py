@@ -510,7 +510,7 @@ def train_agent(
             alpha=alpha.detach(),
             actor_loss=actor_loss.detach(),
             alpha_loss=alpha_loss.detach(),
-            entropy=-(log_pi.exp() * log_pi).mean().detach(),
+            actor_entropy=-(log_pi).mean().detach(),
         )
 
     mode = "default"  # "reduce-overhead" if not config.cudagraphs else None
@@ -551,8 +551,8 @@ def train_agent(
         # TRY NOT TO MODIFY: execute the game and log data.
         next_obs, rewards, terminations, truncations, infos = envs.step(actions)
         rewards = np.asarray(rewards, dtype=np.float32)
-        print(f"actions: {actions}")
-        print(f"rewards: {rewards}")
+        # print(f"actions: {actions}")
+        # print(f"rewards: {rewards}")
 
         # TRY NOT TO MODIFY: record rewards for plotting purposes
         if "final_info" in infos:
@@ -664,6 +664,8 @@ def train_agent(
                     q_lr = q_optimizer.param_groups[0]["lr"]
                     a_lr = actor_optimizer.param_groups[0]["lr"]
                     logs = {
+                        "reward_mean": rewards.mean(),
+                        "reward_std": rewards.std(),
                         "actor_loss": log_infos["actor_loss"].mean(),
                         "alpha_loss": log_infos.get("alpha_loss", 0).mean(),
                         "qf_loss": log_infos["qf_loss"].mean(),
