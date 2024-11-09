@@ -163,9 +163,10 @@ def normalize_obs(
     real_channel_len = real_channel_rms.mean.shape[0]
     real_channels = flat_obs[..., :real_channel_len]
     # whittening
-    real_mean = real_channel_rms.mean.to(flat_obs.device)
+    # real_mean = real_channel_rms.mean.to(flat_obs.device)
     real_var = real_channel_rms.var.to(flat_obs.device)
-    real_channels = (real_channels - real_mean) / torch.sqrt(real_var + epsilon)
+    # real_channels = (real_channels - real_mean) / torch.sqrt(real_var + epsilon)
+    real_channels = (real_channels) / torch.sqrt(real_var + epsilon)
     # scaling
     # min_ = real_channel_rms.min.to(flat_obs.device)
     # max_ = real_channel_rms.max.to(flat_obs.device)
@@ -174,9 +175,10 @@ def normalize_obs(
     imag_channel_len = imag_channel_rms.mean.shape[0]
     imag_channels = flat_obs[..., real_channel_len : real_channel_len + imag_channel_len]
     # whittening
-    imag_mean = imag_channel_rms.mean.to(flat_obs.device)
+    # imag_mean = imag_channel_rms.mean.to(flat_obs.device)
     imag_var = imag_channel_rms.var.to(flat_obs.device)
-    imag_channels = (imag_channels - imag_mean) / torch.sqrt(imag_var + epsilon)
+    # imag_channels = (imag_channels - imag_mean) / torch.sqrt(imag_var + epsilon)
+    imag_channels = (imag_channels) / torch.sqrt(imag_var + epsilon)
     # scaling
     # min_ = imag_channel_rms.min.to(flat_obs.device)
     # max_ = imag_channel_rms.max.to(flat_obs.device)
@@ -191,8 +193,8 @@ def normalize_obs(
     init_angles = np.concatenate([init_angles] * 9)
     # offset
     angles = torch.sub(angles, torch.tensor(init_angles, device=angles.device, dtype=angles.dtype))
-    # normalize
-    angles = torch.div(torch.rad2deg(angles), 45.0)
+    # # normalize
+    # angles = torch.div(torch.rad2deg(angles), 45.0)
 
     pos = flat_obs[..., real_channel_len + imag_channel_len + angle_len :]
     flat_obs = torch.cat([real_channels, imag_channels, angles, pos], dim=-1)
