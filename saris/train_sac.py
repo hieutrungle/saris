@@ -225,15 +225,17 @@ def create_scheduler(optimizer, warmup_steps, num_train_steps, lr):
     return scheduler
 
 
-def preprocess_actions(actions, action_scale):
-    act_shape = actions.shape
-    last_dim = actions.shape[-1]
-    all_but_last_dim = actions.shape[:-1]
-    actions = actions.reshape(*all_but_last_dim, last_dim // 3, 3)
-    actions[..., 0] = torch.mul(actions[..., 0], 3.0)
-    actions[..., 1:] = torch.rad2deg(actions[..., 1:])
-    actions = actions / action_scale
-    actions = actions.reshape(act_shape)
+def preprocess_actions(actions, action_low, action_high):
+
+    # action_low, action_high = envs.single_action_space.low, envs.single_action_space.high
+    # action_low = torch.tensor(action_low, device=actions.device, dtype=torch.float)
+    # action_high = torch.tensor(action_high, device=actions.device, dtype=torch.float)
+
+    action_scale = (action_high - action_low) / 2.0
+    action_bias = (action_high + action_low) / 2.0
+
+    actions = (actions - action_bias) / action_scale
+
     return actions
 
 
@@ -637,6 +639,7 @@ def train_agent(
                 data["next_observations"] = normalize_obs(
                     data["next_observations"], obs_rmss[0], obs_rmss[1]
                 )
+                data["actions"] = preprocess_actions(data["actions"], action_low, action_high)
                 data = TensorDict(data)
 
                 log_infos.update(update_critics(data))

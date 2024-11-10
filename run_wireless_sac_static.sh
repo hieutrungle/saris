@@ -79,6 +79,6 @@ mkdir -p ${OPTIX_CACHE_PATH}
 # DRL run
 ##############################
 export OPTIX_CACHE_PATH=${TMP_DIR}/optix_cache_1
-python ./saris/run_sac.py --sionna_config_file ${SIONNA_CONFIG_FILE} --verbose True --env_id "wireless-sigmap-v0" 
+python ./saris/run_sac.py --sionna_config_file ${SIONNA_CONFIG_FILE} --verbose True --env_id "wireless-sigmap-v0"  
 # --seed 22 --num_envs 2 --total_timesteps 14 --batch_size 3 --learning_starts 4 --warmup_steps 1 --ep_len 3 --save_interval 5 --eval_ep_len 4 
 # --wandb "offline" --load_eval_model "/home/hieule/research/saris/local_assets/logs/TD3__L_shape_static__wireless-sigmap-v0__ff364e86/model.pth"
