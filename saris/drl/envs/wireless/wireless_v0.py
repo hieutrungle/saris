@@ -45,6 +45,7 @@ class WirelessEnvV0(Env):
         self.seed = seed + idx
         self.np_rng = np.random.default_rng(self.seed)
 
+        os.environ["TF_GPU_ALLOCATOR"] = "cuda_malloc_async"  # to avoid memory fragmentation
         tf.config.experimental.set_memory_growth(
             tf.config.experimental.list_physical_devices("GPU")[0], True
         )
@@ -225,6 +226,7 @@ class WirelessEnvV0(Env):
         # print(f"spherical_focal_vecs: {tmp}")
 
         self.angles = self._blender_step(self.spherical_focal_vecs)
+        # print(f"done blender_step")
         # print(f"angles: {np.rad2deg(self.angles).reshape(-1, 8)}")
         # if angles values are out of bounds, print warning
         if np.any(self.angles < self.angle_space.low) or np.any(
@@ -235,6 +237,7 @@ class WirelessEnvV0(Env):
         truncated = False
         terminated = False
         self.channels, self.next_gain = self._run_sionna_dB(eval_mode=self.eval_mode)
+        # print(f"done run_sionna_dB")
 
         real_channels = np.asarray(self.channels.real, dtype=np.float32)
         imag_channels = np.asarray(self.channels.imag, dtype=np.float32)
@@ -247,6 +250,7 @@ class WirelessEnvV0(Env):
             "next_path_gain": self.next_gain,
             "reward": reward,
         }
+        # print(f"done step")
 
         return next_observation, reward, terminated, truncated, step_info
 
@@ -360,12 +364,15 @@ class WirelessEnvV0(Env):
         viz_scene_dir = os.path.join(blender_output_dir, "idx")
         viz_scene_path = glob.glob(os.path.join(viz_scene_dir, "*.xml"))[0]
 
+        # print(f"check 1")
         sig_cmap = sigmap.engine.SignalCoverageMap(
             self.sionna_config, compute_scene_path, viz_scene_path
         )
 
+        # print(f"check before compute_paths")
         paths = sig_cmap.compute_paths()
         paths.normalize_delays = False
+        # print(f"check after compute_paths")
         cir = paths.cir()
         # a: [batch_size, num_rx, num_rx_ant, num_tx, num_tx_ant, max_num_paths, num_time_steps], tf.complex
         a, tau = cir
@@ -390,7 +397,9 @@ class WirelessEnvV0(Env):
         # print(f"large_scale: \t{utils.linear2dB(tf.abs(tf.squeeze(large_scale)))}")
         # print(f"path_gain_dB: \t{utils.linear2dB(path_gains)}")
 
+        # print(f"check before compute_cmap")
         coverage_map = sig_cmap.compute_cmap()
+        # print(f"check after compute_cmap")
         path_gains = []
         for pos in coverage_map.rx_pos:
             path_gain = coverage_map.path_gain[:, pos[1], pos[0]]
