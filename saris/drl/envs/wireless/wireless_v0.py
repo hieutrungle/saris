@@ -255,11 +255,11 @@ class WirelessEnvV0(Env):
     ) -> float:
 
         adjusted_gains = np.where(
-            cur_gains < -95,
-            -0.1 + (0.05 + 0.1) * (np.exp(cur_gains + 120) - 1) / (np.exp(-95 + 120) - 1),
+            cur_gains < -90,
+            -0.1 + (0.05 + 0.1) * (np.exp(cur_gains + 120) - 1) / (np.exp(-90 + 120) - 1),
             np.where(
                 cur_gains < -85,
-                0.05 + (0.3 - 0.05) * (cur_gains + 95) / 10,
+                0.05 + (0.3 - 0.05) * (cur_gains + 90) / 10,
                 np.log(1 + 85 + cur_gains) * 2 + 0.3,
             ),
         )
