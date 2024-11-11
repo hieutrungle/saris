@@ -133,6 +133,8 @@ class SignalCoverageMap:
         paths_kwargs = dict(
             max_depth=self.config["path_max_depth"],
             num_samples=self.config["path_num_samples"],
+            diffraction=self.config["diffraction"],
+            scattering=True,
         )
         if kwargs:
             paths_kwargs.update(kwargs)
