@@ -105,6 +105,7 @@ class SignalCoverageMap:
             cm_cell_size=self.config["cm_cell_size"],
             num_samples=self.config["cm_num_samples"],
             diffraction=self.config["diffraction"],
+            ris=False,
         )
         if kwargs:
             cm_kwargs.update(kwargs)
@@ -134,7 +135,7 @@ class SignalCoverageMap:
             max_depth=self.config["path_max_depth"],
             num_samples=self.config["path_num_samples"],
             diffraction=self.config["diffraction"],
-            scattering=True,
+            ris=False,
         )
         if kwargs:
             paths_kwargs.update(kwargs)
