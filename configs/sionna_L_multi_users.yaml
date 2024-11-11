@@ -28,7 +28,7 @@ rx_vertical_spacing: 0.5
 rx_horizontal_spacing: 0.5
 rx_pattern: iso
 rx_polarization: V
-rx_positions: [[-10.0, -2.75, 1.5], [-8.0, -4.25, 1.5], [-11.0, -3.25, 1.5]]
+rx_positions: [[-10.1, -2.75, 1.5], [-11.1, -3.25, 1.5], [-8.1, -4.25, 1.5]]
 rx_orientations: [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]]
 
 # Path tracing parameters
