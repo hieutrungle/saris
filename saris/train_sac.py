@@ -2,7 +2,7 @@ import os
 
 os.environ["TORCHDYNAMO_INLINE_INBUILT_NN_MODULES"] = "1"
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
-# os.environ["TF_GPU_ALLOCATOR"] = "cuda_malloc_async"  # to avoid memory fragmentation
+os.environ["TF_GPU_ALLOCATOR"] = "cuda_malloc_async"  # to avoid memory fragmentation
 os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
 # os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
 os.environ["TORCH_USE_CUDA_DSA"] = "1"
@@ -268,7 +268,7 @@ def main(config: TrainConfig):
         envs.single_action_space, gym.spaces.Box
     ), "only continuous action space is supported"
     print(f"Observation space: {envs.single_observation_space}")
-    print(f"Action space: {envs.single_action_space}")
+    print(f"Action space: {envs.single_action_space}\n")
     ob_space = envs.single_observation_space
     ac_space = envs.single_action_space
 
@@ -278,6 +278,37 @@ def main(config: TrainConfig):
     real_channel_rms = running_mean.RunningMeanStd(shape=(real_channel_len,))
     imag_channel_rms = running_mean.RunningMeanStd(shape=(imag_channel_len,))
     obs_rmss = (real_channel_rms, imag_channel_rms)
+
+    # obs, _ = envs.reset(seed=config.seed)
+    # # print(f"obs: {obs}")
+    # # for ob in obs:
+    # #     print(f"ob shape: {ob.shape}")
+    # # exit()
+    # single_action = [0.0, np.deg2rad(5.0), 0.0] * 9
+    # single_action = np.array(single_action)
+
+    # rews = []
+    # for step in range(1, 16):
+    #     print(f"\nStep: {step}")
+    #     actions = np.array([single_action for _ in range(envs.num_envs)])
+    #     next_obs, rewards, terminations, truncations, infos = envs.step(actions)
+    #     # print(f"next obs: {next_obs}")
+
+    #     rewards = np.asarray(rewards, dtype=np.float32)
+    #     rews.append(rewards)
+    #     print(f"rewards: {rewards}")
+    #     # exit()
+
+    # rews = np.asarray(rews).T
+    # # plot rewards
+    # fig, ax = plt.subplots()
+    # for i, rew in enumerate(rews):
+    #     ax.plot(rew, label=f"env_{i}")
+    # ax.set_xlabel("Step")
+    # ax.set_ylabel("Reward")
+    # plt.show()
+
+    # exit()
 
     # Init checkpoints
     print(f"Checkpoints dir: {config.checkpoint_dir}")
@@ -353,7 +384,9 @@ def main(config: TrainConfig):
     a_optimizer = optim.AdamW([log_alpha], lr=config.q_lr)
 
     q_optimizer = optim.AdamW(
-        qnet_params.values(include_nested=True, leaves_only=True), lr=config.q_lr, capturable=True
+        qnet_params.values(include_nested=True, leaves_only=True),
+        lr=config.q_lr,
+        # capturable=True,
     )
     q_scheduler = create_scheduler(
         q_optimizer,
