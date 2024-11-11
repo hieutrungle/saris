@@ -256,6 +256,10 @@ def main(config: TrainConfig):
             [make_env(config, i, eval_mode=False) for i in range(config.num_envs)],
             context="spawn",
         )
+        # envs = gym.vector.SyncVectorEnv(
+        #     [make_env(config, i, eval_mode=False) for i in range(config.num_envs)],
+        #     # context="spawn",
+        # )
     elif config.command.lower() == "eval":
         envs = gym.vector.AsyncVectorEnv(
             [make_env(config, i, eval_mode=True) for i in range(config.num_envs)],
@@ -557,11 +561,11 @@ def train_agent(
     update_actor = CudaGraphModule(update_actor, in_keys=[], out_keys=[], warmup=5)
     policy = CudaGraphModule(policy)
 
-    # eval env setup
-    eval_envs = gym.vector.AsyncVectorEnv(
-        [make_env(config, i, eval_mode=False) for i in range(3)],
-        context="spawn",
-    )
+    # # eval env setup
+    # eval_envs = gym.vector.AsyncVectorEnv(
+    #     [make_env(config, i, eval_mode=False) for i in range(3)],
+    #     context="spawn",
+    # )
 
     # TRY NOT TO MODIFY: start the game
     stored_flat_obs = []
@@ -584,7 +588,11 @@ def train_agent(
             actions = actions.cpu().numpy()
 
         # TRY NOT TO MODIFY: execute the game and log data.
-        next_obs, rewards, terminations, truncations, infos = envs.step(actions)
+        try:
+            next_obs, rewards, terminations, truncations, infos = envs.step(actions)
+        except Exception as e:
+            traceback.print_exc()
+            raise e
         rewards = np.asarray(rewards, dtype=np.float32)
         # print(f"actions: {actions}")
         # print(f"rewards: {rewards}")
@@ -733,19 +741,19 @@ def train_agent(
                     os.path.join(config.checkpoint_dir, f"model.pth"),
                 )
 
-            if (
-                global_step % int(1.5 * config.save_interval) == 0
-                or global_step == config.total_timesteps - 1
-            ):
-                # evaluate the model
-                eval_episodic_rets = eval(config, eval_envs, obs_rmss, actor, is_plot=False)
-                avg_ret = torch.tensor(eval_episodic_rets).mean()
-                std_ret = torch.tensor(eval_episodic_rets).std()
-                log_dict = {"eval/episodic_return": avg_ret, "eval/episodic_return_std": std_ret}
-                wandb.log(log_dict, step=global_step)
+    #         if (
+    #             global_step % int(1.5 * config.save_interval) == 0
+    #             or global_step == config.total_timesteps - 1
+    #         ):
+    #             # evaluate the model
+    #             eval_episodic_rets = eval(config, eval_envs, obs_rmss, actor, is_plot=False)
+    #             avg_ret = torch.tensor(eval_episodic_rets).mean()
+    #             std_ret = torch.tensor(eval_episodic_rets).std()
+    #             log_dict = {"eval/episodic_return": avg_ret, "eval/episodic_return_std": std_ret}
+    #             wandb.log(log_dict, step=global_step)
 
-    eval_envs.close()
-    eval_envs.close_extras()
+    # eval_envs.close()
+    # eval_envs.close_extras()
 
 
 def eval(
