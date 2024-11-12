@@ -261,9 +261,9 @@ def main(config: TrainConfig):
             # context="spawn",
         )
     elif config.command.lower() == "eval":
-        envs = gym.vector.AsyncVectorEnv(
+        envs = gym.vector.SyncVectorEnv(
             [make_env(config, i, eval_mode=True) for i in range(config.num_envs)],
-            context="spawn",
+            # context="spawn",
         )
     else:
         raise ValueError(f"Invalid command: {config.command}, available commands: train, eval")
