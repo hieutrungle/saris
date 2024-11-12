@@ -106,7 +106,7 @@ class SoftQNetwork(nn.Module):
         self.angle_start = self.imag_start + self.imag_channel_dim
         self.pos_start = self.angle_start + self.angle_dim
 
-        ff_dim = 128
+        ff_dim = 64
 
         # positions
         self.pos_embed = Embedder(np.prod(self.position_shape), num_freqs=5)
@@ -241,7 +241,7 @@ class Actor(nn.Module):
         self.angle_start = self.imag_start + self.imag_channel_dim
         self.pos_start = self.angle_start + self.angle_dim
 
-        ff_dim = 128
+        ff_dim = 64
 
         # positions
         self.pos_embed = Embedder(np.prod(self.position_shape), num_freqs=5)
