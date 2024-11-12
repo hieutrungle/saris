@@ -129,17 +129,17 @@ class SoftQNetwork(nn.Module):
 
         # channels
         self.real_channel_layers = [
-            nn.Linear(np.prod(self.real_channel_shape), ff_dim * 2, device=device),
+            nn.Linear(np.prod(self.real_channel_shape), ff_dim, device=device),
             nn.GELU(),
-            MLPBlock(ff_dim * 2, ff_dim, device=device),
+            MLPBlock(ff_dim, ff_dim, device=device),
             MLPBlock(ff_dim, ff_dim, device=device),
         ]
         self.real_channel_network = nn.Sequential(*self.real_channel_layers)
 
         self.imag_channel_layers = [
-            nn.Linear(np.prod(self.imag_channel_shape), ff_dim * 2, device=device),
+            nn.Linear(np.prod(self.imag_channel_shape), ff_dim, device=device),
             nn.GELU(),
-            MLPBlock(ff_dim * 2, ff_dim, device=device),
+            MLPBlock(ff_dim, ff_dim, device=device),
             MLPBlock(ff_dim, ff_dim, device=device),
         ]
         self.imag_channel_network = nn.Sequential(*self.imag_channel_layers)
@@ -264,17 +264,17 @@ class Actor(nn.Module):
 
         # channels
         self.real_channel_layers = [
-            nn.Linear(np.prod(self.real_channel_shape), ff_dim * 2, device=device),
+            nn.Linear(np.prod(self.real_channel_shape), ff_dim, device=device),
             nn.GELU(),
-            MLPBlock(ff_dim * 2, ff_dim, device=device),
+            MLPBlock(ff_dim, ff_dim, device=device),
             MLPBlock(ff_dim, ff_dim, device=device),
         ]
         self.real_channel_network = nn.Sequential(*self.real_channel_layers)
 
         self.imag_channel_layers = [
-            nn.Linear(np.prod(self.imag_channel_shape), ff_dim * 2, device=device),
+            nn.Linear(np.prod(self.imag_channel_shape), ff_dim, device=device),
             nn.GELU(),
-            MLPBlock(ff_dim * 2, ff_dim, device=device),
+            MLPBlock(ff_dim, ff_dim, device=device),
             MLPBlock(ff_dim, ff_dim, device=device),
         ]
         self.imag_channel_network = nn.Sequential(*self.imag_channel_layers)
@@ -1963,4 +1963,4 @@ class MLPBlock(nn.Module):
         self.layer_norm = nn.LayerNorm(out_features, device=device)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.layer_norm(self.block(x))
+        return self.layer_norm(self.block(x) + x)
