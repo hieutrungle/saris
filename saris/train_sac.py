@@ -552,6 +552,7 @@ def train_agent(
             alpha=alpha.detach(),
             actor_loss=actor_loss.detach(),
             alpha_loss=alpha_loss.detach(),
+            actor_min_q=min_qf_pi.mean().detach(),
             actor_entropy=-(log_pi).mean().detach(),
         )
 
@@ -727,6 +728,7 @@ def train_agent(
                         "qf_loss": log_infos["qf_loss"].mean(),
                         "alpha": alpha.item(),
                         "actor_entropy": log_infos["actor_entropy"].mean(),
+                        "actor_min_q": log_infos["actor_min_q"].mean(),
                         "q_lr": q_lr,
                         "a_lr": a_lr,
                     }
