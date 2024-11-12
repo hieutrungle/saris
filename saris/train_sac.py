@@ -371,9 +371,12 @@ def main(config: TrainConfig):
     del tmp_obs
 
     # Automatic entropy tuning
-    target_entropy = -torch.prod(
-        torch.Tensor(envs.single_action_space.shape).to(config.device)
-    ).item()
+    # target_entropy = -torch.prod(
+    #     torch.Tensor(envs.single_action_space.shape).to(config.device)
+    # ).item()
+    target_entropy = (
+        -torch.prod(torch.Tensor(envs.single_action_space.shape).to(config.device)).item() / 3.0
+    )
     log_alpha = torch.zeros(1, requires_grad=True, device=config.device)
 
     if checkpoint != None:
@@ -696,6 +699,7 @@ def train_agent(
                         # compensate for the delay by doing 'actor_update_interval' instead of 1
                         log_infos.update(update_actor(data))
                         alpha.copy_(log_alpha.detach().exp())
+                        alpha = torch.clamp(alpha, 0.05, 0.75)
                         actor_scheduler.step()
                         for param_group in actor_optimizer.param_groups:
                             param_group["lr"] = actor_scheduler.get_last_lr()[0]
