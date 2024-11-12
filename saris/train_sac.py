@@ -716,6 +716,7 @@ def train_agent(
                         "alpha_loss": log_infos.get("alpha_loss", 0).mean(),
                         "qf_loss": log_infos["qf_loss"].mean(),
                         "alpha": alpha.item(),
+                        "actor_entropy": log_infos["actor_entropy"].mean(),
                         "q_lr": q_lr,
                         "a_lr": a_lr,
                     }
