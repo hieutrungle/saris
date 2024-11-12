@@ -105,12 +105,12 @@ class SignalCoverageMap:
             cm_cell_size=self.config["cm_cell_size"],
             num_samples=self.config["cm_num_samples"],
             diffraction=self.config["diffraction"],
-            ris=False,
+            # ris=False,
         )
         if kwargs:
             cm_kwargs.update(kwargs)
 
-        cmap = scene.coverage_map(**cm_kwargs)
+        cmap = scene.coverage_map(ris=False, **cm_kwargs)
         return cmap
 
     def compute_paths(self, **kwargs) -> sionna.rt.Paths:
