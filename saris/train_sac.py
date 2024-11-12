@@ -595,6 +595,12 @@ def train_agent(
             next_obs, rewards, terminations, truncations, infos = envs.step(actions)
         except Exception as e:
             traceback.print_exc()
+            # update channel rms normalization
+            stored_flat_obs = np.concatenate(stored_flat_obs, axis=0)
+            update_channel_rmss(torch.tensor(stored_flat_obs), obs_rmss[0], obs_rmss[1])
+            torch.save({"obs_rmss": obs_rmss}, os.path.join(config.checkpoint_dir, "obs_rmss.pth"))
+            stored_flat_obs = []
+            # Reset envs
             obs, _ = envs.reset(seed=config.seed)
             flat_obs = np.concatenate([ob.reshape(ob.shape[0], -1) for ob in obs], axis=-1)
             continue
