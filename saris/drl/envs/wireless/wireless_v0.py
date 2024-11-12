@@ -95,7 +95,7 @@ class WirelessEnvV0(Env):
         )
 
         # focal vecs space for action space
-        self.init_focal_vecs = np.asarray([10.0, init_theta, np.deg2rad(110)] * self.num_groups)
+        self.init_focal_vecs = np.asarray([10.0, init_theta, np.deg2rad(125)] * self.num_groups)
         # self.init_focal_vecs = np.asarray([10.0, init_theta, init_phi] * self.num_groups)
         r_high = 35.0
         focal_vec_high = np.asarray([r_high, theta_high, phi_high] * self.num_groups)
