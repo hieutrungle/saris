@@ -95,14 +95,17 @@ class WirelessEnvV0(Env):
         )
 
         # focal vecs space for action space
-        self.init_focal_vecs = np.asarray([10.0, init_theta, init_phi] * self.num_groups)
+        self.init_focal_vecs = np.asarray([10.0, init_theta, np.deg2rad(110)] * self.num_groups)
+        # self.init_focal_vecs = np.asarray([10.0, init_theta, init_phi] * self.num_groups)
         r_high = 35.0
         focal_vec_high = np.asarray([r_high, theta_high, phi_high] * self.num_groups)
         r_low = 5.0
         focal_vec_low = np.asarray([r_low, theta_low, phi_low] * self.num_groups)
         self.focal_vec_space = spaces.Box(low=focal_vec_low, high=focal_vec_high, dtype=np.float32)
 
-        self.focal_noise_high = np.asarray([2.0, 0.1, 0.1] * self.num_groups)
+        self.focal_noise_high = np.asarray(
+            [2.0, np.deg2rad(5.0), np.deg2rad(5.0)] * self.num_groups
+        )
         self.focal_noise_low = -self.focal_noise_high
 
         # channels space
