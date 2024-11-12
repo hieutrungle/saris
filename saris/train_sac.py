@@ -252,14 +252,14 @@ def main(config: TrainConfig):
 
     # env setup
     if config.command.lower() == "train":
-        envs = gym.vector.AsyncVectorEnv(
-            [make_env(config, i, eval_mode=False) for i in range(config.num_envs)],
-            context="spawn",
-        )
-        # envs = gym.vector.SyncVectorEnv(
+        # envs = gym.vector.AsyncVectorEnv(
         #     [make_env(config, i, eval_mode=False) for i in range(config.num_envs)],
-        #     # context="spawn",
+        #     context="spawn",
         # )
+        envs = gym.vector.SyncVectorEnv(
+            [make_env(config, i, eval_mode=False) for i in range(config.num_envs)],
+            # context="spawn",
+        )
     elif config.command.lower() == "eval":
         envs = gym.vector.AsyncVectorEnv(
             [make_env(config, i, eval_mode=True) for i in range(config.num_envs)],
@@ -592,7 +592,9 @@ def train_agent(
             next_obs, rewards, terminations, truncations, infos = envs.step(actions)
         except Exception as e:
             traceback.print_exc()
-            raise e
+            obs, _ = envs.reset(seed=config.seed)
+            flat_obs = np.concatenate([ob.reshape(ob.shape[0], -1) for ob in obs], axis=-1)
+            continue
         rewards = np.asarray(rewards, dtype=np.float32)
         # print(f"actions: {actions}")
         # print(f"rewards: {rewards}")
@@ -619,7 +621,7 @@ def train_agent(
                 torch.save(
                     {"obs_rmss": obs_rmss}, os.path.join(config.checkpoint_dir, "obs_rmss.pth")
                 )
-                stored_flat_obs = []
+            stored_flat_obs = []
 
             # get path gains
             path_gains = [info["path_gain"] for info in infos["final_info"]]
