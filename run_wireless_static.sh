@@ -74,7 +74,8 @@ export SIONNA_CONFIG_FILE
 export TMP_DIR
 export OPTIX_CACHE_PATH=${TMP_DIR}/optix_cache_1
 mkdir -p ${OPTIX_CACHE_PATH}
-
+export TF_GPU_ALLOCATOR=cuda_malloc_async
+export TF_FORCE_GPU_ALLOW_GROWTH=true
 ##############################
 # DRL run
 ##############################
