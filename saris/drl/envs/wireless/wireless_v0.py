@@ -45,11 +45,10 @@ class WirelessEnvV0(Env):
         self.seed = seed + idx
         self.np_rng = np.random.default_rng(self.seed)
 
-        os.environ["TF_GPU_ALLOCATOR"] = "cuda_malloc_async"  # to avoid memory fragmentation
-        tf.config.experimental.set_memory_growth(
-            tf.config.experimental.list_physical_devices("GPU")[0], True
-        )
-        tf.random.set_seed(self.seed)
+        # tf.config.experimental.set_memory_growth(
+        #     tf.config.experimental.list_physical_devices("GPU")[0], True
+        # )
+        # tf.random.set_seed(self.seed)
 
         self.sionna_config = utils.load_config(sionna_config_file)
 
@@ -235,6 +234,8 @@ class WirelessEnvV0(Env):
             print("Warning: angles out of bounds")
 
         truncated = False
+        if self.taken_steps > 100:
+            truncated = True
         terminated = False
         self.channels, self.next_gain = self._run_sionna_dB(eval_mode=self.eval_mode)
         # print(f"done run_sionna_dB")
