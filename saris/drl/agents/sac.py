@@ -111,34 +111,36 @@ class SoftQNetwork(nn.Module):
         # positions
         self.pos_embed = Embedder(np.prod(self.position_shape), num_freqs=5)
         pos_out_dim = self.pos_embed.out_dim
-        self.pos_layers = [
-            nn.Linear(pos_out_dim, ff_dim, device=device),
-            nn.GELU(),
-            MLPBlock(ff_dim, ff_dim, device=device),
-        ]
-        self.pos_network = nn.Sequential(*self.pos_layers)
+        # self.pos_layers = [
+        #     nn.Linear(pos_out_dim, ff_dim, device=device),
+        #     nn.GELU(),
+        #     MLPBlock(ff_dim, ff_dim, device=device),
+        # ]
+        # self.pos_network = nn.Sequential(*self.pos_layers)
 
         # angles
-        self.angle_layers = [
-            nn.Linear(self.angle_dim, ff_dim, device=device),
-            nn.GELU(),
-            MLPBlock(ff_dim, ff_dim, device=device),
-            MLPBlock(ff_dim, ff_dim, device=device),
-        ]
-        self.angle_network = nn.Sequential(*self.angle_layers)
+        # self.angle_layers = [
+        #     nn.Linear(self.angle_dim, ff_dim, device=device),
+        #     nn.GELU(),
+        #     nn.Linear(ff_dim, ff_dim, device=device),
+        #     nn.GELU(),
+        #     # MLPBlock(ff_dim, ff_dim, device=device),
+        #     # MLPBlock(ff_dim, ff_dim, device=device),
+        # ]
+        # self.angle_network = nn.Sequential(*self.angle_layers)
 
-        # channels
-        self.channel_layers = [
-            nn.Linear(
-                np.prod(self.real_channel_shape) + np.prod(self.imag_channel_shape),
-                ff_dim,
-                device=device,
-            ),
-            nn.GELU(),
-            MLPBlock(ff_dim, ff_dim, device=device),
-            MLPBlock(ff_dim, ff_dim, device=device),
-        ]
-        self.channel_network = nn.Sequential(*self.channel_layers)
+        # # channels
+        # self.channel_layers = [
+        #     nn.Linear(
+        #         np.prod(self.real_channel_shape) + np.prod(self.imag_channel_shape),
+        #         ff_dim,
+        #         device=device,
+        #     ),
+        #     nn.GELU(),
+        #     MLPBlock(ff_dim, ff_dim, device=device),
+        #     # MLPBlock(ff_dim, ff_dim, device=device),
+        # ]
+        # self.channel_network = nn.Sequential(*self.channel_layers)
         # self.real_channel_layers = [
         #     nn.Linear(np.prod(self.real_channel_shape), ff_dim, device=device),
         #     nn.GELU(),
@@ -159,14 +161,34 @@ class SoftQNetwork(nn.Module):
         # self.channel_connect_network = nn.Sequential(*self.chanel_combine_layer)
 
         # Connect channel + pos + angles
-        self.connect_layer = [nn.Linear(ff_dim * 3, ff_dim, device=device), nn.GELU()]
-        self.connect_network = nn.Sequential(*self.connect_layer)
+        # self.connect_layer = [nn.Linear(ff_dim * 3, ff_dim, device=device), nn.GELU()]
+        # self.connect_network = nn.Sequential(*self.connect_layer)
+
+        self.ob_layers = [
+            nn.Linear(
+                np.prod(self.real_channel_shape)
+                + np.prod(self.imag_channel_shape)
+                + pos_out_dim
+                + self.angle_dim,
+                ff_dim,
+                device=device,
+            ),
+            nn.GELU(),
+            nn.Linear(ff_dim, ff_dim, device=device),
+            nn.GELU(),
+            nn.LayerNorm(ff_dim, device=device),
+            nn.Linear(ff_dim, ff_dim, device=device),
+            nn.GELU(),
+        ]
+        self.connect_network = nn.Sequential(*self.ob_layers)
 
         # action
         action_layers = [
             nn.Linear(np.prod(ac_space.shape), ff_dim, device=device),
             nn.GELU(),
-            MLPBlock(ff_dim, ff_dim, device=device),
+            # nn.Linear(ff_dim, ff_dim, device=device),
+            # nn.GELU(),
+            # MLPBlock(ff_dim, ff_dim, device=device),
         ]
         self.action_network = nn.Sequential(*action_layers)
 
@@ -191,18 +213,18 @@ class SoftQNetwork(nn.Module):
 
         # positions
         pos = self.pos_embed(pos)
-        pos = self.pos_network(pos)
+        # pos = self.pos_network(pos)
 
         # angles
         angles = obs[
             :batch_size, self.real_channel_dim + self.imag_channel_dim + self.position_dim :
         ].reshape(batch_size, *self.angle_shape)
-        angles = self.angle_network(angles)
+        # angles = self.angle_network(angles)
 
         # channels
         channel = torch.cat([real_channel, imag_channel], dim=-1)
         channel = channel.reshape(channel.shape[0], -1)
-        channel = self.channel_network(channel)
+        # channel = self.channel_network(channel)
         # real_channel = real_channel.reshape(real_channel.shape[0], -1)
         # real_channel = self.real_channel_network(real_channel)
 
@@ -213,8 +235,11 @@ class SoftQNetwork(nn.Module):
         # channel = self.channel_connect_network(channel)
 
         # connect
-        combined = torch.cat([channel, angles, pos], dim=-1)
-        combined = self.connect_network(combined)
+        # combined = torch.cat([channel, angles, pos], dim=-1)
+        # combined = self.connect_network(combined)
+
+        ob = torch.cat([channel, angles, pos], dim=-1)
+        combined = self.connect_network(ob)
 
         # action
         action = self.action_network(acs)
@@ -272,7 +297,6 @@ class Actor(nn.Module):
             nn.Linear(self.angle_dim, ff_dim, device=device),
             nn.GELU(),
             MLPBlock(ff_dim, ff_dim, device=device),
-            MLPBlock(ff_dim, ff_dim, device=device),
         ]
         self.angle_network = nn.Sequential(*self.angle_layers)
 
@@ -285,27 +309,8 @@ class Actor(nn.Module):
             ),
             nn.GELU(),
             MLPBlock(ff_dim, ff_dim, device=device),
-            MLPBlock(ff_dim, ff_dim, device=device),
         ]
         self.channel_network = nn.Sequential(*self.channel_layers)
-        # self.real_channel_layers = [
-        #     nn.Linear(np.prod(self.real_channel_shape), ff_dim, device=device),
-        #     nn.GELU(),
-        #     MLPBlock(ff_dim, ff_dim, device=device),
-        #     MLPBlock(ff_dim, ff_dim, device=device),
-        # ]
-        # self.real_channel_network = nn.Sequential(*self.real_channel_layers)
-
-        # self.imag_channel_layers = [
-        #     nn.Linear(np.prod(self.imag_channel_shape), ff_dim, device=device),
-        #     nn.GELU(),
-        #     MLPBlock(ff_dim, ff_dim, device=device),
-        #     MLPBlock(ff_dim, ff_dim, device=device),
-        # ]
-        # self.imag_channel_network = nn.Sequential(*self.imag_channel_layers)
-
-        # self.chanel_combine_layer = [nn.Linear(ff_dim * 2, ff_dim, device=device), nn.GELU()]
-        # self.channel_connect_network = nn.Sequential(*self.chanel_combine_layer)
 
         # Connect channel + pos + angles
         self.connect_layer = [nn.Linear(ff_dim * 3, ff_dim, device=device), nn.GELU()]
