@@ -194,7 +194,7 @@ class WirelessEnvV0(Env):
         # tmp[:, 1:] = np.rad2deg(tmp[:, 1:])
         # print(f"init_focal_vecs: {tmp}")
         self.angles = self._blender_step(self.spherical_focal_vecs)
-        print(f"angles: {np.rad2deg(self.angles).reshape(-1, 8)}")
+        # print(f"angles: {np.rad2deg(self.angles).reshape(-1, 8)}")
         self.angles = np.clip(self.angles, self.angle_space.low, self.angle_space.high)
 
         self.channels, self.cur_gain = self._run_sionna_dB(eval_mode=self.eval_mode)
@@ -214,9 +214,9 @@ class WirelessEnvV0(Env):
         self.cur_gain = self.next_gain
 
         # action: [num_groups * 3]: num_groups * [phi, theta, r]
-        # tmp = np.reshape(copy.deepcopy(action), (self.num_groups, 3))
-        # tmp[:, 1:] = np.rad2deg(tmp[:, 1:])
-        # print(f"action: {tmp}")
+        tmp = np.reshape(copy.deepcopy(action), (self.num_groups, 3))
+        tmp[:, 1:] = np.rad2deg(tmp[:, 1:])
+        print(f"action: {tmp}")
 
         self.spherical_focal_vecs = self.spherical_focal_vecs + action
         self.spherical_focal_vecs = np.clip(
@@ -262,37 +262,37 @@ class WirelessEnvV0(Env):
         self, cur_gains: np.ndarray, next_gains: np.ndarray, time_taken: float
     ) -> float:
 
-        adjusted_gains = np.where(
-            cur_gains < -90,
-            -0.1 + (0.05 + 0.1) * (np.exp(cur_gains + 120) - 1) / (np.exp(-90 + 120) - 1),
-            np.where(
-                cur_gains < -85,
-                0.05 + (0.3 - 0.05) * (cur_gains + 90) / 10,
-                np.log(1 + 85 + cur_gains) * 2 + 0.3,
-            ),
-        )
-        adjusted_gain = np.mean(adjusted_gains)
-        gain_diff = np.mean(next_gains - cur_gains)
-
-        # mean_gain = np.mean(cur_gains)
-        # if mean_gain < -95:
-        #     adjusted_gain = np.exp(mean_gain + 95) / 20
-        # elif mean_gain < -85:
-        #     # linear increase from -0.5 to 0 between -95 and -85
-        #     adjusted_gain = -0.5 + (mean_gain + 95) / 20
-        # else:
-        #     adjusted_gain = np.log(1 + 85 + mean_gain) + 0.3
-
+        # adjusted_gains = np.where(
+        #     cur_gains < -95,
+        #     -0.1 + (0.05 + 0.1) * (np.exp(cur_gains + 120) - 1) / (np.exp(-90 + 120) - 1),
+        #     np.where(
+        #         cur_gains < -85,
+        #         0.05 + (0.3 - 0.05) * (cur_gains + 90) / 10,
+        #         np.log(1 + 85 + cur_gains) * 2 + 0.3,
+        #     ),
+        # )
+        # adjusted_gain = np.mean(adjusted_gains)
         # gain_diff = np.mean(next_gains - cur_gains)
 
-        reward = adjusted_gain + 0.05 * gain_diff
+        # # mean_gain = np.mean(cur_gains)
+        # # if mean_gain < -95:
+        # #     adjusted_gain = np.exp(mean_gain + 95) / 20
+        # # elif mean_gain < -85:
+        # #     # linear increase from -0.5 to 0 between -95 and -85
+        # #     adjusted_gain = -0.5 + (mean_gain + 95) / 20
+        # # else:
+        # #     adjusted_gain = np.log(1 + 85 + mean_gain) + 0.3
+
+        # # gain_diff = np.mean(next_gains - cur_gains)
+
+        # reward = adjusted_gain + 0.05 * gain_diff
 
         # print(f"mean_gain: {mean_gain}, adjusted_gain: {adjusted_gain}, reward: {reward}")
 
         # ! TODO: Failed
-        # adjusted_gains = np.mean(cur_gains, axis=-1) + 90
-        # gain_diff = np.mean(next_gains - cur_gains)
-        # reward = (adjusted_gains + 0.03 * gain_diff - 0.02 * time_taken) / 20
+        adjusted_gains = np.mean(cur_gains) + 90.0
+        gain_diff = np.mean(next_gains - cur_gains)
+        reward = (adjusted_gains + 0.03 * gain_diff) / 2.0
 
         # ! TODO: Failed
         # total_gain = np.sum(utils.dB2linear(cur_gains))
