@@ -30,7 +30,7 @@ class TrainConfig:
     # Environment specific arguments
     env_id: str = "wireless-sigmap-v0"  # the environment id of the task
     sionna_config_file: str = "-1"  # Sionna config file
-    num_envs: int = 3  # the number of parallel environments
+    num_envs: int = 2  # the number of parallel environments
     ep_len: int = 100  # the maximum length of an episode
     eval_ep_len: int = 50  # the maximum length of an episode
 
