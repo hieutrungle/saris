@@ -563,10 +563,10 @@ def train_agent(
                 data["next_observations"] = normalize_obs(
                     data["next_observations"], channel_rms, envs
                 )
-                # data = TensorDict(data)
-                if j == 0:
-                    for k, v in data.items():
-                        print(f"{k}: {v}")
+                # # data = TensorDict(data)
+                # if j == 0:
+                #     for k, v in data.items():
+                #         print(f"{k}: {v}")
 
                 # Update Q networks
                 with torch.no_grad():
