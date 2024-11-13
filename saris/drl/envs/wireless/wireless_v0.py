@@ -181,8 +181,8 @@ class WirelessEnvV0(Env):
         self.spherical_focal_vecs = np.clip(
             self.spherical_focal_vecs, self.focal_vec_space.low, self.focal_vec_space.high
         )
-        tmp = np.reshape(copy.deepcopy(self.spherical_focal_vecs), (self.num_groups, 3))
-        tmp[:, 1:] = np.rad2deg(tmp[:, 1:])
+        # tmp = np.reshape(copy.deepcopy(self.spherical_focal_vecs), (self.num_groups, 3))
+        # tmp[:, 1:] = np.rad2deg(tmp[:, 1:])
         # print(f"init_focal_vecs: {tmp}")
         self.angles = self._blender_step(self.spherical_focal_vecs)
         # print(f"angles: {np.rad2deg(self.angles).reshape(-1, 8)}")
