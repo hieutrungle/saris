@@ -165,12 +165,12 @@ class WirelessEnvV0(Env):
     def _get_action_space(self) -> spaces.Box:
         # each group has 3 elements: 1 phi, 1 theta, and 1 r
         action_space_shape = tuple((3 * self.num_groups,))
-        r_low = -1.0
-        r_high = 1.0
-        theta_low = np.deg2rad(-4.0)
-        theta_high = np.deg2rad(4.0)
-        phi_low = np.deg2rad(-4.0)
-        phi_high = np.deg2rad(4.0)
+        r_low = -1.5
+        r_high = 1.5
+        theta_low = np.deg2rad(-5.0)
+        theta_high = np.deg2rad(5.0)
+        phi_low = np.deg2rad(-5.0)
+        phi_high = np.deg2rad(5.0)
         low = np.array([r_low, theta_low, phi_low] * self.num_groups, dtype=np.float32)
         high = np.array([r_high, theta_high, phi_high] * self.num_groups, dtype=np.float32)
         action_space = spaces.Box(low=low, high=high, shape=action_space_shape, dtype=np.float32)
@@ -194,7 +194,7 @@ class WirelessEnvV0(Env):
         # tmp[:, 1:] = np.rad2deg(tmp[:, 1:])
         # print(f"init_focal_vecs: {tmp}")
         self.angles = self._blender_step(self.spherical_focal_vecs)
-        # print(f"angles: {np.rad2deg(self.angles).reshape(-1, 8)}")
+        print(f"angles: {np.rad2deg(self.angles).reshape(-1, 8)}")
         self.angles = np.clip(self.angles, self.angle_space.low, self.angle_space.high)
 
         self.channels, self.cur_gain = self._run_sionna_dB(eval_mode=self.eval_mode)
@@ -229,7 +229,7 @@ class WirelessEnvV0(Env):
 
         self.angles = self._blender_step(self.spherical_focal_vecs)
         # print(f"done blender_step")
-        # print(f"angles: {np.rad2deg(self.angles).reshape(-1, 8)}")
+        print(f"angles: {np.rad2deg(self.angles).reshape(-1, 8)}")
         # if angles values are out of bounds, print warning
         if np.any(self.angles < self.angle_space.low) or np.any(
             self.angles > self.angle_space.high
