@@ -504,7 +504,7 @@ def train_agent(
             wandb.log(log_dict, step=global_step)
 
             # update channel rms normalization
-            if global_step < config.learning_starts:
+            if global_step < config.learning_starts and len(stored_obs) > 0:
                 stored_obs = np.concatenate(stored_obs, axis=0)
                 update_channel_rmss(torch.tensor(stored_obs), channel_rms)
                 print(f"Updated channel rms: {channel_rms}")
