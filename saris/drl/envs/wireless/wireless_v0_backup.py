@@ -45,10 +45,10 @@ class WirelessEnvV0(Env):
         self.seed = seed + idx
         self.np_rng = np.random.default_rng(self.seed)
 
-        tf.config.experimental.set_memory_growth(
-            tf.config.experimental.list_physical_devices("GPU")[0], True
-        )
-        tf.random.set_seed(self.seed)
+        # tf.config.experimental.set_memory_growth(
+        #     tf.config.experimental.list_physical_devices("GPU")[0], True
+        # )
+        # tf.random.set_seed(self.seed)
 
         self.sionna_config = utils.load_config(sionna_config_file)
 
@@ -86,22 +86,26 @@ class WirelessEnvV0(Env):
         self.angle_space = spaces.Box(low=angle_low, high=angle_high, dtype=np.float32)
 
         # position space
-        rx_positions = np.array(self.sionna_config["rx_positions"]).flatten()
-        ris_positions = np.array(self.sionna_config["ris_positions"]).flatten()
-        self.positions = np.concatenate([rx_positions, ris_positions], dtype=np.float32)
+        rx_positions = np.array(self.sionna_config["rx_positions"], dtype=np.float32).flatten()
+        ris_positions = np.array(self.sionna_config["ris_positions"], dtype=np.float32).flatten()
+        # self.positions = np.concatenate([rx_positions, ris_positions], dtype=np.float32)
+        self.positions = rx_positions
         self.position_space = spaces.Box(
             low=-100.0, high=100.0, shape=(len(self.positions),), dtype=np.float32
         )
 
         # focal vecs space for action space
-        self.init_focal_vecs = np.asarray([10.0, init_theta, init_phi] * self.num_groups)
+        self.init_focal_vecs = np.asarray([10.0, init_theta, np.deg2rad(125)] * self.num_groups)
+        # self.init_focal_vecs = np.asarray([10.0, init_theta, init_phi] * self.num_groups)
         r_high = 35.0
         focal_vec_high = np.asarray([r_high, theta_high, phi_high] * self.num_groups)
         r_low = 5.0
         focal_vec_low = np.asarray([r_low, theta_low, phi_low] * self.num_groups)
         self.focal_vec_space = spaces.Box(low=focal_vec_low, high=focal_vec_high, dtype=np.float32)
 
-        self.focal_noise_high = np.asarray([2.0, 0.1, 0.1] * self.num_groups)
+        self.focal_noise_high = np.asarray(
+            [2.0, np.deg2rad(5.0), np.deg2rad(5.0)] * self.num_groups
+        )
         self.focal_noise_low = -self.focal_noise_high
 
         # channels space
@@ -111,6 +115,8 @@ class WirelessEnvV0(Env):
         (self.l_min, self.l_max) = time_lag_discrete_time_channel(
             self.bandwidth, self.maximum_delay_spread
         )
+        self.l_min = 0
+        self.l_max = 0
         num_rxs = len(self.sionna_config["rx_positions"])
         num_tx_ants = self.sionna_config["tx_num_rows"] * self.sionna_config["tx_num_cols"]
         self.real_channel_space = spaces.Box(
@@ -159,12 +165,12 @@ class WirelessEnvV0(Env):
     def _get_action_space(self) -> spaces.Box:
         # each group has 3 elements: 1 phi, 1 theta, and 1 r
         action_space_shape = tuple((3 * self.num_groups,))
-        r_low = -2
-        r_high = 2
-        theta_low = np.deg2rad(-10.0)
-        theta_high = np.deg2rad(10.0)
-        phi_low = np.deg2rad(-10.0)
-        phi_high = np.deg2rad(10.0)
+        r_low = -1.5
+        r_high = 1.5
+        theta_low = np.deg2rad(-5.0)
+        theta_high = np.deg2rad(5.0)
+        phi_low = np.deg2rad(-5.0)
+        phi_high = np.deg2rad(5.0)
         low = np.array([r_low, theta_low, phi_low] * self.num_groups, dtype=np.float32)
         high = np.array([r_high, theta_high, phi_high] * self.num_groups, dtype=np.float32)
         action_space = spaces.Box(low=low, high=high, shape=action_space_shape, dtype=np.float32)
@@ -184,7 +190,9 @@ class WirelessEnvV0(Env):
         self.spherical_focal_vecs = np.clip(
             self.spherical_focal_vecs, self.focal_vec_space.low, self.focal_vec_space.high
         )
-        # print(f"init_focal_vecs: {self.spherical_focal_vecs.reshape(-1, 3)}")
+        # tmp = np.reshape(copy.deepcopy(self.spherical_focal_vecs), (self.num_groups, 3))
+        # tmp[:, 1:] = np.rad2deg(tmp[:, 1:])
+        # print(f"init_focal_vecs: {tmp}")
         self.angles = self._blender_step(self.spherical_focal_vecs)
         # print(f"angles: {np.rad2deg(self.angles).reshape(-1, 8)}")
         self.angles = np.clip(self.angles, self.angle_space.low, self.angle_space.high)
@@ -206,9 +214,9 @@ class WirelessEnvV0(Env):
         self.cur_gain = self.next_gain
 
         # action: [num_groups * 3]: num_groups * [phi, theta, r]
-        # tmp = np.reshape(copy.deepcopy(action), (self.num_groups, 3))
-        # tmp[:, 1:] = np.rad2deg(tmp[:, 1:])
-        # print(f"action: {tmp}")
+        tmp = np.reshape(copy.deepcopy(action), (self.num_groups, 3))
+        tmp[:, 1:] = np.rad2deg(tmp[:, 1:])
+        print(f"action: {tmp}")
 
         self.spherical_focal_vecs = self.spherical_focal_vecs + action
         self.spherical_focal_vecs = np.clip(
@@ -220,7 +228,8 @@ class WirelessEnvV0(Env):
         # print(f"spherical_focal_vecs: {tmp}")
 
         self.angles = self._blender_step(self.spherical_focal_vecs)
-        # print(f"angles: {np.rad2deg(self.angles).reshape(-1, 8)}")
+        # print(f"done blender_step")
+        print(f"angles: {np.rad2deg(self.angles).reshape(-1, 8)}")
         # if angles values are out of bounds, print warning
         if np.any(self.angles < self.angle_space.low) or np.any(
             self.angles > self.angle_space.high
@@ -228,8 +237,11 @@ class WirelessEnvV0(Env):
             print("Warning: angles out of bounds")
 
         truncated = False
+        if self.taken_steps > 100:
+            truncated = True
         terminated = False
         self.channels, self.next_gain = self._run_sionna_dB(eval_mode=self.eval_mode)
+        # print(f"done run_sionna_dB")
 
         real_channels = np.asarray(self.channels.real, dtype=np.float32)
         imag_channels = np.asarray(self.channels.imag, dtype=np.float32)
@@ -242,6 +254,7 @@ class WirelessEnvV0(Env):
             "next_path_gain": self.next_gain,
             "reward": reward,
         }
+        # print(f"done step")
 
         return next_observation, reward, terminated, truncated, step_info
 
@@ -249,37 +262,37 @@ class WirelessEnvV0(Env):
         self, cur_gains: np.ndarray, next_gains: np.ndarray, time_taken: float
     ) -> float:
 
-        adjusted_gains = np.where(
-            cur_gains < -95,
-            -0.1 + (0.05 + 0.1) * (np.exp(cur_gains + 120) - 1) / (np.exp(-95 + 120) - 1),
-            np.where(
-                cur_gains < -85,
-                0.05 + (0.3 - 0.05) * (cur_gains + 95) / 10,
-                np.log(1 + 85 + cur_gains) + 0.3,
-            ),
-        )
-        adjusted_gain = np.mean(adjusted_gains)
-        gain_diff = np.mean(next_gains - cur_gains)
-
-        # mean_gain = np.mean(cur_gains)
-        # if mean_gain < -95:
-        #     adjusted_gain = np.exp(mean_gain + 95) / 20
-        # elif mean_gain < -85:
-        #     # linear increase from -0.5 to 0 between -95 and -85
-        #     adjusted_gain = -0.5 + (mean_gain + 95) / 20
-        # else:
-        #     adjusted_gain = np.log(1 + 85 + mean_gain) + 0.3
-
+        # adjusted_gains = np.where(
+        #     cur_gains < -95,
+        #     -0.1 + (0.05 + 0.1) * (np.exp(cur_gains + 120) - 1) / (np.exp(-90 + 120) - 1),
+        #     np.where(
+        #         cur_gains < -85,
+        #         0.05 + (0.3 - 0.05) * (cur_gains + 90) / 10,
+        #         np.log(1 + 85 + cur_gains) * 2 + 0.3,
+        #     ),
+        # )
+        # adjusted_gain = np.mean(adjusted_gains)
         # gain_diff = np.mean(next_gains - cur_gains)
 
-        reward = adjusted_gain + 0.05 * gain_diff
+        # # mean_gain = np.mean(cur_gains)
+        # # if mean_gain < -95:
+        # #     adjusted_gain = np.exp(mean_gain + 95) / 20
+        # # elif mean_gain < -85:
+        # #     # linear increase from -0.5 to 0 between -95 and -85
+        # #     adjusted_gain = -0.5 + (mean_gain + 95) / 20
+        # # else:
+        # #     adjusted_gain = np.log(1 + 85 + mean_gain) + 0.3
+
+        # # gain_diff = np.mean(next_gains - cur_gains)
+
+        # reward = adjusted_gain + 0.05 * gain_diff
 
         # print(f"mean_gain: {mean_gain}, adjusted_gain: {adjusted_gain}, reward: {reward}")
 
         # ! TODO: Failed
-        # adjusted_gains = np.mean(cur_gains, axis=-1) + 90
-        # gain_diff = np.mean(next_gains - cur_gains)
-        # reward = (adjusted_gains + 0.03 * gain_diff - 0.02 * time_taken) / 20
+        adjusted_gains = np.mean(cur_gains) + 90.0
+        gain_diff = np.mean(next_gains - cur_gains)
+        reward = (adjusted_gains + 0.03 * gain_diff) / 2.0
 
         # ! TODO: Failed
         # total_gain = np.sum(utils.dB2linear(cur_gains))
@@ -355,23 +368,48 @@ class WirelessEnvV0(Env):
         viz_scene_dir = os.path.join(blender_output_dir, "idx")
         viz_scene_path = glob.glob(os.path.join(viz_scene_dir, "*.xml"))[0]
 
+        # print(f"check 1")
         sig_cmap = sigmap.engine.SignalCoverageMap(
             self.sionna_config, compute_scene_path, viz_scene_path
         )
 
+        # print(f"check before compute_paths")
         paths = sig_cmap.compute_paths()
+        paths.normalize_delays = False
+        # print(f"check after compute_paths")
         cir = paths.cir()
         # a: [batch_size, num_rx, num_rx_ant, num_tx, num_tx_ant, max_num_paths, num_time_steps], tf.complex
         a, tau = cir
+        # print(f"a shape: {a.shape}")
+        # mag = tf.reduce_mean(
+        #     tf.reduce_sum(tf.square(tf.abs(a)), axis=5, keepdims=True),
+        #     axis=(2, 4, 6),
+        #     keepdims=True,
+        # )
+        # mag = tf.squeeze(mag, axis=(0, 2, 3, 4, 5, 6))
+        # print(f"mag: \t{utils.linear2dB(tf.abs(mag))}")
         # [batch size, num_rx, num_rx_ant, num_tx, num_tx_ant, num_time_steps, self.l_max - self.l_min + 1], tf.complex
         channels: tf.Tensor = cir_to_time_channel(self.bandwidth, a, tau, self.l_min, self.l_max)
-        large_scale = tf.reduce_mean(
-            tf.reduce_sum(tf.square(tf.abs(channels)), axis=6, keepdims=True),
-            axis=(2, 4, 5),
-            keepdims=True,
-        )
-        path_gains = tf.squeeze(large_scale, axis=(0, 2, 3, 4, 5, 6)).numpy()
-        large_scale = tf.complex(tf.sqrt(large_scale), tf.constant(0.0, tau.dtype))
+        # large_scale = tf.reduce_mean(
+        #     tf.reduce_sum(tf.square(tf.abs(channels)), axis=6, keepdims=True),
+        #     axis=(2, 4, 5),
+        #     keepdims=True,
+        # )
+        # path_gains = tf.squeeze(large_scale, axis=(0, 2, 3, 4, 5, 6)).numpy()
+        # large_scale = tf.complex(tf.sqrt(large_scale), tf.constant(0.0, tau.dtype))
+
+        # print(f"large_scale: \t{utils.linear2dB(tf.abs(tf.squeeze(large_scale)))}")
+        # print(f"path_gain_dB: \t{utils.linear2dB(path_gains)}")
+
+        # print(f"check before compute_cmap")
+        coverage_map = sig_cmap.compute_cmap()
+        # print(f"check after compute_cmap")
+        path_gains = []
+        for pos in coverage_map.rx_pos:
+            path_gain = coverage_map.path_gain[:, pos[1], pos[0]]
+            path_gains.append(path_gain[0])
+        path_gains = np.asarray(path_gains)
+        # print(f"path_gains: \t{utils.linear2dB(path_gains)}")
 
         if eval_mode:
             # Path for outputing iamges if we want to visualize the coverage map
@@ -379,11 +417,22 @@ class WirelessEnvV0(Env):
                 assets_dir, "images", self.log_string + self.current_time + f"_{self.idx}"
             )
             render_filename = utils.create_filename(img_dir, f"{scene_name}_00000.png")
-            coverage_map = sig_cmap.compute_cmap()
-            path_gains = sig_cmap.get_path_gain(coverage_map)
+            # coverage_map = sig_cmap.compute_cmap()
+            # tmp = []
+            # for pos in coverage_map.rx_pos:
+            #     path_gain = coverage_map.path_gain[:, pos[1], pos[0]]
+            #     tmp.append(path_gain[0])
+            # tmp = np.asarray(tmp)
+            # print(f"tmp shape: {tmp.shape}")
+            # print(f"tmp: \t{utils.linear2dB(tmp)}")
+            # path_gains = sig_cmap.get_path_gain(coverage_map)
             sig_cmap.render_to_file(coverage_map, filename=render_filename)
+            # print(f"cpath_gain_dB: \t{utils.linear2dB(path_gains)}")
 
-        return tf.squeeze(channels), path_gains
+        channels = tf.squeeze(channels, axis=(0, 2, 3, 5))
+        # print(f"channels shape: {channels.shape}")
+        # print(f"channels: {channels}")
+        return channels, path_gains
 
 
 def compute_rot_angle(pt1: list, pt2: list) -> Tuple[float, float, float]:
