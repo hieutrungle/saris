@@ -596,7 +596,8 @@ def train_agent(
                         a_optimizer.zero_grad()
                         alpha_loss.backward()
                         a_optimizer.step()
-                        log_alpha = torch.clamp(log_alpha, -5.0, 1.0)
+                        with torch.no_grad():
+                            log_alpha.clamp_(-5.0, 1.0)
                         alpha = log_alpha.detach().exp()
                         alpha = torch.clamp(alpha, 0.15, 0.9)
 
@@ -623,6 +624,7 @@ def train_agent(
                         "train/alpha_loss": alpha_loss.mean().item(),
                         "train/qf_loss": qf_loss.mean().item(),
                         "train/alpha": alpha.item(),
+                        "train/log_alpha": log_alpha.clone().detach().item(),
                         "train/actor_entropy": (-log_pi).mean().item(),
                         "train/actor_min_q": min_qf_pi.mean().item(),
                         "train/q_lr": q_lr,
