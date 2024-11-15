@@ -25,9 +25,7 @@ import torchinfo
 import importlib.resources
 import copy
 import pyrallis
-from tensordict import TensorDict, from_module, from_modules
-from tensordict.nn import TensorDictModule
-from tensordict.nn import CudaGraphModule
+from tensordict import TensorDict
 from torchrl.data import ReplayBuffer, LazyMemmapStorage
 import traceback
 import saris
@@ -35,7 +33,6 @@ from saris.utils import utils, pytorch_utils, running_mean
 from saris.drl.agents import sac
 import matplotlib.pyplot as plt
 from saris.drl.envs import register_envs
-from stable_baselines3.common.env_checker import check_env
 
 register_envs()
 torch.set_float32_matmul_precision("high")
@@ -222,14 +219,14 @@ def main(config: TrainConfig):
 
     # env setup
     if config.command.lower() == "train":
-        # envs = gym.vector.AsyncVectorEnv(
-        #     [make_env(config, i, eval_mode=False) for i in range(config.num_envs)],
-        #     context="spawn",
-        # )
-        envs = gym.vector.SyncVectorEnv(
+        envs = gym.vector.AsyncVectorEnv(
             [make_env(config, i, eval_mode=False) for i in range(config.num_envs)],
-            # context="spawn",
+            context="spawn",
         )
+        # envs = gym.vector.SyncVectorEnv(
+        #     [make_env(config, i, eval_mode=False) for i in range(config.num_envs)],
+        #     # context="spawn",
+        # )
     elif config.command.lower() == "eval":
         envs = gym.vector.SyncVectorEnv(
             [make_env(config, i, eval_mode=True) for i in range(config.num_envs)],
