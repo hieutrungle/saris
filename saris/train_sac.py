@@ -302,9 +302,9 @@ def main(config: TrainConfig):
     )
 
     # Automatic entropy tuning
-    target_entropy = -torch.prod(
-        torch.Tensor(envs.single_action_space.shape).to(config.device)
-    ).item()
+    target_entropy = (
+        -torch.prod(torch.Tensor(envs.single_action_space.shape).to(config.device)).item() / 2.0
+    )
     log_alpha = torch.zeros(1, requires_grad=True, device=config.device)
 
     # Load models
