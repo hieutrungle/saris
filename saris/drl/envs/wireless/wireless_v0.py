@@ -171,8 +171,12 @@ class WirelessEnvV0(Env):
         self.default_sionna_config = copy.deepcopy(self.sionna_config)
 
     def reset(self, seed: int = None, options: dict = None) -> Tuple[dict, dict]:
-        super().reset(seed=seed, options=options)
+        super().reset(seed=seed)
 
+        start_init = False
+        if options is not None:
+            start_init = options.get("start_init", False)
+            print(f"\n\nRESET with start_init: {start_init}")
         self.ep_step = 0
         self.positions = copy.deepcopy(self.default_positions)
         self.positions = np.asarray(self.positions, dtype=np.float32)
@@ -180,7 +184,17 @@ class WirelessEnvV0(Env):
 
         # noise to spherical_focal_vecs
         noise = self.np_rng.uniform(low=self.focal_noise_low, high=self.focal_noise_high)
-        self.spherical_focal_vecs = copy.deepcopy(self.init_focal_vecs)
+        if start_init:
+            self.spherical_focal_vecs = np.asarray(
+                [10.0, np.deg2rad(90), np.deg2rad(135)] * self.num_groups
+            )
+        else:
+            self.spherical_focal_vecs = copy.deepcopy(self.init_focal_vecs)
+
+        # tmp = np.reshape(copy.deepcopy(self.spherical_focal_vecs), (self.num_groups, 3))
+        # tmp[:, 1:] = np.rad2deg(tmp[:, 1:])
+        # print(f"init_focal_vecs: {tmp}")
+
         self.spherical_focal_vecs += noise
         self.spherical_focal_vecs = np.clip(
             self.spherical_focal_vecs, self.focal_vec_space.low, self.focal_vec_space.high
