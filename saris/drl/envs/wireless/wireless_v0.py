@@ -448,6 +448,8 @@ class WirelessEnvV0(Env):
             # print(f"cpath_gain_dB: \t{utils.linear2dB(path_gains)}")
 
         channels = tf.squeeze(channels, axis=(0, 2, 3, 5))
+        channels = np.asarray(channels, dtype=np.complex64)
+        sig_cmap.free_memory()
         # print(f"channels: {channels}")
         # print(f"channels shape: {channels.shape}")
         # print(f"channels: {channels}")
