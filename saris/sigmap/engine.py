@@ -94,7 +94,7 @@ class SignalCoverageMap:
         else:
             cmap = self._compute_cmap(**kwargs)
 
-        self.free_memory()
+        # self.free_memory()
         return cmap
 
     def _compute_cmap(self, **kwargs) -> sionna.rt.CoverageMap:
@@ -109,7 +109,7 @@ class SignalCoverageMap:
         if kwargs:
             cm_kwargs.update(kwargs)
 
-        cmap = scene.coverage_map(ris=False, check_scene=False, **cm_kwargs)
+        cmap = scene.coverage_map(ris=False, **cm_kwargs)
         return cmap
 
     def compute_paths(self, **kwargs) -> sionna.rt.Paths:
@@ -124,7 +124,7 @@ class SignalCoverageMap:
         else:
             paths = self._compute_paths(**kwargs)
 
-        self.free_memory()
+        # self.free_memory()
         return paths
 
     def _compute_paths(self, **kwargs) -> sionna.rt.Paths:
@@ -138,7 +138,7 @@ class SignalCoverageMap:
         if kwargs:
             paths_kwargs.update(kwargs)
 
-        paths = scene.compute_paths(ris=False, check_scene=False, **paths_kwargs)
+        paths = scene.compute_paths(ris=False, **paths_kwargs)
         return paths
 
     def compute_render(self, cmap_enabled: bool = False, paths_enabled: bool = False) -> None:
