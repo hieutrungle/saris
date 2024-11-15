@@ -372,7 +372,6 @@ class WirelessEnvV0(Env):
         # path gain shape: [num_rx]
         channels, path_gains = self._run_sionna(eval_mode=eval_mode)
         path_gain_dBs = utils.linear2dB(path_gains)
-        channels = channels.numpy()
         return channels, path_gain_dBs
 
     def _run_sionna(self, eval_mode: bool = False) -> Tuple[tf.Tensor, np.ndarray]:
