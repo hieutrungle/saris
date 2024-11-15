@@ -80,4 +80,4 @@ mkdir -p ${OPTIX_CACHE_PATH}
 ##############################
 export OPTIX_CACHE_PATH=${TMP_DIR}/optix_cache_1
 python ./saris/run_sac.py --sionna_config_file ${SIONNA_CONFIG_FILE} --verbose True --env_id "wireless-sigmap-v0" 
-#  --seed 22 --num_envs 2 --total_timesteps 50 --batch_size 16 --learning_starts 21 --warmup_steps 5 --ep_len 20 --save_interval 25 --eval_ep_len 10 --wandb "offline" 
+# --seed 22 --num_envs 2 --total_timesteps 15 --batch_size 16 --learning_starts 4 --warmup_steps 5 --ep_len 3 --save_interval 25 --eval_ep_len 10 --wandb "offline" 
