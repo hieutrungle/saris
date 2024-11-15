@@ -113,11 +113,8 @@ class SoftQNetwork(nn.Module):
                 device=device,
             ),
             nn.GELU(),
-            nn.Linear(ff_dim, ff_dim, device=device),
-            nn.GELU(),
-            nn.LayerNorm(ff_dim, device=device),
-            nn.Linear(ff_dim, ff_dim, device=device),
-            nn.GELU(),
+            MLPBlock(ff_dim, ff_dim),
+            MLPBlock(ff_dim, ff_dim),
         ]
         self.connect_network = nn.Sequential(*self.ob_layers)
 
@@ -196,11 +193,8 @@ class Actor(nn.Module):
                 device=device,
             ),
             nn.GELU(),
-            nn.Linear(ff_dim, ff_dim, device=device),
-            nn.GELU(),
-            nn.LayerNorm(ff_dim, device=device),
-            nn.Linear(ff_dim, ff_dim, device=device),
-            nn.GELU(),
+            MLPBlock(ff_dim, ff_dim),
+            MLPBlock(ff_dim, ff_dim),
         ]
         self.connect_network = nn.Sequential(*self.ob_layers)
 
