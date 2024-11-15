@@ -598,7 +598,7 @@ def train_agent(
                         a_optimizer.step()
                         log_alpha = torch.clamp(log_alpha, -5.0, 1.0)
                         alpha = log_alpha.detach().exp()
-                        alpha = torch.clamp(alpha, 0.1, 0.8)
+                        alpha = torch.clamp(alpha, 0.15, 0.9)
 
                 # update the target networks
                 if j % config.target_network_frequency == 1:
@@ -623,7 +623,7 @@ def train_agent(
                         "train/alpha_loss": alpha_loss.mean().item(),
                         "train/qf_loss": qf_loss.mean().item(),
                         "train/alpha": alpha.item(),
-                        "train/actor_entropy": log_pi.mean().item(),
+                        "train/actor_entropy": (-log_pi).mean().item(),
                         "train/actor_min_q": min_qf_pi.mean().item(),
                         "train/q_lr": q_lr,
                         "train/a_lr": a_lr,
