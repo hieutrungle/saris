@@ -596,8 +596,9 @@ def train_agent(
                         a_optimizer.zero_grad()
                         alpha_loss.backward()
                         a_optimizer.step()
+                        log_alpha = torch.clamp(log_alpha, -5.0, 1.0)
                         alpha = log_alpha.detach().exp()
-                        alpha = torch.clamp(alpha, 0.05, 0.8)
+                        alpha = torch.clamp(alpha, 0.1, 0.8)
 
                 # update the target networks
                 if j % config.target_network_frequency == 1:
