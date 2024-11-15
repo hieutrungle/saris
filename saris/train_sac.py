@@ -188,22 +188,12 @@ def create_scheduler(optimizer, warmup_steps, num_train_steps, lr):
         optimizer, start_factor=1 / 10, total_iters=warmup_steps
     )
     cosine_scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(
-        optimizer, num_train_steps - warmup_steps, eta_min=lr / 10
+        optimizer, num_train_steps - warmup_steps, eta_min=lr / 5
     )
     scheduler = optim.lr_scheduler.SequentialLR(
         optimizer, [warmup_scheduler, cosine_scheduler], [warmup_steps]
     )
     return scheduler
-
-
-def preprocess_actions(actions, action_low, action_high):
-
-    action_scale = (action_high - action_low) / 2.0
-    action_bias = (action_high + action_low) / 2.0
-
-    actions = (actions - action_bias) / action_scale
-
-    return actions
 
 
 @pyrallis.wrap()
@@ -243,29 +233,18 @@ def main(config: TrainConfig):
     ob_space = envs.single_observation_space
     ac_space = envs.single_action_space
 
-    # env = make_env(config, 0, eval_mode=False)()
-
     # Create running meanstd for normalization
     channel_space = envs.get_attr("channel_space")
-    # angle_space = envs.get_attr("angle_space")
-    # position_space = envs.get_attr("position_space")
     channel_rms = running_mean.RunningMeanStd(
         shape=(math.prod(channel_space[0].shape)),
     )
     # exit()
+    # obs, _ = envs.reset()
 
-    # real_channel_len = math.prod(envs.single_observation_space[0].shape)
-    # imag_channel_len = math.prod(envs.single_observation_space[1].shape)
-    # real_channel_rms = running_mean.RunningMeanStd(shape=(real_channel_len,))
-    # imag_channel_rms = running_mean.RunningMeanStd(shape=(imag_channel_len,))
-    # obs_rmss = (real_channel_rms, imag_channel_rms)
-
-    # obs, _ = envs.reset(seed=config.seed)
-    # single_action = [0.0, 1.0, 0.0] * 9
-    # single_action = np.array(single_action)
+    # obs, _ = envs.reset(options={"start_init": True})
 
     # rews = []
-    # for step in range(1, 16):
+    # for step in range(1, 5):
     #     print(f"\nStep: {step}")
     #     # actions = np.array([single_action for _ in range(envs.num_envs)])
     #     actions = np.array([envs.single_action_space.sample() for _ in range(envs.num_envs)])
@@ -443,7 +422,7 @@ def train_agent(
 
     # TRY NOT TO MODIFY: start the game
     stored_obs = []
-    obs, _ = envs.reset(seed=config.seed)
+    obs, _ = envs.reset(options={"start_init": True})
     stored_obs.append(obs)
     pbar = tqdm.tqdm(range(config.total_timesteps), dynamic_ncols=True)
     max_ep_ret = -float("inf")
@@ -459,10 +438,6 @@ def train_agent(
             torch_obs = normalize_obs(torch_obs, channel_rms, envs)
             actions, _, _ = actor.get_action(torch_obs.to(config.device))
             actions = actions.detach().cpu().numpy()
-            # torch_flat_obs = torch.tensor(flat_obs, dtype=torch.float, device=config.device)
-            # normalized_flat_obs = normalize_obs(torch_flat_obs, obs_rmss[0], obs_rmss[1])
-            # actions = policy(normalized_flat_obs)
-            # actions = actions.cpu().numpy()
 
         if (
             global_step == config.learning_starts
@@ -486,8 +461,6 @@ def train_agent(
             obs, _ = envs.reset(seed=config.seed)
             continue
         rewards = np.asarray(rewards, dtype=np.float32)
-        # print(f"actions: {actions}")
-        # print(f"rewards: {rewards}")
 
         # TRY NOT TO MODIFY: record rewards for plotting purposes
         if "final_info" in infos:
@@ -531,7 +504,6 @@ def train_agent(
         next_path_gains = torch.as_tensor(next_path_gains, dtype=torch.float)
 
         # TRY NOT TO MODIFY: save data to reply buffer; handle `final_observation`
-        # next_obs: Tuple(batched_real, batched_imag, batched_pos)
         real_next_obs = list(copy.deepcopy(next_obs))
         for idx, trunc in enumerate(truncations):
             if trunc:
@@ -554,6 +526,9 @@ def train_agent(
 
         # TRY NOT TO MODIFY: CRUCIAL step easy to overlook
         obs = next_obs
+        if "final_info" in infos and global_step < config.learning_starts * 9 / 10:
+            obs, _ = envs.reset(options={"start_init": True})
+        stored_obs.append(obs)
 
         # ALGO LOGIC: training.
         if global_step > config.learning_starts:
@@ -568,10 +543,6 @@ def train_agent(
                 data["next_observations"] = normalize_obs(
                     data["next_observations"], channel_rms, envs
                 )
-                # # data = TensorDict(data)
-                # if j == 0:
-                #     for k, v in data.items():
-                #         print(f"{k}: {v}")
 
                 # Update Q networks
                 with torch.no_grad():
