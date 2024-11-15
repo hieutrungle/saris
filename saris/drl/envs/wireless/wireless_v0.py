@@ -48,7 +48,8 @@ class WirelessEnvV0(Env):
         # tf.config.experimental.set_memory_growth(
         #     tf.config.experimental.list_physical_devices("GPU")[0], True
         # )
-        # tf.random.set_seed(self.seed)
+        tf.random.set_seed(self.seed)
+        print(f"using GPU: {tf.config.experimental.list_physical_devices('GPU')}")
 
         self.sionna_config = utils.load_config(sionna_config_file)
 
@@ -131,7 +132,9 @@ class WirelessEnvV0(Env):
         # phi_high = np.deg2rad(5.0)
         # low = np.array([r_low, theta_low, phi_low] * self.num_groups, dtype=np.float32)
         # high = np.array([r_high, theta_high, phi_high] * self.num_groups, dtype=np.float32)
-        self.action_space = spaces.Box(low=-1, high=1, shape=action_space_shape, dtype=np.float32)
+        self.action_space = spaces.Box(
+            low=-1.0, high=1.0, shape=action_space_shape, dtype=np.float32
+        )
 
         # focal vecs space for action space
         self.init_focal_vecs = np.asarray([10.0, init_theta, np.deg2rad(125)] * self.num_groups)
@@ -172,6 +175,7 @@ class WirelessEnvV0(Env):
 
         self.ep_step = 0
         self.positions = copy.deepcopy(self.default_positions)
+        self.positions = np.asarray(self.positions, dtype=np.float32)
         self.sionna_config = copy.deepcopy(self.default_sionna_config)
 
         # noise to spherical_focal_vecs
@@ -186,7 +190,9 @@ class WirelessEnvV0(Env):
         # print(f"init_focal_vecs: {tmp}")
         self.angles = self._blender_step(self.spherical_focal_vecs)
         # print(f"angles: {np.rad2deg(self.angles).reshape(-1, 8)}")
-        self.angles = np.clip(self.angles, self.angle_space.low, self.angle_space.high)
+        self.angles = np.clip(
+            self.angles, self.angle_space.low, self.angle_space.high, dtype=np.float32
+        )
 
         self.channels, self.cur_gain = self._run_sionna_dB(eval_mode=self.eval_mode)
         self.next_gain = self.cur_gain
@@ -222,8 +228,9 @@ class WirelessEnvV0(Env):
         # print(f"spherical_focal_vecs: {tmp}")
 
         self.angles = self._blender_step(self.spherical_focal_vecs)
+        self.angles = np.asarray(self.angles, dtype=np.float32)
         # print(f"done blender_step")
-        print(f"angles: {np.rad2deg(self.angles).reshape(-1, 8)}")
+        # print(f"angles: {np.rad2deg(self.angles).reshape(-1, 8)}")
         # if angles values are out of bounds, print warning
         if np.any(self.angles < self.angle_space.low) or np.any(
             self.angles > self.angle_space.high
