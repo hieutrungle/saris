@@ -23,7 +23,7 @@ class TrainConfig:
     replay_buffer_dir: str = "-1"  # the path to save the replay buffer
     load_replay_buffer: str = "-1"  # the path to load the replay buffer
     verbose: bool = False  # whether to log to console
-    seed: int = 10  # seed of the experiment
+    seed: int = 23  # seed of the experiment
     eval_seed: int = 111  # seed of the evaluation
     save_interval: int = 150  # the interval to save the model
 
@@ -37,7 +37,7 @@ class TrainConfig:
     # Algorithm specific arguments
     total_timesteps: int = 2_001  # total timesteps of the experiments
     n_updates: int = 5  # the number of updates per step
-    buffer_size: int = int(6_000)  # the replay memory buffer size
+    buffer_size: int = int(15_000)  # the replay memory buffer size
     gamma: float = 0.985  # the discount factor gamma
     tau: float = 0.005  # target smoothing coefficient (default: 0.005)
     batch_size: int = 128  # the batch size of sample from the reply memory
@@ -84,6 +84,8 @@ def main(config: TrainConfig):
 
         signal.signal(signal.SIGINT, handle_interrupt)
 
+        replay_buffer_dir = config.replay_buffer_dir
+
         try:
             print()
             print("*" * 50)
@@ -93,6 +95,23 @@ def main(config: TrainConfig):
             train_cmd = base_cmd + ["--command", "train"]
             process = subprocess.Popen(train_cmd)
             process.wait()  # Wait for the subprocess to finish
+
+            config.seed += 5
+            config.load_model = os.path.join(config.checkpoint_dir, "model.pth")
+            config.load_replay_buffer = config.replay_buffer_dir
+            config.replay_buffer_dir = replay_buffer_dir + "1"
+            train_cmd = get_base_cmd(config) + ["--command", "train"]
+            process = subprocess.Popen(train_cmd)
+            process.wait()  # Wait for the subprocess to finish
+
+            config.seed += 5
+            config.load_model = os.path.join(config.checkpoint_dir, "model.pth")
+            config.load_replay_buffer = config.replay_buffer_dir
+            config.replay_buffer_dir = replay_buffer_dir + "2"
+            train_cmd = get_base_cmd(config) + ["--command", "train"]
+            process = subprocess.Popen(train_cmd)
+            process.wait()  # Wait for the subprocess to finish
+
         except KeyboardInterrupt:
             handle_interrupt(signal.SIGINT, None)
 
