@@ -8,7 +8,7 @@ import importlib.resources
 import saris
 import subprocess
 import pyrallis
-import time
+import copy
 import signal
 
 
@@ -23,7 +23,7 @@ class TrainConfig:
     replay_buffer_dir: str = "-1"  # the path to save the replay buffer
     load_replay_buffer: str = "-1"  # the path to load the replay buffer
     verbose: bool = False  # whether to log to console
-    seed: int = 23  # seed of the experiment
+    seed: int = 54  # seed of the experiment
     eval_seed: int = 111  # seed of the evaluation
     save_interval: int = 150  # the interval to save the model
 
@@ -32,10 +32,10 @@ class TrainConfig:
     sionna_config_file: str = "-1"  # Sionna config file
     num_envs: int = 3  # the number of parallel environments
     ep_len: int = 100  # the maximum length of an episode
-    eval_ep_len: int = 50  # the maximum length of an episode
+    eval_ep_len: int = 100  # the maximum length of an episode
 
     # Algorithm specific arguments
-    total_timesteps: int = 2_001  # total timesteps of the experiments
+    total_timesteps: int = 2_501  # total timesteps of the experiments
     n_updates: int = 5  # the number of updates per step
     buffer_size: int = int(15_000)  # the replay memory buffer size
     gamma: float = 0.985  # the discount factor gamma
@@ -84,43 +84,55 @@ def main(config: TrainConfig):
 
         signal.signal(signal.SIGINT, handle_interrupt)
 
-        replay_buffer_dir = config.replay_buffer_dir
-
         try:
             print()
             print("*" * 50)
             print(f"TRAINING: Training the DRL Agent on {config.env_id}")
             print("*" * 50)
             print()
-            train_cmd = base_cmd + ["--command", "train"]
+            train_config = copy.deepcopy(config)
+            replay_buffer_dir = train_config.replay_buffer_dir
+            checkpoint_dir = train_config.checkpoint_dir
+            train_cmd = get_base_cmd(train_config) + ["--command", "train"]
             process = subprocess.Popen(train_cmd)
             process.wait()  # Wait for the subprocess to finish
 
-            config.seed += 5
-            config.load_model = os.path.join(config.checkpoint_dir, "model.pth")
-            config.load_replay_buffer = config.replay_buffer_dir
-            config.replay_buffer_dir = replay_buffer_dir + "1"
-            train_cmd = get_base_cmd(config) + ["--command", "train"]
-            process = subprocess.Popen(train_cmd)
-            process.wait()  # Wait for the subprocess to finish
+            for i in range(1, 15):
+                train_config.seed += 5
+                train_config.load_model = os.path.join(train_config.checkpoint_dir, "model.pth")
+                train_config.load_replay_buffer = train_config.replay_buffer_dir
+                train_config.checkpoint_dir = checkpoint_dir + f"_{i}"
+                train_config.replay_buffer_dir = replay_buffer_dir + f"_{i}"
+                train_cmd = get_base_cmd(train_config) + ["--command", "train"]
+                process = subprocess.Popen(train_cmd)
+                process.wait()
 
-            config.seed += 5
-            config.load_model = os.path.join(config.checkpoint_dir, "model.pth")
-            config.load_replay_buffer = config.replay_buffer_dir
-            config.replay_buffer_dir = replay_buffer_dir + "2"
-            train_cmd = get_base_cmd(config) + ["--command", "train"]
-            process = subprocess.Popen(train_cmd)
-            process.wait()  # Wait for the subprocess to finish
+            # train_config.seed += 5
+            # train_config.load_model = os.path.join(train_config.checkpoint_dir, "model.pth")
+            # train_config.load_replay_buffer = train_config.replay_buffer_dir
+            # train_config.checkpoint_dir = checkpoint_dir + "_1"
+            # train_config.replay_buffer_dir = replay_buffer_dir + "_1"
+            # train_cmd = get_base_cmd(train_config) + ["--command", "train"]
+            # process = subprocess.Popen(train_cmd)
+            # process.wait()  # Wait for the subprocess to finish
+
+            # config.seed += 5
+            # config.load_model = os.path.join(config.checkpoint_dir, "model.pth")
+            # config.load_replay_buffer = config.replay_buffer_dir
+            # config.replay_buffer_dir = replay_buffer_dir + "2"
+            # train_cmd = get_base_cmd(config) + ["--command", "train"]
+            # process = subprocess.Popen(train_cmd)
+            # process.wait()  # Wait for the subprocess to finish
 
         except KeyboardInterrupt:
             handle_interrupt(signal.SIGINT, None)
 
         print()
         print("*" * 50)
-        print(f"EVALUATION: Use the latest model from {config.checkpoint_dir} for evaluation")
+        print(f"EVALUATION: Use the latest model from {train_config.checkpoint_dir} for evaluation")
         print("*" * 50)
         print()
-        config.load_eval_model = os.path.join(config.checkpoint_dir, "model.pth")
+        config.load_eval_model = os.path.join(train_config.checkpoint_dir, "model.pth")
     else:
         print()
         print("*" * 50)
