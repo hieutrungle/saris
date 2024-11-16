@@ -679,11 +679,13 @@ def eval(
 
     # print(obs_rmss)
     mode = "default"
-    policy = TensorDictModule(
-        actor.get_action, in_keys=["observation"], out_keys=["action", "log_prob", "mean"]
-    )
-    policy = torch.compile(policy, mode=mode)
-    policy = CudaGraphModule(policy)
+    # policy = TensorDictModule(
+    #     actor.get_action, in_keys=["observation"], out_keys=["action", "log_prob", "mean"]
+    # )
+    # policy = torch.compile(policy, mode=mode)
+    # policy = CudaGraphModule(policy)
+
+    policy = torch.compile(actor.get_action, mode=mode)
 
     all_rewards = np.empty((config.eval_ep_len, envs.num_envs))
     all_path_gains = np.empty((config.eval_ep_len, envs.num_envs, 3))
@@ -698,7 +700,7 @@ def eval(
 
         with torch.no_grad():
             # actions = actor(obs=normalized_flat_obs)
-            _, _, actions = policy(observation=torch_obs.to(config.device))
+            _, _, actions = policy(torch_obs.to(config.device))
             actions = actions.detach().cpu().numpy()
 
             # actions, _, _ = actor.get_action(torch_obs.to(config.device))
