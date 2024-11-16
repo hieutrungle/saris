@@ -92,12 +92,14 @@ def main(config: TrainConfig):
             print()
             train_config = copy.deepcopy(config)
             replay_buffer_dir = train_config.replay_buffer_dir
+            name = train_config.name
             checkpoint_dir = train_config.checkpoint_dir
             train_cmd = get_base_cmd(train_config) + ["--command", "train"]
             process = subprocess.Popen(train_cmd)
             process.wait()  # Wait for the subprocess to finish
 
-            for i in range(1, 15):
+            for i in range(1, 17):
+                train_config.name = name + f"_{i}"
                 train_config.seed += 5
                 train_config.load_model = os.path.join(train_config.checkpoint_dir, "model.pth")
                 train_config.load_replay_buffer = train_config.replay_buffer_dir
