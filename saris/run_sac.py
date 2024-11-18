@@ -37,10 +37,10 @@ class TrainConfig:
     # Algorithm specific arguments
     total_timesteps: int = 2_501  # total timesteps of the experiments
     n_updates: int = 5  # the number of updates per step
-    buffer_size: int = int(15_000)  # the replay memory buffer size
+    buffer_size: int = int(40_000)  # the replay memory buffer size
     gamma: float = 0.985  # the discount factor gamma
     tau: float = 0.005  # target smoothing coefficient (default: 0.005)
-    batch_size: int = 128  # the batch size of sample from the reply memory
+    batch_size: int = 256  # the batch size of sample from the reply memory
     learning_starts: int = 201  # the timestep to start learning
     policy_lr: float = 3e-4  # the learning rate of the policy network optimizer
     q_lr: float = 1e-3  # the learning rate of the q network optimizer
@@ -94,10 +94,13 @@ def main(config: TrainConfig):
             replay_buffer_dir = train_config.replay_buffer_dir
             name = train_config.name
             checkpoint_dir = train_config.checkpoint_dir
+            if train_config.learning_starts < 401:
+                train_config.learning_starts = 401
             train_cmd = get_base_cmd(train_config) + ["--command", "train"]
             process = subprocess.Popen(train_cmd)
             process.wait()  # Wait for the subprocess to finish
 
+            train_config.learning_starts = config.learning_starts
             for i in range(1, 14):
                 train_config.name = name + f"_{i}"
                 train_config.seed += 5
