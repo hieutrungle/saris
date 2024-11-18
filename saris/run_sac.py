@@ -98,7 +98,7 @@ def main(config: TrainConfig):
             process = subprocess.Popen(train_cmd)
             process.wait()  # Wait for the subprocess to finish
 
-            for i in range(1, 17):
+            for i in range(1, 14):
                 train_config.name = name + f"_{i}"
                 train_config.seed += 5
                 train_config.load_model = os.path.join(train_config.checkpoint_dir, "model.pth")
