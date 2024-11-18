@@ -526,7 +526,11 @@ def train_agent(
 
         # TRY NOT TO MODIFY: CRUCIAL step easy to overlook
         obs = next_obs
-        if "final_info" in infos and global_step < config.learning_starts * 9 / 10:
+        # if "final_info" in infos and global_step < config.learning_starts * 9 / 10:
+        if (
+            global_step % (config.ep_len // 4) == 0
+            and global_step < config.learning_starts * 9 / 10
+        ):
             obs, _ = envs.reset(options={"start_init": True})
         stored_obs.append(obs)
 
