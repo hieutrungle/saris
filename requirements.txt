@@ -1,6 +1,6 @@
 gymnasium==1.0.0
 PyYAML
-sionna==0.19
+sionna
 torchinfo
 pyrallis
 ipykernel
