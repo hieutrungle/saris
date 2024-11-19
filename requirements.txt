@@ -22,7 +22,6 @@ moviepy
 pandas
 protobuf
 pygame
-stable-baselines3
 tqdm
 # wandb
 # torchrl-nightly
