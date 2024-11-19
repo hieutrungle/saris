@@ -1,4 +1,4 @@
-gymnasium==1.0.0
+gymnasium==0.29.1
 PyYAML
 sionna==0.15
 torchinfo
