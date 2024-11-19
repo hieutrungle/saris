@@ -1,6 +1,6 @@
 gymnasium
 PyYAML
-# sionna
+sionna
 # tensorflow[and-cuda]
 torchinfo
 pyrallis
@@ -23,7 +23,7 @@ pandas
 protobuf
 pygame
 tqdm
-# wandb
-# torchrl-nightly
-# tensordict-nightly
+wandb
+torchrl
+tensordict
 tyro

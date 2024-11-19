@@ -40,11 +40,8 @@ RUN pip install gdown
 RUN git clone -b torch-dev-angles https://github.com/hieutrungle/saris
 RUN cd ./saris && pip install -e .
 RUN python -m pip install --upgrade pip
-RUN pip3 install --upgrade --pre torch==2.6.0.dev20241020+cu124 --index-url https://download.pytorch.org/whl/nightly/cu124
+RUN pip3 install --upgrade --pre torch==2.6.0.dev20241118+cu124 --index-url https://download.pytorch.org/whl/nightly/cu124
 RUN pip3 install -r ./saris/requirements.txt
-RUN pip3 install sionna==0.19 tensorflow[and-cuda]
-RUN pip3 install wandb torchrl-nightly==2024.10.20 tensordict-nightly==2024.10.20
-RUN pip3 install -U tensorflow[and-cuda]==2.17.0
 
 # TODO: add Blender installation
 RUN --mount=type=cache,target=/var/lib/apt/lists \
