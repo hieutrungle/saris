@@ -29,6 +29,17 @@ docker build -t saris .
 docker run --rm --runtime=nvidia --gpus all -it saris
 ```
 
+# Installation
+
+Use Python 3.10
+
+```bash
+cd /path/to/saris
+pip install -e .
+pip install torch==2.5.1
+pip install -r requirements.txt
+```
+
 ## Features
 
 * TODO
