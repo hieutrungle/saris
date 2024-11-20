@@ -757,7 +757,7 @@ def record_path_gain_statistics(config, envs, all_rewards, all_path_gains):
     db_sum_path_gains = 10 * np.log10(sum_path_gains)
     mean_path_gains = np.mean(db_sum_path_gains, axis=1)
     std_path_gains = np.std(db_sum_path_gains, axis=1)
-    fig, ax = plt.subplots()
+    fig, ax = plt.subplots(figsize=(16, 12))
     ax.plot(mean_path_gains)
     ax.fill_between(
         range(config.eval_ep_len),
@@ -772,7 +772,7 @@ def record_path_gain_statistics(config, envs, all_rewards, all_path_gains):
     plt.savefig(os.path.join(config.checkpoint_dir, "path_gain.png"))
 
     # Plot each of dm_sum_path_gains
-    fig, ax = plt.subplots()
+    fig, ax = plt.subplots(figsize=(16, 12))
     for i in range(envs.num_envs):
         ax.plot(db_sum_path_gains[:, i])
     ax.set_xlabel("Steps")
@@ -786,7 +786,7 @@ def record_path_gain_statistics(config, envs, all_rewards, all_path_gains):
     # plot rewards
     mean_rewards = np.mean(all_rewards, axis=1)
     std_rewards = np.std(all_rewards, axis=1)
-    fig, ax = plt.subplots()
+    fig, ax = plt.subplots(figsize=(16, 12))
     ax.plot(mean_rewards)
     ax.fill_between(
         range(config.eval_ep_len), mean_rewards - std_rewards, mean_rewards + std_rewards, alpha=0.2
