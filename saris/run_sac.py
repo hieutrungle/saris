@@ -24,7 +24,7 @@ class TrainConfig:
     load_replay_buffer: str = "-1"  # the path to load the replay buffer
     verbose: bool = False  # whether to log to console
     seed: int = 54  # seed of the experiment
-    eval_seed: int = 111  # seed of the evaluation
+    eval_seed: int = 7  # seed of the evaluation
     save_interval: int = 150  # the interval to save the model
 
     # Environment specific arguments
@@ -103,7 +103,7 @@ def main(config: TrainConfig):
             train_config.learning_starts = config.learning_starts
             for i in range(1, 14):
                 train_config.name = name + f"_{i}"
-                train_config.seed += 5
+                train_config.seed += 10
                 train_config.load_model = os.path.join(train_config.checkpoint_dir, "model.pth")
                 train_config.load_replay_buffer = train_config.replay_buffer_dir
                 train_config.checkpoint_dir = checkpoint_dir + f"_{i}"
