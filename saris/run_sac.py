@@ -145,7 +145,12 @@ def main(config: TrainConfig):
         print("*" * 50)
         print()
 
-    eval_cmd = base_cmd + ["--command", "eval"]
+    eval_config = copy.deepcopy(config)
+    eval_config.replay_buffer_dir = os.path.join(
+        config.source_dir, "local_assets", "replay_buffers", "tmp"
+    )
+    eval_cmd = get_base_cmd(eval_config)
+    eval_cmd = eval_cmd + ["--command", "eval"]
     eval_cmd = eval_cmd + ["--load_eval_model", str(config.load_eval_model)]
 
     subprocess.run(eval_cmd, check=True)
