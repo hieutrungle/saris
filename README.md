@@ -25,7 +25,7 @@ Self Adjustable Reconfigurable Intelligent Surfaces (SARIS)
 ## Docker
 
 ```bash
-docker build -t saris .
+docker build -t pytorch-saris . -f Dockerfile
 docker run --rm --runtime=nvidia --gpus all -it saris
 ```
 
