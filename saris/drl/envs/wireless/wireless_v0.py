@@ -99,9 +99,9 @@ class WirelessEnvV0(Env):
         self.bandwidth = 100e6  # 100MHz
         self.maximum_delay_spread = 10e-9  # 10ns
         # self.maximum_delay_spread = 1e-6  # 1us
-        (self.l_min, self.l_max) = time_lag_discrete_time_channel(
-            self.bandwidth, self.maximum_delay_spread
-        )
+        # (self.l_min, self.l_max) = time_lag_discrete_time_channel(
+        #     self.bandwidth, self.maximum_delay_spread
+        # )
         self.l_min = 0
         self.l_max = 0
         num_rxs = len(self.sionna_config["rx_positions"])
