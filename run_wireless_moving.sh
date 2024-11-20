@@ -78,7 +78,6 @@ mkdir -p ${OPTIX_CACHE_PATH}
 ##############################
 # DRL run
 ##############################
-# poetry run train_sac --command train --sionna_config_file ${SIONNA_CONFIG_FILE} --seed 100 --verbose --resume --load_step 1710
-
 export OPTIX_CACHE_PATH=${TMP_DIR}/optix_cache_1
-python ./saris/run_sac_torchcompile.py --sionna_config_file ${SIONNA_CONFIG_FILE} --verbose True --name "L_shape_moving" --env_id "wireless-moving-v0" --seed 11
+python ./saris/run_sac.py --sionna_config_file ${SIONNA_CONFIG_FILE} --verbose True --env_id "wireless-moving-v0" --ep_len 70
+# --seed 22 --num_envs 2 --total_timesteps 18 --batch_size 3 --learning_starts 10 --warmup_steps 5 --ep_len 8 --save_interval 25 --eval_ep_len 10 --wandb "offline" 
