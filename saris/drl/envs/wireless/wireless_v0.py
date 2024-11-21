@@ -233,6 +233,11 @@ class WirelessEnvV0(Env):
         action = np.reshape(tmp, action.shape)
 
         self.spherical_focal_vecs = self.spherical_focal_vecs + action
+        out_of_bounds = np.sum(
+            (self.spherical_focal_vecs < self.focal_vec_space.low)
+            + (self.spherical_focal_vecs > self.focal_vec_space.high),
+            dtype=np.float32,
+        )
         self.spherical_focal_vecs = np.clip(
             self.spherical_focal_vecs, self.focal_vec_space.low, self.focal_vec_space.high
         )
@@ -266,7 +271,7 @@ class WirelessEnvV0(Env):
         )
         # next_observation = (real_channels, imag_channels, self.angles, self.positions)
 
-        reward = self._cal_reward(self.cur_gain, self.next_gain, self.taken_steps)
+        reward = self._cal_reward(self.cur_gain, self.next_gain, out_of_bounds)
 
         step_info = {
             "path_gain": self.cur_gain,
@@ -277,17 +282,13 @@ class WirelessEnvV0(Env):
         return next_observation, reward, terminated, truncated, step_info
 
     def _cal_reward(
-        self, cur_gains: np.ndarray, next_gains: np.ndarray, time_taken: float
+        self, cur_gains: np.ndarray, next_gains: np.ndarray, out_of_bounds: float
     ) -> float:
 
         adjusted_gains = np.where(
-            cur_gains < -90,
-            -0.1 + (0.05 + 0.1) * (np.exp(cur_gains + 120) - 1) / (np.exp(-90 + 120) - 1),
-            np.where(
-                cur_gains < -85,
-                0.05 + (0.3 - 0.05) * (cur_gains + 90) / 5,
-                np.log(1 + 85 + cur_gains) * 2 + 0.3,
-            ),
+            cur_gains < -80,
+            (cur_gains + 80) / 20,
+            np.log(1 + 80 + cur_gains) * 2,
         )
         adjusted_gain = np.mean(adjusted_gains)
         gain_diff = np.mean(next_gains - cur_gains)
@@ -303,7 +304,7 @@ class WirelessEnvV0(Env):
 
         # # gain_diff = np.mean(next_gains - cur_gains)
 
-        reward = float(adjusted_gain + 0.03 * gain_diff)
+        reward = float(adjusted_gain + 0.03 * gain_diff - 0.3 * out_of_bounds) / 2.0
 
         # print(f"mean_gain: {mean_gain}, adjusted_gain: {adjusted_gain}, reward: {reward}")
 
