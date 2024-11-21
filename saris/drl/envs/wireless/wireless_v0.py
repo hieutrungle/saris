@@ -304,7 +304,7 @@ class WirelessEnvV0(Env):
 
         # # gain_diff = np.mean(next_gains - cur_gains)
 
-        reward = float(adjusted_gain + 0.03 * gain_diff - 0.3 * out_of_bounds) / 2.0
+        reward = float(adjusted_gain + 0.03 * gain_diff - 0.3 * out_of_bounds)
 
         # print(f"mean_gain: {mean_gain}, adjusted_gain: {adjusted_gain}, reward: {reward}")
 
