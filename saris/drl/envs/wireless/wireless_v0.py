@@ -176,7 +176,7 @@ class WirelessEnvV0(Env):
         start_init = False
         if options is not None:
             start_init = options.get("start_init", False)
-            print(f"\n\nRESET with start_init: {start_init}")
+            print(f"\nRESET with start_init: {start_init}")
         self.ep_step = 0
         self.positions = copy.deepcopy(self.default_positions)
         self.positions = np.asarray(self.positions, dtype=np.float32)

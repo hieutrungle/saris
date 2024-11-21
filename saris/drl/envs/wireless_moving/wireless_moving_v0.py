@@ -176,7 +176,7 @@ class WirelessMovingV0(Env):
         start_init = False
         if options is not None:
             start_init = options.get("start_init", False)
-            print(f"\n\nRESET with start_init: {start_init}")
+            print(f"\nRESET with start_init: {start_init}")
             print(f"rx_positions: {rx_positions}")
 
         # noise to spherical_focal_vecs
