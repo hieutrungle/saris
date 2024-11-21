@@ -157,9 +157,7 @@ class WirelessMovingV0(Env):
         self.info = {}
         self.eval_mode = eval_mode
 
-        self.position_3rd = np.asarray(
-            [[-8.0 - i, y, 1.5] for i in range(5) for y in [-4.25, -3.5, -3.0]]
-        )
+        self.position_3rd = [[-8.0 - i, y, 1.5] for i in range(5) for y in [-4.25, -3.5, -3.0]]
 
         self.default_positions = copy.deepcopy(self.positions)
         self.default_sionna_config = copy.deepcopy(self.sionna_config)
