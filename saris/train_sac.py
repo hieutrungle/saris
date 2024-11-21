@@ -461,6 +461,7 @@ def train_agent(
             next_obs, rewards, terminations, truncations, infos = envs.step(actions)
         except Exception as e:
             traceback.print_exc()
+            envs.call_wait(timeout=1)
             obs, _ = envs.reset(seed=config.seed)
             continue
         rewards = np.asarray(rewards, dtype=np.float32)
