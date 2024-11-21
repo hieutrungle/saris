@@ -33,6 +33,7 @@ from saris.utils import utils, pytorch_utils, running_mean
 from saris.drl.agents import sac
 import matplotlib.pyplot as plt
 from saris.drl.envs import register_envs
+import multiprocessing as mp
 
 register_envs()
 torch.set_float32_matmul_precision("high")
@@ -461,7 +462,10 @@ def train_agent(
             next_obs, rewards, terminations, truncations, infos = envs.step(actions)
         except Exception as e:
             traceback.print_exc()
-            envs.call_wait(timeout=1)
+            # Close any multiprocesses from mp queue if present
+            for proc in mp.active_children():
+                # proc.terminate()
+                proc.join(timeout=60)
             obs, _ = envs.reset(seed=config.seed)
             continue
         rewards = np.asarray(rewards, dtype=np.float32)
