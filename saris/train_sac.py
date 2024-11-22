@@ -466,6 +466,7 @@ def train_agent(
             for proc in mp.active_children():
                 # proc.terminate()
                 proc.join(timeout=60)
+            time.sleep(2)
             obs, _ = envs.reset(seed=config.seed)
             continue
         rewards = np.asarray(rewards, dtype=np.float32)
