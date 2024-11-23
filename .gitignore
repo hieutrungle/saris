@@ -107,6 +107,7 @@ ENV/
 # local assets
 local_assets/
 local_data/
+trial_error/
 
 # cache
 *cache*
