@@ -29,7 +29,7 @@ docker build -t pytorch-saris . -f Dockerfile
 docker run --rm --runtime=nvidia --gpus all -it saris
 ```
 
-# Installation
+## Installation
 
 Use Python 3.10
 
