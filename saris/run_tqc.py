@@ -89,7 +89,7 @@ def main(config: TrainConfig):
         try:
             print()
             print("*" * 50)
-            print(f"TRAINING: Training the DRL Agent on {config.env_id}")
+            print(f"TRAINING TQC: Training the Agent on {config.env_id}")
             print("*" * 50)
             print()
             train_config = copy.deepcopy(config)
@@ -136,7 +136,9 @@ def main(config: TrainConfig):
 
         print()
         print("*" * 50)
-        print(f"EVALUATION: Use the latest model from {train_config.checkpoint_dir} for evaluation")
+        print(
+            f"EVALUATION TQC: Use the latest model from {train_config.checkpoint_dir} for evaluation"
+        )
         print("*" * 50)
         print()
         config.load_eval_model = os.path.join(train_config.checkpoint_dir, "model.pth")
