@@ -526,12 +526,12 @@ def train_agent(
             alpha_loss=alpha_loss.detach(),
         )
 
-    # update_critic = torch.compile(update_critic)
-    # update_pol = torch.compile(update_pol)
-    # policy = torch.compile(policy)
+    update_critic = torch.compile(update_critic)
+    update_pol = torch.compile(update_pol)
+    policy = torch.compile(policy)
 
-    # update_critic = CudaGraphModule(update_critic, in_keys=[], out_keys=[], warmup=5)
-    # update_pol = CudaGraphModule(update_pol, in_keys=[], out_keys=[], warmup=5)
+    update_critic = CudaGraphModule(update_critic, in_keys=[], out_keys=[], warmup=5)
+    update_pol = CudaGraphModule(update_pol, in_keys=[], out_keys=[], warmup=5)
 
     # TRY NOT TO MODIFY: start the game
     stored_obs = []
