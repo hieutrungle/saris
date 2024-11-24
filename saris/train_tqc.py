@@ -549,7 +549,7 @@ def train_agent(
         else:
             torch_obs = torch.tensor(copy.deepcopy(obs), dtype=torch.float, device=config.device)
             torch_obs = normalize_obs(torch_obs, channel_rms, envs)
-            actions, _, _ = actor.get_action(torch_obs.to(config.device))
+            actions, _, _ = policy(torch_obs.to(config.device))
             actions = actions.detach().cpu().numpy()
 
         if (
@@ -647,11 +647,11 @@ def train_agent(
         # TRY NOT TO MODIFY: CRUCIAL step easy to overlook
         obs = next_obs
         # if "final_info" in infos and global_step < config.learning_starts * 9 / 10:
-        # if (
-        #     global_step % (config.ep_len // 4) == 0
-        #     and global_step < config.learning_starts * 9 / 10
-        # ):
-        #     obs, _ = envs.reset(options={"start_init": True})
+        if (
+            global_step % (config.ep_len // 4) == 0
+            and global_step < config.learning_starts * 9 / 10
+        ):
+            obs, _ = envs.reset(options={"start_init": True})
         stored_obs.append(obs)
 
         # ALGO LOGIC: training.
