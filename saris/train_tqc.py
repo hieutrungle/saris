@@ -333,7 +333,6 @@ def main(config: TrainConfig):
         channel_rms = checkpoint["channel_rms"]
 
     # Optimzier setup
-    alpha = log_alpha.detach().exp()
     a_optimizer = optim.AdamW([log_alpha], lr=config.q_lr)
 
     q_optimizer = optim.AdamW(qnet.parameters(), lr=config.q_lr, capturable=True)
@@ -378,7 +377,6 @@ def main(config: TrainConfig):
                 qnet,
                 target_entropy,
                 log_alpha,
-                alpha,
                 a_optimizer,
                 q_optimizer,
                 q_scheduler,
@@ -419,7 +417,6 @@ def train_agent(
     qnet: tqc.TQC,
     target_entropy: float,
     log_alpha: torch.Tensor,
-    alpha: torch.Tensor,
     a_optimizer: torch.optim.Optimizer,
     q_optimizer: torch.optim.Optimizer,
     q_scheduler: torch.optim.lr_scheduler._LRScheduler,
@@ -431,6 +428,8 @@ def train_agent(
 
     top_quantiles_to_drop = config.top_quantiles_to_drop_per_net * 3
     quantiles_total = config.n_quantiles * 3
+
+    alpha = log_alpha.detach().exp()
 
     def batched_qf(params, obs, action):
         with params.to_module(qnet):
@@ -527,11 +526,11 @@ def train_agent(
         )
 
     update_critic = torch.compile(update_critic)
-    update_pol = torch.compile(update_pol)
-    policy = torch.compile(policy)
+    # update_pol = torch.compile(update_pol)
+    # policy = torch.compile(policy)
 
     update_critic = CudaGraphModule(update_critic, in_keys=[], out_keys=[], warmup=5)
-    update_pol = CudaGraphModule(update_pol, in_keys=[], out_keys=[], warmup=5)
+    # update_pol = CudaGraphModule(update_pol, in_keys=[], out_keys=[], warmup=5)
 
     # TRY NOT TO MODIFY: start the game
     stored_obs = []
@@ -544,13 +543,18 @@ def train_agent(
 
     for global_step in pbar:
         # ALGO LOGIC: put action logic here
-        if global_step < config.learning_starts * 9 / 10:
-            actions = np.array([envs.single_action_space.sample() for _ in range(envs.num_envs)])
-        else:
-            torch_obs = torch.tensor(copy.deepcopy(obs), dtype=torch.float, device=config.device)
-            torch_obs = normalize_obs(torch_obs, channel_rms, envs)
-            actions, _, _ = policy(torch_obs.to(config.device))
-            actions = actions.detach().cpu().numpy()
+        with torch.no_grad():
+            if global_step < config.learning_starts * 9 / 10:
+                actions = np.array(
+                    [envs.single_action_space.sample() for _ in range(envs.num_envs)]
+                )
+            else:
+                torch_obs = torch.tensor(
+                    copy.deepcopy(obs), dtype=torch.float, device=config.device
+                )
+                torch_obs = normalize_obs(torch_obs, channel_rms, envs)
+                actions, _, _ = policy(torch_obs.to(config.device))
+                actions = actions.detach().cpu().numpy()
 
         if (
             global_step == config.learning_starts
