@@ -157,7 +157,7 @@ def main(config: TrainConfig):
     eval_cmd = eval_cmd + ["--command", "eval"]
     eval_cmd = eval_cmd + ["--load_eval_model", str(config.load_eval_model)]
 
-    # subprocess.run(eval_cmd, check=True)
+    subprocess.run(eval_cmd, check=True)
 
 
 def get_base_cmd(config: TrainConfig):
