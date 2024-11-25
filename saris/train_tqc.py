@@ -191,10 +191,10 @@ def update_channel_rmss(
 
 def create_scheduler(optimizer, warmup_steps, num_train_steps, lr):
     warmup_scheduler = optim.lr_scheduler.LinearLR(
-        optimizer, start_factor=1 / 10, total_iters=warmup_steps
+        optimizer, start_factor=1.0 / 10.0, total_iters=warmup_steps
     )
     cosine_scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(
-        optimizer, num_train_steps - warmup_steps, eta_min=lr / 5
+        optimizer, num_train_steps - warmup_steps, eta_min=lr / 5.0
     )
     scheduler = optim.lr_scheduler.SequentialLR(
         optimizer, [warmup_scheduler, cosine_scheduler], [warmup_steps]
@@ -332,9 +332,9 @@ def main(config: TrainConfig):
         channel_rms = checkpoint["channel_rms"]
 
     # Optimzier setup
-    a_optimizer = optim.AdamW([log_alpha], lr=config.q_lr)
+    a_optimizer = optim.AdamW([log_alpha], lr=torch.tensor(config.q_lr))
 
-    q_optimizer = optim.AdamW(qnet.parameters(), lr=config.q_lr)
+    q_optimizer = optim.AdamW(qnet.parameters(), lr=torch.tensor(config.q_lr))
     # q_optimizer = optim.AdamW(qnet.parameters(), lr=config.q_lr, capturable=True)
     q_scheduler = create_scheduler(
         q_optimizer,
@@ -343,7 +343,7 @@ def main(config: TrainConfig):
         config.q_lr,
     )
 
-    actor_optimizer = optim.AdamW(list(actor.parameters()), lr=config.policy_lr)
+    actor_optimizer = optim.AdamW(list(actor.parameters()), lr=torch.tensor(config.policy_lr))
     warmup_steps = int(config.n_updates * config.warmup_steps)
     total_train_steps = int(config.n_updates * config.total_timesteps)
     actor_scheduler = create_scheduler(
@@ -431,9 +431,13 @@ def train_agent(
 
     alpha = log_alpha.detach().exp()
 
-    def batched_qf(params, obs, action):
+    def batched_qf(params, obs, action, target_z=None):
         with params.to_module(qnet):
             cur_z = qnet(obs, action)
+            if target_z is not None:
+                cur_z = cur_z.unsqueeze(1)
+                loss_val = quantile_huber_loss_f(cur_z, target_z)
+                return loss_val
             return cur_z
 
     def update_critic(data):
@@ -441,69 +445,40 @@ def train_agent(
         q_optimizer.zero_grad()
         with torch.no_grad():
             next_state_actions, next_state_log_pi, _ = actor.get_action(data["next_observations"])
-            # print(f"next_state_actions: {next_state_actions.shape}")
-            # print(f"next_state_log_pi: {next_state_log_pi.shape}")
-
             next_z = torch.vmap(batched_qf, in_dims=(0, None, None))(
                 qnet_target_params, data["next_observations"], next_state_actions
             )
-            # print(f"next_z: {next_z.shape}")
             next_z = torch.permute(next_z, (1, 0, 2))
-            # print(f"next_z: {next_z.shape}")
             sorted_z, _ = torch.sort(next_z.reshape(config.batch_size, -1))
-            # print(f"sorted_z: {sorted_z.shape}")
             sorted_z_part = sorted_z[:, : quantiles_total - top_quantiles_to_drop]
-            # print(f"sorted_z_part: {sorted_z_part.shape}")
-
-            # print(f"rewards: {data['rewards'].shape}")
             z_rewards = torch.repeat_interleave(
                 data["rewards"], quantiles_total - top_quantiles_to_drop, dim=1
             )
-            # print(f"z_rewards: {z_rewards.shape}")
-            # print(f"terminations: {data['terminations'].shape}")
             z_terminations = torch.repeat_interleave(
                 data["terminations"], quantiles_total - top_quantiles_to_drop, dim=1
             )
-            # print(f"z_terminations: {z_terminations.shape}")
-            # print(f"next_state_log_pi: {next_state_log_pi.shape}")
             z_next_state_log_pi = torch.repeat_interleave(
                 next_state_log_pi, quantiles_total - top_quantiles_to_drop, dim=1
             )
-            # print(f"z_next_state_log_pi: {z_next_state_log_pi.shape}")
-
             target_z = z_rewards.float() + (1 - z_terminations.float()) * config.gamma * (
                 sorted_z_part - alpha * z_next_state_log_pi
             )
-            # print(f"target_z: {target_z.shape}")
 
-        cur_z = torch.vmap(batched_qf, in_dims=(0, None, None))(
-            qnet_params, data["observations"], data["actions"]
+        qf_loss = torch.vmap(batched_qf, in_dims=(0, None, None, None))(
+            qnet_params, data["observations"], data["actions"], target_z
         )
-        # print(f"cur_z: {cur_z.shape}")
-        cur_z = torch.permute(cur_z, (1, 0, 2))
-        # print(f"cur_z: {cur_z.shape}")
-        qf_loss = quantile_huber_loss_f(cur_z, target_z)
+        qf_loss = qf_loss.mean()
 
         qf_loss.backward()
         q_optimizer.step()
-        return TensorDict(
-            qf_loss=qf_loss.detach(),
-            qf1_values=cur_z[:, 0, :].detach(),
-            qf2_values=cur_z[:, 1, :].detach(),
-            qf3_values=cur_z[:, 2, :].detach(),
-        )
+        return TensorDict(qf_loss=qf_loss.detach())
 
     def update_pol(data):
         actor_optimizer.zero_grad()
         pi, log_pi, _ = actor.get_action(data["observations"])
-        # print(f"pi: {pi.shape}")
-        # print(f"log_pi: {log_pi.shape}")
         qf_pi = torch.vmap(batched_qf, (0, None, None))(qnet_params.data, data["observations"], pi)
-        # print(f"qf_pi: {qf_pi.shape}")
         qf_pi = torch.permute(qf_pi, (1, 0, 2))
-        # print(f"qf_pi: {qf_pi.shape}")
         qf_pi = qf_pi.mean(2).mean(1, keepdim=True)
-        # print(f"qf_pi: {qf_pi.shape}")
         actor_loss = ((alpha * log_pi) - qf_pi).mean()
 
         actor_loss.backward()
@@ -549,9 +524,7 @@ def train_agent(
                     [envs.single_action_space.sample() for _ in range(envs.num_envs)]
                 )
             else:
-                torch_obs = torch.tensor(
-                    copy.deepcopy(obs), dtype=torch.float, device=config.device
-                )
+                torch_obs = torch.Tensor(copy.deepcopy(obs)).float().to(config.device)
                 torch_obs = normalize_obs(torch_obs, channel_rms, envs)
                 actions, _, _ = policy(torch_obs.to(config.device))
                 actions = actions.detach().cpu().numpy()
@@ -677,28 +650,22 @@ def train_agent(
                 # Update Q networks
                 log_infos.update(update_critic(data))
                 q_scheduler.step()
-                for param_group in q_optimizer.param_groups:
-                    param_group["lr"] = q_scheduler.get_last_lr()[0]
 
                 if j % config.policy_frequency == 1:  # TD 3 Delayed update support
                     for _ in range(config.policy_frequency):
-                        # print("\nUpdate actor")
                         # compensate for the delay by doing 'actor_update_interval' instead of 1
                         log_infos.update(update_pol(data))
                         actor_scheduler.step()
-                        for param_group in actor_optimizer.param_groups:
-                            param_group["lr"] = actor_scheduler.get_last_lr()[0]
 
                         with torch.no_grad():
                             log_alpha.clamp_(-5.0, 1.0)
                             alpha.copy_(log_alpha.detach().exp())
                             alpha = torch.clamp(alpha, 0.15, 0.9)
-                        # exit()
+
                 # update the target networks
                 if global_step % config.target_network_frequency == 0:
                     # lerp is defined as x' = x + w (y-x), which is equivalent to x' = (1-w) x + w y
                     qnet_target_params.lerp_(qnet_params.data, config.tau)
-                    # print()
 
             if global_step > config.learning_starts + 5:
                 with torch.no_grad():
