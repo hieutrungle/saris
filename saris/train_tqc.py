@@ -326,7 +326,6 @@ def main(config: TrainConfig):
     # Load models
     if checkpoint != None:
         print(f"Loading qnet and rmss from checkpoint!")
-        actor.load_state_dict(checkpoint["actor"])
         qnet_params.load_state_dict(checkpoint["qnet_params"])
         qnet_target_params.load_state_dict(checkpoint["qnet_target_params"])
         log_alpha = checkpoint["log_alpha"].clone().detach().requires_grad_(True)
@@ -335,7 +334,8 @@ def main(config: TrainConfig):
     # Optimzier setup
     a_optimizer = optim.AdamW([log_alpha], lr=config.q_lr)
 
-    q_optimizer = optim.AdamW(qnet.parameters(), lr=config.q_lr, capturable=True)
+    q_optimizer = optim.AdamW(qnet.parameters(), lr=config.q_lr)
+    # q_optimizer = optim.AdamW(qnet.parameters(), lr=config.q_lr, capturable=True)
     q_scheduler = create_scheduler(
         q_optimizer,
         config.n_updates * config.warmup_steps,
@@ -525,9 +525,9 @@ def train_agent(
             alpha_loss=alpha_loss.detach(),
         )
 
-    # update_critic = torch.compile(update_critic)
-    # update_pol = torch.compile(update_pol)
-    # policy = torch.compile(policy)
+    update_critic = torch.compile(update_critic)
+    update_pol = torch.compile(update_pol)
+    policy = torch.compile(policy)
 
     # update_critic = CudaGraphModule(update_critic, in_keys=[], out_keys=[], warmup=5)
     # update_pol = CudaGraphModule(update_pol, in_keys=[], out_keys=[], warmup=5)
