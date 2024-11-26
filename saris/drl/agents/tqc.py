@@ -89,6 +89,7 @@ class TQC(nn.Module):
             nn.GELU(),
             MLPBlock(ff_dim, ff_dim, device=device),
             MLPBlock(ff_dim, ff_dim, device=device),
+            MLPBlock(ff_dim, ff_dim, device=device),
         ]
         self.connect_network = nn.Sequential(*self.ob_layers)
 
@@ -96,8 +97,7 @@ class TQC(nn.Module):
         action_layers = [
             nn.Linear(np.prod(ac_space.shape), ff_dim, device=device),
             nn.GELU(),
-            nn.Linear(ff_dim, ff_dim, device=device),
-            nn.GELU(),
+            MLPBlock(ff_dim, ff_dim, device=device),
         ]
         self.action_network = nn.Sequential(*action_layers)
 
@@ -152,7 +152,7 @@ class Actor(nn.Module):
         self.angle_shape = angle_space[0].shape
         self.position_shape = position_space[0].shape
 
-        ff_dim = 128
+        ff_dim = 256
 
         # positions
         self.pos_embed = Embedder(np.prod(self.position_shape), num_freqs=5)
@@ -165,6 +165,7 @@ class Actor(nn.Module):
                 device=device,
             ),
             nn.GELU(),
+            MLPBlock(ff_dim, ff_dim, device=device),
             MLPBlock(ff_dim, ff_dim, device=device),
             MLPBlock(ff_dim, ff_dim, device=device),
         ]
