@@ -39,7 +39,7 @@ class TrainConfig:
     n_updates: int = 5  # the number of updates per step
     buffer_size: int = int(40_000)  # the replay memory buffer size
     gamma: float = 0.985  # the discount factor gamma
-    tau: float = 0.005  # target smoothing coefficient (default: 0.005)
+    tau: float = 0.015  # target smoothing coefficient (default: 0.005)
     batch_size: int = 256  # the batch size of sample from the reply memory
     learning_starts: int = 201  # the timestep to start learning
     policy_lr: float = 3e-4  # the learning rate of the policy network optimizer
