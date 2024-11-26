@@ -62,7 +62,7 @@ class TrainConfig:
         source_dir = os.path.dirname(lib_dir)
         self.source_dir = source_dir
 
-        self.name = f"{self.group}__{self.name}__{self.env_id}__{str(uuid.uuid4())[:8]}"
+        self.name = f"{self.name}__{self.env_id}__{str(uuid.uuid4())[:8]}"
         if self.checkpoint_dir == "-1":
             checkpoint_dir = os.path.join(self.source_dir, "local_assets", "logs")
             self.checkpoint_dir = os.path.join(checkpoint_dir, self.name)
