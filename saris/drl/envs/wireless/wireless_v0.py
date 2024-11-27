@@ -288,7 +288,7 @@ class WirelessEnvV0(Env):
         adjusted_gains = np.where(
             cur_gains < -80,
             (cur_gains + 80) / 20,
-            np.log(1 + 80 + cur_gains) * 2,
+            np.log(1 + 80 + cur_gains) * 2 + 0.5,
         )
         adjusted_gain = np.mean(adjusted_gains)
         gain_diff = np.mean(next_gains - cur_gains)
