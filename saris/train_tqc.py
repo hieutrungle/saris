@@ -336,19 +336,19 @@ def main(config: TrainConfig):
 
     q_optimizer = optim.AdamW(qnet.parameters(), lr=torch.tensor(config.q_lr))
     # q_optimizer = optim.AdamW(qnet.parameters(), lr=config.q_lr, capturable=True)
-    q_scheduler = create_scheduler(
-        q_optimizer,
-        config.n_updates * config.warmup_steps,
-        config.n_updates * config.total_timesteps,
-        config.q_lr,
-    )
+    # q_scheduler = create_scheduler(
+    #     q_optimizer,
+    #     config.n_updates * config.warmup_steps,
+    #     config.n_updates * config.total_timesteps,
+    #     config.q_lr,
+    # )
 
     actor_optimizer = optim.AdamW(list(actor.parameters()), lr=torch.tensor(config.policy_lr))
-    warmup_steps = int(config.n_updates * config.warmup_steps)
-    total_train_steps = int(config.n_updates * config.total_timesteps)
-    actor_scheduler = create_scheduler(
-        actor_optimizer, warmup_steps, total_train_steps, config.policy_lr
-    )
+    # warmup_steps = int(config.n_updates * config.warmup_steps)
+    # total_train_steps = int(config.n_updates * config.total_timesteps)
+    # actor_scheduler = create_scheduler(
+    #     actor_optimizer, warmup_steps, total_train_steps, config.policy_lr
+    # )
 
     # replay buffer setup
     rb_dir = config.replay_buffer_dir
@@ -379,9 +379,9 @@ def main(config: TrainConfig):
                 log_alpha,
                 a_optimizer,
                 q_optimizer,
-                q_scheduler,
+                # q_scheduler,
                 actor_optimizer,
-                actor_scheduler,
+                # actor_scheduler,
                 rb,
             )
         except Exception as e:
@@ -419,9 +419,9 @@ def train_agent(
     log_alpha: torch.Tensor,
     a_optimizer: torch.optim.Optimizer,
     q_optimizer: torch.optim.Optimizer,
-    q_scheduler: torch.optim.lr_scheduler._LRScheduler,
+    # q_scheduler: torch.optim.lr_scheduler._LRScheduler,
     actor_optimizer: torch.optim.Optimizer,
-    actor_scheduler: torch.optim.lr_scheduler._LRScheduler,
+    # actor_scheduler: torch.optim.lr_scheduler._LRScheduler,
     rb: ReplayBuffer,
 ):
     wandb_init(config)
@@ -649,13 +649,13 @@ def train_agent(
 
                 # Update Q networks
                 log_infos.update(update_critic(data))
-                q_scheduler.step()
+                # q_scheduler.step()
 
                 if j % config.policy_frequency == 1:  # TD 3 Delayed update support
                     for _ in range(config.policy_frequency):
                         # compensate for the delay by doing 'actor_update_interval' instead of 1
                         log_infos.update(update_pol(data))
-                        actor_scheduler.step()
+                        # actor_scheduler.step()
 
                         with torch.no_grad():
                             log_alpha.clamp_(-5.0, 1.0)

@@ -38,12 +38,12 @@ class TrainConfig:
     total_timesteps: int = 2_001  # total timesteps of the experiments
     n_updates: int = 5  # the number of updates per step
     buffer_size: int = int(30_000)  # the replay memory buffer size
-    gamma: float = 0.985  # the discount factor gamma
-    tau: float = 0.015  # target smoothing coefficient (default: 0.005)
+    gamma: float = 0.98  # the discount factor gamma
+    tau: float = 0.02  # target smoothing coefficient (default: 0.005)
     batch_size: int = 256  # the batch size of sample from the reply memory
     learning_starts: int = 201  # the timestep to start learning
-    policy_lr: float = 3e-4  # the learning rate of the policy network optimizer
-    q_lr: float = 1e-3  # the learning rate of the q network optimizer
+    policy_lr: float = 2.5e-4  # the learning rate of the policy network optimizer
+    q_lr: float = 7.3e-4  # the learning rate of the q network optimizer
     warmup_steps: int = 300  # the number of warmup steps
     policy_frequency: int = 2  # the frequency of training policy (delayed)
     target_network_frequency: int = 2  # the frequency of updates for the target nerworks
