@@ -83,13 +83,13 @@ class TQC(nn.Module):
         self.ob_layers = [
             nn.Linear(
                 np.prod(self.channel_shape) + np.prod(self.angle_shape) + pos_out_dim,
-                ff_dim,
+                400,
                 device=device,
             ),
             nn.GELU(),
+            MLPBlock(400, ff_dim, device=device),
             MLPBlock(ff_dim, ff_dim, device=device),
-            MLPBlock(ff_dim, ff_dim, device=device),
-            MLPBlock(ff_dim, ff_dim, device=device),
+            # MLPBlock(ff_dim, ff_dim, device=device),
         ]
         self.connect_network = nn.Sequential(*self.ob_layers)
 
@@ -161,13 +161,13 @@ class Actor(nn.Module):
         self.ob_layers = [
             nn.Linear(
                 np.prod(self.channel_shape) + np.prod(self.angle_shape) + pos_out_dim,
-                ff_dim,
+                400,
                 device=device,
             ),
             nn.GELU(),
+            MLPBlock(400, ff_dim, device=device),
             MLPBlock(ff_dim, ff_dim, device=device),
-            MLPBlock(ff_dim, ff_dim, device=device),
-            MLPBlock(ff_dim, ff_dim, device=device),
+            # MLPBlock(ff_dim, ff_dim, device=device),
         ]
         self.connect_network = nn.Sequential(*self.ob_layers)
 
