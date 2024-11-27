@@ -42,7 +42,7 @@ class TrainConfig:
     tau: float = 0.02  # target smoothing coefficient (default: 0.005)
     batch_size: int = 256  # the batch size of sample from the reply memory
     learning_starts: int = 201  # the timestep to start learning
-    policy_lr: float = 2.5e-4  # the learning rate of the policy network optimizer
+    policy_lr: float = 2e-4  # the learning rate of the policy network optimizer
     q_lr: float = 7.3e-4  # the learning rate of the q network optimizer
     warmup_steps: int = 300  # the number of warmup steps
     policy_frequency: int = 2  # the frequency of training policy (delayed)
