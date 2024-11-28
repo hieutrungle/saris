@@ -280,9 +280,9 @@ class WirelessMovingV0(Env):
     ) -> float:
 
         adjusted_gains = np.where(
-            cur_gains < -82.5,
-            (cur_gains + 82.5) / 20,
-            np.log(1 + 82.5 + cur_gains) * 2 + 1.0,
+            next_gains < -82.5,
+            (next_gains + 82.5) / 20,
+            np.log(1 + 82.5 + next_gains) * 2 + 1.0,
         )
         adjusted_gain = np.mean(adjusted_gains)
         gain_diff = np.mean(next_gains - cur_gains)
