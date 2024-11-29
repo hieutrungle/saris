@@ -37,7 +37,7 @@ class TrainConfig:
     # Algorithm specific arguments
     total_timesteps: int = 2_001  # total timesteps of the experiments
     n_updates: int = 5  # the number of updates per step
-    buffer_size: int = int(40_000)  # the replay memory buffer size
+    buffer_size: int = int(30_000)  # the replay memory buffer size
     gamma: float = 0.985  # the discount factor gamma
     tau: float = 0.005  # target smoothing coefficient (default: 0.005)
     batch_size: int = 256  # the batch size of sample from the reply memory
