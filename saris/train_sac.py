@@ -407,9 +407,6 @@ def train_agent(
 ):
     wandb_init(config)
 
-    top_quantiles_to_drop = config.top_quantiles_to_drop_per_net * 3
-    quantiles_total = config.n_quantiles * 3
-
     alpha = log_alpha.detach().exp()
 
     def batched_qf(params, obs, action, next_q_value=None):
@@ -428,28 +425,10 @@ def train_agent(
             qf_next_target = torch.vmap(batched_qf, (0, None, None))(
                 qnet_target_params, data["next_observations"], next_state_actions
             )
-            min_qf_next_target = torch.minimum(qf_next_target[0], qf_next_target[1])
-            min_qf_next_target -= alpha * next_state_log_pi
-
+            min_qf_next_target = qf_next_target.min(dim=0).values - alpha * next_state_log_pi
             next_q_value = data["rewards"].flatten() + (
                 1.0 - data["terminations"].float().flatten()
             ) * config.gamma * min_qf_next_target.view(-1)
-
-            # next_z = torch.permute(next_z, (1, 0, 2))
-            # sorted_z, _ = torch.sort(next_z.reshape(config.batch_size, -1))
-            # sorted_z_part = sorted_z[:, : quantiles_total - top_quantiles_to_drop]
-            # z_rewards = torch.repeat_interleave(
-            #     data["rewards"], quantiles_total - top_quantiles_to_drop, dim=1
-            # )
-            # z_terminations = torch.repeat_interleave(
-            #     data["terminations"], quantiles_total - top_quantiles_to_drop, dim=1
-            # )
-            # z_next_state_log_pi = torch.repeat_interleave(
-            #     next_state_log_pi, quantiles_total - top_quantiles_to_drop, dim=1
-            # )
-            # target_z = z_rewards.float() + (1 - z_terminations.float()) * config.gamma * (
-            #     sorted_z_part - alpha * z_next_state_log_pi
-            # )
 
         qf_a_values = torch.vmap(batched_qf, in_dims=(0, None, None, None))(
             qnet_params, data["observations"], data["actions"], next_q_value
@@ -464,9 +443,8 @@ def train_agent(
         actor_optimizer.zero_grad()
         pi, log_pi, _ = actor.get_action(data["observations"])
         qf_pi = torch.vmap(batched_qf, (0, None, None))(qnet_params.data, data["observations"], pi)
-        qf_pi = torch.permute(qf_pi, (1, 0, 2))
-        qf_pi = qf_pi.mean(2).mean(1, keepdim=True)
-        actor_loss = ((alpha * log_pi) - qf_pi).mean()
+        min_qf_pi = torch.minimum(qf_pi[0], qf_pi[1])
+        actor_loss = ((alpha * log_pi) - min_qf_pi).mean()
 
         actor_loss.backward()
         actor_optimizer.step()
@@ -491,8 +469,8 @@ def train_agent(
     update_pol = torch.compile(update_pol)
     policy = torch.compile(policy)
 
-    # update_critic = CudaGraphModule(update_critic, in_keys=[], out_keys=[], warmup=5)
-    # update_pol = CudaGraphModule(update_pol, in_keys=[], out_keys=[], warmup=5)
+    # update_critic = CudaGraphModule(update_critic, in_keys=[], out_keys=[], warmup=3)
+    # update_pol = CudaGraphModule(update_pol, in_keys=[], out_keys=[], warmup=3)
 
     # TRY NOT TO MODIFY: start the game
     stored_obs = []
@@ -716,7 +694,7 @@ def eval(
     config: TrainConfig,
     envs: gym.vector.AsyncVectorEnv,
     channel_rms: running_mean.RunningMeanStd,
-    actor: tqc.Actor,
+    actor: sac.Actor,
     is_plot: bool = True,
 ):
 
