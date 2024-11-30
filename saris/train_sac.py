@@ -262,8 +262,8 @@ def main(config: TrainConfig):
     # Actor-Critic setup
     actor = sac.Actor(ob_space, ac_space, envs=envs, device=config.device)
     actor_detach = sac.Actor(ob_space, ac_space, envs=envs, device=config.device)
-    if checkpoint != None:
-        actor.load_state_dict(checkpoint["actor"])
+    # if checkpoint != None:
+    #     actor.load_state_dict(checkpoint["actor"])
     from_module(actor).to_module(actor_detach)
     policy = TensorDictModule(
         actor_detach.get_action, in_keys=["observation"], out_keys=["action", "log_pi", "mean"]
@@ -304,14 +304,6 @@ def main(config: TrainConfig):
     ).item()
     log_alpha = torch.zeros(1, requires_grad=True, device=config.device)
 
-    # Load models
-    if checkpoint != None:
-        print(f"Loading qnet and rmss from checkpoint!")
-        qnet_params.load_state_dict(checkpoint["qnet_params"])
-        qnet_target_params.load_state_dict(checkpoint["qnet_target_params"])
-        log_alpha = checkpoint["log_alpha"].clone().detach().requires_grad_(True)
-        channel_rms = checkpoint["channel_rms"]
-
     # Optimzier setup
     a_optimizer = optim.AdamW([log_alpha], lr=torch.tensor(config.q_lr))
 
@@ -330,6 +322,19 @@ def main(config: TrainConfig):
     # actor_scheduler = create_scheduler(
     #     actor_optimizer, warmup_steps, total_train_steps, config.policy_lr
     # )
+
+    # Load models
+    if checkpoint != None:
+        print(f"Loading qnet and rmss from checkpoint!")
+        actor.load_state_dict(checkpoint["actor"])
+        qnet_params.load_state_dict(checkpoint["qnet_params"])
+        qnet_target_params.load_state_dict(checkpoint["qnet_target_params"])
+        log_alpha.fill_(checkpoint["log_alpha"].item()).requires_grad_(True)
+        a_optimizer.load_state_dict(checkpoint["a_optimizer"])
+        q_optimizer.load_state_dict(checkpoint["q_optimizer"])
+        actor_optimizer.load_state_dict(checkpoint["actor_optimizer"])
+        # log_alpha = checkpoint["log_alpha"].clone().detach().requires_grad_(True)
+        channel_rms = checkpoint["channel_rms"]
 
     # replay buffer setup
     rb_dir = config.replay_buffer_dir
@@ -665,6 +670,9 @@ def train_agent(
                     "qnet_target_params": qnet_target_params.state_dict(),
                     "log_alpha": log_alpha,
                     "channel_rms": channel_rms,
+                    "q_optimizer": q_optimizer.state_dict(),
+                    "actor_optimizer": actor_optimizer.state_dict(),
+                    "a_optimizer": a_optimizer.state_dict(),
                 }
                 torch.save(
                     saved_dict,
