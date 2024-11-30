@@ -285,12 +285,12 @@ class WirelessEnvV0(Env):
         self, prev_gains: np.ndarray, cur_gains: np.ndarray, out_of_bounds: float
     ) -> float:
 
-        adjusted_gains = np.where(
-            cur_gains < -82.5,
-            (cur_gains + 82.5) / 20,
-            np.log(1 + 82.5 + cur_gains) * 2 + 1.0,
+        adjusted_gain = np.mean(cur_gains)
+        adjusted_gain = np.where(
+            adjusted_gain < -82.5,
+            (adjusted_gain + 82.5) / 10.0,
+            (adjusted_gain + 82.5) / 5.0 + 1.5,
         )
-        adjusted_gain = np.mean(adjusted_gains)
         gain_diff = np.mean(cur_gains - prev_gains)
 
         # # mean_gain = np.mean(prev_gains)
