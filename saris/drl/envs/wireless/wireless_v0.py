@@ -161,8 +161,8 @@ class WirelessEnvV0(Env):
         # self.action_space = self._get_action_space()
 
         self.taken_steps = 0.0
-        self.cur_gain = 0.0
-        self.next_gain = 0.0
+        self.prev_gains = [0.0 for _ in range(len(self.sionna_config["rx_positions"]))]
+        self.cur_gains = [0.0 for _ in range(len(self.sionna_config["rx_positions"]))]
         self.ep_step = 0
 
         self.info = {}
@@ -208,8 +208,8 @@ class WirelessEnvV0(Env):
             self.angles, self.angle_space.low, self.angle_space.high, dtype=np.float32
         )
 
-        self.channels, self.cur_gain = self._run_sionna_dB(eval_mode=self.eval_mode)
-        self.next_gain = self.cur_gain
+        self.channels, self.prev_gains = self._run_sionna_dB(eval_mode=self.eval_mode)
+        self.cur_gains = self.prev_gains
 
         real_channels = np.asarray(self.channels.real, dtype=np.float32)
         imag_channels = np.asarray(self.channels.imag, dtype=np.float32)
@@ -223,7 +223,7 @@ class WirelessEnvV0(Env):
     def step(self, action: np.ndarray, **kwargs) -> Tuple[dict, float, bool, bool, dict]:
 
         self.taken_steps += 1.0
-        self.cur_gain = self.next_gain
+        self.prev_gains = self.cur_gains
 
         # action: [num_groups * 3]: num_groups * [phi, theta, r]
         tmp = np.reshape(action, (self.num_groups, 3))
@@ -260,7 +260,7 @@ class WirelessEnvV0(Env):
         if self.taken_steps > 100:
             truncated = True
         terminated = False
-        self.channels, self.next_gain = self._run_sionna_dB(eval_mode=self.eval_mode)
+        self.channels, self.cur_gains = self._run_sionna_dB(eval_mode=self.eval_mode)
         # print(f"done run_sionna_dB")
 
         real_channels = np.asarray(self.channels.real, dtype=np.float32)
@@ -271,29 +271,29 @@ class WirelessEnvV0(Env):
         )
         # next_observation = (real_channels, imag_channels, self.angles, self.positions)
 
-        reward = self._cal_reward(self.cur_gain, self.next_gain, out_of_bounds)
+        reward = self._cal_reward(self.prev_gains, self.cur_gains, out_of_bounds)
 
         step_info = {
-            "path_gain": self.cur_gain,
-            "next_path_gain": self.next_gain,
+            "prev_path_gains": self.prev_gains,
+            "path_gains": self.cur_gains,
         }
         # print(f"done step")
 
         return next_observation, reward, terminated, truncated, step_info
 
     def _cal_reward(
-        self, cur_gains: np.ndarray, next_gains: np.ndarray, out_of_bounds: float
+        self, prev_gains: np.ndarray, cur_gains: np.ndarray, out_of_bounds: float
     ) -> float:
 
         adjusted_gains = np.where(
-            next_gains < -82.5,
-            (next_gains + 82.5) / 20,
-            np.log(1 + 82.5 + next_gains) * 2 + 1.0,
+            cur_gains < -82.5,
+            (cur_gains + 82.5) / 20,
+            np.log(1 + 82.5 + cur_gains) * 2 + 1.0,
         )
         adjusted_gain = np.mean(adjusted_gains)
-        gain_diff = np.mean(next_gains - cur_gains)
+        gain_diff = np.mean(cur_gains - prev_gains)
 
-        # # mean_gain = np.mean(cur_gains)
+        # # mean_gain = np.mean(prev_gains)
         # # if mean_gain < -95:
         # #     adjusted_gain = np.exp(mean_gain + 95) / 20
         # # elif mean_gain < -85:
@@ -302,19 +302,19 @@ class WirelessEnvV0(Env):
         # # else:
         # #     adjusted_gain = np.log(1 + 85 + mean_gain) + 0.3
 
-        # # gain_diff = np.mean(next_gains - cur_gains)
+        # # gain_diff = np.mean(cur_gains - prev_gains)
 
         reward = float(adjusted_gain + 0.03 * gain_diff - 0.3 * out_of_bounds) / 2.0
 
         # print(f"mean_gain: {mean_gain}, adjusted_gain: {adjusted_gain}, reward: {reward}")
 
         # ! TODO: Failed
-        # adjusted_gains = np.mean(cur_gains) + 90.0
-        # gain_diff = np.mean(next_gains - cur_gains)
+        # adjusted_gains = np.mean(prev_gains) + 90.0
+        # gain_diff = np.mean(cur_gains - prev_gains)
         # reward = (adjusted_gains + 0.03 * gain_diff) / 2.0
 
         # ! TODO: Failed
-        # total_gain = np.sum(utils.dB2linear(cur_gains))
+        # total_gain = np.sum(utils.dB2linear(prev_gains))
         # total_gain = utils.linear2dB(total_gain)  # dB
         # cost_time = time_taken
         # lower_ = -100.0

@@ -552,15 +552,15 @@ def train_agent(
             stored_obs = []
 
             # get path gains
-            path_gains = [info["path_gain"] for info in infos["final_info"]]
-            next_path_gains = [info["next_path_gain"] for info in infos["final_info"]]
+            prev_path_gains = [info["prev_path_gains"] for info in infos["final_info"]]
+            path_gains = [info["path_gains"] for info in infos["final_info"]]
         else:
-            path_gains = infos["path_gain"]
-            next_path_gains = infos["next_path_gain"]
+            prev_path_gains = infos["prev_path_gains"]
+            path_gains = infos["path_gains"]
+        prev_path_gains = np.stack(prev_path_gains)
         path_gains = np.stack(path_gains)
-        next_path_gains = np.stack(next_path_gains)
+        prev_path_gains = torch.as_tensor(prev_path_gains, dtype=torch.float)
         path_gains = torch.as_tensor(path_gains, dtype=torch.float)
-        next_path_gains = torch.as_tensor(next_path_gains, dtype=torch.float)
 
         # TRY NOT TO MODIFY: save data to reply buffer; handle `final_observation`
         real_next_obs = list(copy.deepcopy(next_obs))
@@ -580,8 +580,8 @@ def train_agent(
             rewards=rewards,
             terminations=terminations,
             truncations=truncations,
-            path_gains=path_gains,
-            next_path_gains=next_path_gains,
+            path_gains=prev_path_gains,
+            next_path_gains=path_gains,
             batch_size=obs.shape[0],
         )
         rb.extend(transition)
@@ -637,8 +637,8 @@ def train_agent(
                     q_lr = q_optimizer.param_groups[0]["lr"]
                     a_lr = actor_optimizer.param_groups[0]["lr"]
                     logs = {
-                        "train/path_gain": next_path_gains.mean(),
-                        "train/path_gain_std": next_path_gains.std(),
+                        "train/path_gain": path_gains.mean(),
+                        "train/path_gain_std": path_gains.std(),
                         "train/reward_mean": rewards.mean(),
                         "train/reward_std": rewards.std(),
                         "train/actor_loss": log_infos["actor_loss"].mean().item(),
@@ -735,15 +735,15 @@ def eval(
         # TRY NOT TO MODIFY: record rewards for plotting purposes
         if "final_info" in infos:
             # get path gains
-            path_gains = [info["path_gain"] for info in infos["final_info"]]
-            next_path_gains = [info["next_path_gain"] for info in infos["final_info"]]
+            prev_path_gains = [info["prev_path_gains"] for info in infos["final_info"]]
+            path_gains = [info["path_gains"] for info in infos["final_info"]]
         else:
-            path_gains = infos["path_gain"]
-            next_path_gains = infos["next_path_gain"]
+            prev_path_gains = infos["prev_path_gains"]
+            path_gains = infos["path_gains"]
+        prev_path_gains = np.stack(prev_path_gains)
         path_gains = np.stack(path_gains)
-        next_path_gains = np.stack(next_path_gains)
+        prev_path_gains = torch.as_tensor(prev_path_gains, dtype=torch.float)
         path_gains = torch.as_tensor(path_gains, dtype=torch.float)
-        next_path_gains = torch.as_tensor(next_path_gains, dtype=torch.float)
 
         all_rewards[global_step, :] = rewards
         all_path_gains[global_step, ...] = path_gains
