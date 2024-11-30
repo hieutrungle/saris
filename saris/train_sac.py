@@ -637,8 +637,8 @@ def train_agent(
                     q_lr = q_optimizer.param_groups[0]["lr"]
                     a_lr = actor_optimizer.param_groups[0]["lr"]
                     logs = {
-                        "train/path_gain": path_gains.mean(),
-                        "train/path_gain_std": path_gains.std(),
+                        "train/path_gain": next_path_gains.mean(),
+                        "train/path_gain_std": next_path_gains.std(),
                         "train/reward_mean": rewards.mean(),
                         "train/reward_std": rewards.std(),
                         "train/actor_loss": log_infos["actor_loss"].mean().item(),
