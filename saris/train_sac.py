@@ -329,11 +329,14 @@ def main(config: TrainConfig):
         actor.load_state_dict(checkpoint["actor"])
         qnet_params.load_state_dict(checkpoint["qnet_params"])
         qnet_target_params.load_state_dict(checkpoint["qnet_target_params"])
-        log_alpha.fill_(checkpoint["log_alpha"].item()).requires_grad_(True)
+
+        log_alpha = checkpoint["log_alpha"].clone().detach().requires_grad_(True)
+        a_optimizer = optim.AdamW([log_alpha], lr=torch.tensor(config.q_lr))
+
         a_optimizer.load_state_dict(checkpoint["a_optimizer"])
         q_optimizer.load_state_dict(checkpoint["q_optimizer"])
         actor_optimizer.load_state_dict(checkpoint["actor_optimizer"])
-        # log_alpha = checkpoint["log_alpha"].clone().detach().requires_grad_(True)
+
         channel_rms = checkpoint["channel_rms"]
 
     # replay buffer setup
