@@ -15,6 +15,10 @@ import signal
 @dataclass
 class TrainConfig:
 
+    # Run arguments
+    init_learning_starts: int = 1001  # the timestep to start learning
+    n_runs: int = 11  # the number of runs
+
     # General arguments
     command: str = "train"  # the command to run
     load_model: str = "-1"  # Model load file name for resume training, "-1" doesn't load
@@ -26,6 +30,7 @@ class TrainConfig:
     seed: int = 54  # seed of the experiment
     eval_seed: int = 7  # seed of the evaluation
     save_interval: int = 150  # the interval to save the model
+    start_step: int = 0  # the starting step of the experiment
 
     # Environment specific arguments
     env_id: str = "wireless-sigmap-v0"  # the environment id of the task
@@ -41,9 +46,9 @@ class TrainConfig:
     gamma: float = 0.985  # the discount factor gamma
     tau: float = 0.005  # target smoothing coefficient (default: 0.005)
     batch_size: int = 256  # the batch size of sample from the reply memory
-    learning_starts: int = 201  # the timestep to start learning
-    policy_lr: float = 3e-4  # the learning rate of the policy network optimizer
-    q_lr: float = 1e-3  # the learning rate of the q network optimizer
+    learning_starts: int = 3  # the timestep to start learning
+    policy_lr: float = 0.00018  # the learning rate of the policy network optimizer
+    q_lr: float = 0.0004  # the learning rate of the q network optimizer
     warmup_steps: int = 300  # the number of warmup steps
     policy_frequency: int = 2  # the frequency of training policy (delayed)
     target_network_frequency: int = 2  # the frequency of updates for the target nerworks
@@ -94,14 +99,15 @@ def main(config: TrainConfig):
             replay_buffer_dir = train_config.replay_buffer_dir
             name = train_config.name
             checkpoint_dir = train_config.checkpoint_dir
-            if train_config.learning_starts < 401:
-                train_config.learning_starts = 401
+            learning_starts = copy.deepcopy(train_config.learning_starts)
+            train_config.learning_starts = train_config.init_learning_starts
             train_cmd = get_base_cmd(train_config) + ["--command", "train"]
             process = subprocess.Popen(train_cmd)
             process.wait()  # Wait for the subprocess to finish
 
-            train_config.learning_starts = config.learning_starts
-            for i in range(1, 14):
+            for i in range(1, train_config.n_runs):
+                train_config.learning_starts = learning_starts + i * train_config.total_timesteps
+                train_config.start_step += i * train_config.total_timesteps
                 train_config.name = name + f"_{i}"
                 train_config.seed += 10
                 train_config.load_model = os.path.join(train_config.checkpoint_dir, "model.pth")
@@ -153,7 +159,7 @@ def main(config: TrainConfig):
     eval_cmd = eval_cmd + ["--command", "eval"]
     eval_cmd = eval_cmd + ["--load_eval_model", str(config.load_eval_model)]
 
-    subprocess.run(eval_cmd, check=True)
+    # subprocess.run(eval_cmd, check=True)
 
 
 def get_base_cmd(config: TrainConfig):
@@ -176,6 +182,8 @@ def get_base_cmd(config: TrainConfig):
         str(config.eval_seed),
         "--save_interval",
         str(config.save_interval),
+        "--start_step",
+        str(config.start_step),
         # environment specific arguments
         "--env_id",
         str(config.env_id),

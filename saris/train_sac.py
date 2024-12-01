@@ -56,6 +56,7 @@ class TrainConfig:
     seed: int = 1  # seed of the experiment
     eval_seed: int = 111  # seed of the evaluation
     save_interval: int = 100  # the interval to save the model
+    start_step: int = 0  # the starting step of the experiment
 
     # Environment specific arguments
     env_id: str = "wireless-sigmap-v0"  # the environment id of the task
@@ -262,8 +263,8 @@ def main(config: TrainConfig):
     # Actor-Critic setup
     actor = sac.Actor(ob_space, ac_space, envs=envs, device=config.device)
     actor_detach = sac.Actor(ob_space, ac_space, envs=envs, device=config.device)
-    # if checkpoint != None:
-    #     actor.load_state_dict(checkpoint["actor"])
+    if checkpoint != None:
+        actor.load_state_dict(checkpoint["actor"])
     from_module(actor).to_module(actor_detach)
     policy = TensorDictModule(
         actor_detach.get_action, in_keys=["observation"], out_keys=["action", "log_pi", "mean"]
@@ -326,7 +327,7 @@ def main(config: TrainConfig):
     # Load models
     if checkpoint != None:
         print(f"Loading qnet and rmss from checkpoint!")
-        actor.load_state_dict(checkpoint["actor"])
+        # actor.load_state_dict(checkpoint["actor"])
         qnet_params.load_state_dict(checkpoint["qnet_params"])
         qnet_target_params.load_state_dict(checkpoint["qnet_target_params"])
 
@@ -484,7 +485,12 @@ def train_agent(
     stored_obs = []
     obs, _ = envs.reset(options={"start_init": True})
     stored_obs.append(obs)
-    pbar = tqdm.tqdm(range(config.total_timesteps), dynamic_ncols=True)
+    pbar = tqdm.tqdm(
+        range(config.start_step, config.start_step + config.total_timesteps),
+        dynamic_ncols=True,
+        initial=config.start_step,
+        total=config.start_step + config.total_timesteps,
+    )
     max_ep_ret = -float("inf")
     avg_returns = deque(maxlen=envs.num_envs)
     desc = ""
@@ -640,7 +646,7 @@ def train_agent(
                     # lerp is defined as x' = x + w (y-x), which is equivalent to x' = (1-w) x + w y
                     qnet_target_params.lerp_(qnet_params.data, config.tau)
 
-            if global_step > config.learning_starts + 5:
+            if global_step > config.learning_starts:
                 with torch.no_grad():
                     q_lr = q_optimizer.param_groups[0]["lr"]
                     a_lr = actor_optimizer.param_groups[0]["lr"]
