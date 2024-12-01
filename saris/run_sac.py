@@ -100,13 +100,15 @@ def main(config: TrainConfig):
             name = train_config.name
             checkpoint_dir = train_config.checkpoint_dir
             learning_starts = copy.deepcopy(train_config.learning_starts)
-            train_config.learning_starts = train_config.init_learning_starts
+            train_config.learning_starts = train_config.init_learning_starts + config.start_step
             train_cmd = get_base_cmd(train_config) + ["--command", "train"]
             process = subprocess.Popen(train_cmd)
             process.wait()  # Wait for the subprocess to finish
 
             for i in range(1, train_config.n_runs):
-                train_config.learning_starts = learning_starts + i * train_config.total_timesteps
+                train_config.learning_starts = (
+                    config.start_step + learning_starts + i * train_config.total_timesteps
+                )
                 train_config.start_step = config.start_step + i * train_config.total_timesteps
                 train_config.name = name + f"_{i}"
                 train_config.seed += 10
