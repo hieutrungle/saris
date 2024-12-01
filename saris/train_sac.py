@@ -333,9 +333,12 @@ def main(config: TrainConfig):
 
         log_alpha = checkpoint["log_alpha"].clone().detach().requires_grad_(True)
         a_optimizer = optim.AdamW([log_alpha], lr=torch.tensor(config.q_lr))
-
         a_optimizer.load_state_dict(checkpoint["a_optimizer"])
+
+        q_optimizer = optim.AdamW(qnet.parameters(), lr=torch.tensor(config.q_lr))
         q_optimizer.load_state_dict(checkpoint["q_optimizer"])
+
+        actor_optimizer = optim.AdamW(list(actor.parameters()), lr=torch.tensor(config.policy_lr))
         actor_optimizer.load_state_dict(checkpoint["actor_optimizer"])
 
         channel_rms = checkpoint["channel_rms"]
@@ -442,7 +445,7 @@ def train_agent(
         qf_a_values = torch.vmap(batched_qf, in_dims=(0, None, None, None))(
             qnet_params, data["observations"], data["actions"], next_q_value
         )
-        qf_loss = qf_a_values.sum(0)
+        qf_loss = torch.sum(qf_a_values)
 
         qf_loss.backward()
         q_optimizer.step()
@@ -474,9 +477,9 @@ def train_agent(
             alpha_loss=alpha_loss.detach(),
         )
 
-    update_critic = torch.compile(update_critic)
-    update_pol = torch.compile(update_pol)
-    policy = torch.compile(policy)
+    # update_critic = torch.compile(update_critic)
+    # update_pol = torch.compile(update_pol)
+    # policy = torch.compile(policy)
 
     # update_critic = CudaGraphModule(update_critic, in_keys=[], out_keys=[], warmup=3)
     # update_pol = CudaGraphModule(update_pol, in_keys=[], out_keys=[], warmup=3)
