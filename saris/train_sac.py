@@ -483,7 +483,10 @@ def train_agent(
 
     # TRY NOT TO MODIFY: start the game
     stored_obs = []
-    obs, _ = envs.reset(options={"start_init": True})
+    if config.start_step == 0:
+        obs, _ = envs.reset(options={"start_init": True})
+    else:
+        obs, _ = envs.reset()
     stored_obs.append(obs)
     pbar = tqdm.tqdm(
         range(config.start_step, config.start_step + config.total_timesteps),
@@ -606,6 +609,7 @@ def train_agent(
         if (
             global_step % (config.ep_len // 4) == 0
             and global_step < config.learning_starts * 9 / 10
+            and config.start_step == 0
         ):
             obs, _ = envs.reset(options={"start_init": True})
         stored_obs.append(obs)
