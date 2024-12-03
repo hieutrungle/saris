@@ -65,6 +65,9 @@ class TrainConfig:
     ep_len: int = 75  # the maximum length of an episode
     eval_ep_len: int = 45  # the maximum length of an episode
 
+    # Network specific arguments
+    ff_dim: int = 256  # the hidden dimension of the feedforward networks
+
     # Algorithm specific arguments
     total_timesteps: int = 10_001  # total timesteps of the experiments
     n_updates: int = 20  # the number of updates per step
@@ -223,9 +226,9 @@ def main(config: TrainConfig):
         #     # context="spawn",
         # )
     elif config.command.lower() == "eval":
-        envs = gym.vector.SyncVectorEnv(
+        envs = gym.vector.AsyncVectorEnv(
             [make_env(config, i, eval_mode=True) for i in range(config.num_envs)],
-            # context="spawn",
+            context="spawn",
         )
     else:
         raise ValueError(f"Invalid command: {config.command}, available commands: train, eval")
@@ -261,8 +264,8 @@ def main(config: TrainConfig):
             checkpoint = torch.load(config.load_model, weights_only=False)
 
     # Actor-Critic setup
-    actor = sac.Actor(ob_space, ac_space, envs=envs, device=config.device)
-    actor_detach = sac.Actor(ob_space, ac_space, envs=envs, device=config.device)
+    actor = sac.Actor(envs=envs, ff_dim=config.ff_dim, device=config.device)
+    actor_detach = sac.Actor(envs=envs, ff_dim=config.ff_dim, device=config.device)
     if checkpoint != None:
         actor.load_state_dict(checkpoint["actor"])
     from_module(actor).to_module(actor_detach)
@@ -270,34 +273,27 @@ def main(config: TrainConfig):
         actor_detach.get_action, in_keys=["observation"], out_keys=["action", "log_pi", "mean"]
     )
 
+    qf1 = sac.SoftQNetwork(envs=envs, ff_dim=config.ff_dim, device=config.device)
+    qf2 = sac.SoftQNetwork(envs=envs, ff_dim=config.ff_dim, device=config.device)
+
     tmp_obs = torch.randn((1, *ob_space.shape), device=config.device)
     torchinfo.summary(
         actor,
         input_data=tmp_obs,
         col_names=["input_size", "output_size", "num_params"],
     )
+    tmp_ac = torch.randn(1, *ac_space.shape, device=config.device)
+    torchinfo.summary(
+        qf1,
+        input_data=[tmp_obs, tmp_ac],
+        col_names=["input_size", "output_size", "num_params"],
+    )
 
-    def get_q_params():
-        qf1 = sac.SoftQNetwork(ob_space, ac_space, envs, config.device)
-        qf2 = sac.SoftQNetwork(ob_space, ac_space, envs, config.device)
-
-        qnet_params = from_modules(qf1, qf2, as_module=True)
-        qnet_target_params: TensorDict = qnet_params.data.clone()
-
-        tmp_ac = torch.randn(1, *ac_space.shape, device=config.device)
-        torchinfo.summary(
-            qf1,
-            input_data=[tmp_obs, tmp_ac],
-            col_names=["input_size", "output_size", "num_params"],
-        )
-
-        # discard params of net
-        qnet = sac.SoftQNetwork(ob_space, ac_space, envs, "meta")
-        qnet_params.to_module(qnet)
-
-        return qnet_params, qnet_target_params, qnet
-
-    qnet_params, qnet_target_params, qnet = get_q_params()
+    # Target networks
+    qf1_target = sac.SoftQNetwork(envs=envs, ff_dim=config.ff_dim, device=config.device)
+    qf2_target = sac.SoftQNetwork(envs=envs, ff_dim=config.ff_dim, device=config.device)
+    qf1_target.load_state_dict(qf1.state_dict())
+    qf2_target.load_state_dict(qf2.state_dict())
 
     # Automatic entropy tuning
     target_entropy = -torch.prod(
@@ -307,39 +303,30 @@ def main(config: TrainConfig):
 
     # Optimzier setup
     a_optimizer = optim.AdamW([log_alpha], lr=torch.tensor(config.q_lr))
-
-    q_optimizer = optim.AdamW(qnet.parameters(), lr=torch.tensor(config.q_lr))
-    # q_optimizer = optim.AdamW(qnet.parameters(), lr=config.q_lr, capturable=True)
-    # q_scheduler = create_scheduler(
-    #     q_optimizer,
-    #     config.n_updates * config.warmup_steps,
-    #     config.n_updates * config.total_timesteps,
-    #     config.q_lr,
-    # )
-
+    q_optimizer = optim.AdamW(
+        list(qf1.parameters()) + list(qf2.parameters()), lr=torch.tensor(config.q_lr)
+    )
     actor_optimizer = optim.AdamW(list(actor.parameters()), lr=torch.tensor(config.policy_lr))
-    # warmup_steps = int(config.n_updates * config.warmup_steps)
-    # total_train_steps = int(config.n_updates * config.total_timesteps)
-    # actor_scheduler = create_scheduler(
-    #     actor_optimizer, warmup_steps, total_train_steps, config.policy_lr
-    # )
 
-    # Load models
     if checkpoint != None:
-        print(f"Loading qnet and rmss from checkpoint!")
-        # actor.load_state_dict(checkpoint["actor"])
-        qnet_params.load_state_dict(checkpoint["qnet_params"])
-        qnet_target_params.load_state_dict(checkpoint["qnet_target_params"])
-
-        log_alpha = checkpoint["log_alpha"].clone().detach().requires_grad_(True)
-        a_optimizer = optim.AdamW([log_alpha], lr=torch.tensor(config.q_lr))
-        a_optimizer.load_state_dict(checkpoint["a_optimizer"])
-
-        q_optimizer = optim.AdamW(qnet.parameters(), lr=torch.tensor(config.q_lr))
-        q_optimizer.load_state_dict(checkpoint["q_optimizer"])
-
+        print(f"Loading models and optimizers from checkpoint!")
+        actor.load_state_dict(checkpoint["actor"])
         actor_optimizer = optim.AdamW(list(actor.parameters()), lr=torch.tensor(config.policy_lr))
         actor_optimizer.load_state_dict(checkpoint["actor_optimizer"])
+
+        if config.load_eval_model == "-1":
+            log_alpha = checkpoint["log_alpha"].clone().detach().requires_grad_(True)
+            a_optimizer = optim.AdamW([log_alpha], lr=torch.tensor(config.q_lr))
+            a_optimizer.load_state_dict(checkpoint["a_optimizer"])
+
+            qf1.load_state_dict(checkpoint["qf1"])
+            qf2.load_state_dict(checkpoint["qf2"])
+            qf1_target.load_state_dict(checkpoint["qf1_target"])
+            qf2_target.load_state_dict(checkpoint["qf2_target"])
+            q_optimizer = optim.AdamW(
+                list(qf1.parameters()) + list(qf2.parameters()), lr=torch.tensor(config.q_lr)
+            )
+            q_optimizer.load_state_dict(checkpoint["q_optimizer"])
 
         channel_rms = checkpoint["channel_rms"]
 
@@ -365,9 +352,10 @@ def main(config: TrainConfig):
                 actor,
                 actor_detach,
                 policy,
-                qnet_params,
-                qnet_target_params,
-                qnet,
+                qf1,
+                qf2,
+                qf1_target,
+                qf2_target,
                 target_entropy,
                 log_alpha,
                 a_optimizer,
@@ -405,9 +393,10 @@ def train_agent(
     actor: sac.Actor,
     actor_detach: sac.Actor,
     policy: TensorDictModule,
-    qnet_params: torch.Tensor,
-    qnet_target_params: torch.Tensor,
-    qnet: sac.SoftQNetwork,
+    qf1: sac.SoftQNetwork,
+    qf2: sac.SoftQNetwork,
+    qf1_target: sac.SoftQNetwork,
+    qf2_target: sac.SoftQNetwork,
     target_entropy: float,
     log_alpha: torch.Tensor,
     a_optimizer: torch.optim.Optimizer,
@@ -421,31 +410,26 @@ def train_agent(
 
     alpha = log_alpha.detach().exp()
 
-    def batched_qf(params, obs, action, next_q_value=None):
-        with params.to_module(qnet):
-            vals = qnet(obs, action)
-            if next_q_value is not None:
-                loss_val = F.mse_loss(vals.view(-1), next_q_value)
-                return loss_val
-            return vals
-
     def update_critic(data):
         # optimize the model
         q_optimizer.zero_grad()
         with torch.no_grad():
             next_state_actions, next_state_log_pi, _ = actor.get_action(data["next_observations"])
-            qf_next_target = torch.vmap(batched_qf, (0, None, None))(
-                qnet_target_params, data["next_observations"], next_state_actions
-            )
-            min_qf_next_target = qf_next_target.min(dim=0).values - alpha * next_state_log_pi
+            qf1_next_target = qf1_target(data["next_observations"], next_state_actions)
+            qf2_next_target = qf2_target(data["next_observations"], next_state_actions)
+            min_qf_next_target = torch.minimum(qf1_next_target, qf2_next_target)
+            min_qf_next_target = min_qf_next_target - alpha * next_state_log_pi
             next_q_value = data["rewards"].flatten() + (
                 1.0 - data["terminations"].float().flatten()
             ) * config.gamma * min_qf_next_target.view(-1)
 
-        qf_a_values = torch.vmap(batched_qf, in_dims=(0, None, None, None))(
-            qnet_params, data["observations"], data["actions"], next_q_value
-        )
-        qf_loss = torch.sum(qf_a_values)
+        qf1_values = qf1(data["observations"], data["actions"])
+        qf1_loss = F.mse_loss(qf1_values.view(-1), next_q_value)
+
+        qf2_values = qf2(data["observations"], data["actions"])
+        qf2_loss = F.mse_loss(qf2_values.view(-1), next_q_value)
+
+        qf_loss = qf1_loss + qf2_loss
 
         qf_loss.backward()
         q_optimizer.step()
@@ -454,8 +438,9 @@ def train_agent(
     def update_pol(data):
         actor_optimizer.zero_grad()
         pi, log_pi, _ = actor.get_action(data["observations"])
-        qf_pi = torch.vmap(batched_qf, (0, None, None))(qnet_params.data, data["observations"], pi)
-        min_qf_pi = torch.minimum(qf_pi[0], qf_pi[1])
+        qf1_pi = qf1(data["observations"], pi)
+        qf2_pi = qf2(data["observations"], pi)
+        min_qf_pi = torch.minimum(qf1_pi, qf2_pi)
         actor_loss = ((alpha * log_pi) - min_qf_pi).mean()
 
         actor_loss.backward()
@@ -471,7 +456,7 @@ def train_agent(
 
         return TensorDict(
             actor_loss=actor_loss.detach(),
-            qf_pi=qf_pi.detach(),
+            qf_pi=min_qf_pi.detach(),
             log_pi=log_pi.detach(),
             alpha=alpha.detach(),
             alpha_loss=alpha_loss.detach(),
@@ -491,6 +476,7 @@ def train_agent(
     else:
         obs, _ = envs.reset()
     stored_obs.append(obs)
+    last_step = config.start_step + config.total_timesteps
     pbar = tqdm.tqdm(
         range(config.start_step, config.start_step + config.total_timesteps),
         dynamic_ncols=True,
@@ -504,11 +490,16 @@ def train_agent(
     for global_step in pbar:
         # ALGO LOGIC: put action logic here
         with torch.no_grad():
-            if global_step < config.learning_starts * 9 / 10:
+            if config.start_step == 0 and global_step < config.learning_starts * 9 / 10:
                 actions = np.array(
                     [envs.single_action_space.sample() for _ in range(envs.num_envs)]
                 )
             else:
+                # if global_step < config.learning_starts * 9 / 10:
+                #     actions = np.array(
+                #         [envs.single_action_space.sample() for _ in range(envs.num_envs)]
+                #     )
+                # else:
                 torch_obs = torch.Tensor(copy.deepcopy(obs)).float().to(config.device)
                 torch_obs = normalize_obs(torch_obs, channel_rms, envs)
                 actions, _, _ = policy(torch_obs.to(config.device))
@@ -588,7 +579,7 @@ def train_agent(
             if trunc:
                 real_next_obs[idx] = infos["final_observation"][idx]
 
-        if global_step == config.total_timesteps - 1:
+        if global_step == last_step - 1:
             truncations = [True] * len(truncations)
         rewards = np.asarray(rewards, dtype=np.float32)[..., None]
         terminations = np.asarray(terminations, dtype=np.float32)[..., None]
@@ -612,6 +603,7 @@ def train_agent(
         if (
             global_step % (config.ep_len // 4) == 0
             and global_step < config.learning_starts * 9 / 10
+            and global_step != 0
             and config.start_step == 0
         ):
             obs, _ = envs.reset(options={"start_init": True})
@@ -650,8 +642,14 @@ def train_agent(
 
                 # update the target networks
                 if global_step % config.target_network_frequency == 0:
-                    # lerp is defined as x' = x + w (y-x), which is equivalent to x' = (1-w) x + w y
-                    qnet_target_params.lerp_(qnet_params.data, config.tau)
+                    for param, target_param in zip(qf1.parameters(), qf1_target.parameters()):
+                        target_param.data.copy_(
+                            config.tau * param.data + (1 - config.tau) * target_param.data
+                        )
+                    for param, target_param in zip(qf2.parameters(), qf2_target.parameters()):
+                        target_param.data.copy_(
+                            config.tau * param.data + (1 - config.tau) * target_param.data
+                        )
 
             if global_step > config.learning_starts:
                 with torch.no_grad():
@@ -679,11 +677,13 @@ def train_agent(
                     + f" | actor_loss={logs['train/actor_loss']: 4.3f} | qf_loss={logs['train/qf_loss']: 4.3f}"
                 )
 
-            if global_step % config.save_interval == 0 or global_step == config.total_timesteps - 1:
+            if global_step % config.save_interval == 0 or global_step == last_step - 1:
                 saved_dict = {
                     "actor": actor.state_dict(),
-                    "qnet_params": qnet_params.state_dict(),
-                    "qnet_target_params": qnet_target_params.state_dict(),
+                    "qf1": qf1.state_dict(),
+                    "qf2": qf2.state_dict(),
+                    "qf1_target": qf1_target.state_dict(),
+                    "qf2_target": qf2_target.state_dict(),
                     "log_alpha": log_alpha,
                     "channel_rms": channel_rms,
                     "q_optimizer": q_optimizer.state_dict(),

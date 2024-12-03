@@ -39,6 +39,9 @@ class TrainConfig:
     ep_len: int = 100  # the maximum length of an episode
     eval_ep_len: int = 100  # the maximum length of an episode
 
+    # Network specific arguments
+    ff_dim: int = 256  # the hidden dimension of the feedforward networks
+
     # Algorithm specific arguments
     total_timesteps: int = 2_001  # total timesteps of the experiments
     n_updates: int = 5  # the number of updates per step
@@ -100,7 +103,10 @@ def main(config: TrainConfig):
             name = train_config.name
             checkpoint_dir = train_config.checkpoint_dir
             learning_starts = copy.deepcopy(train_config.learning_starts)
-            train_config.learning_starts = train_config.init_learning_starts + config.start_step
+            if config.start_step == 0:
+                train_config.learning_starts = train_config.init_learning_starts
+            else:
+                train_config.learning_starts = learning_starts
             train_cmd = get_base_cmd(train_config) + ["--command", "train"]
             process = subprocess.Popen(train_cmd)
             process.wait()  # Wait for the subprocess to finish
@@ -197,6 +203,9 @@ def get_base_cmd(config: TrainConfig):
         str(config.ep_len),
         "--eval_ep_len",
         str(config.eval_ep_len),
+        # network specific arguments
+        "--ff_dim",
+        str(config.ff_dim),
         # algorithm specific arguments
         "--total_timesteps",
         str(config.total_timesteps),
