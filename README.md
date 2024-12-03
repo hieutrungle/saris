@@ -16,7 +16,7 @@
         :target: https://saris.readthedocs.io/en/latest/?badge=latest
         :alt: Documentation Status -->
 
-Self Adjustable Reconfigurable Intelligent Surfaces (SARIS)
+Self Adjustable Reconfigurable Intelligent Surfaces (SARIS) / Self Adjustable Metallic Surfaces (SAMS)
 
 ## Installation
 
@@ -139,6 +139,27 @@ bash run_wireless_sac_moving.sh
 [ ] DRL for wide room with multiple users
 [ ] DRL for wide room with multiple users and UE position change
 ```
+
+## Citing
+
+There is a series of papers that are being written to describe the SARIS project. Please cite the following paper if you use this package in your research:
+
+First proof of concept paper:
+
+```bibtex
+@INPROCEEDINGS{10757704,
+  author={Le, Hieu and Bedir, Oguz and Ibrahim, Mostafa and Tao, Jian and Ekin, Sabit},
+  booktitle={2024 IEEE 100th Vehicular Technology Conference (VTC2024-Fall)}, 
+  title={Guiding Wireless Signals with Arrays of Metallic Linear Fresnel Reflectors: A Low-cost, Frequency-versatile, and Practical Approach}, 
+  year={2024},
+  volume={},
+  number={},
+  pages={1-7},
+  keywords={Wireless communication;Vehicular and wireless technologies;Solid modeling;Three-dimensional displays;Systematics;Reconfigurable intelligent surfaces;Ray tracing;Reflection;Resource management;Gain;reconfigurable intelligent surfaces (RIS);specular reflections;path gain;received signal strength (RSS);ray tracing;coverage map},
+  doi={10.1109/VTC2024-Fall63153.2024.10757704}}
+```
+
+Second DRL paper: being written
 
 ## Acknowledgement
 
