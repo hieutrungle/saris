@@ -25,3 +25,9 @@ def register_envs():
         entry_point="saris.drl.envs.wireless_T_static:WirelessTStaticV0",
         max_episode_steps=100,
     )
+
+    register(
+        id="single-room-v0",
+        entry_point="saris.drl.envs.single_room:SingleRoomV0",
+        max_episode_steps=100,
+    )
