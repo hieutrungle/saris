@@ -1,0 +1,40 @@
+base_config: room
+scene_name: room
+resolution: [1920, 1080]
+cm_vmin: -120
+cm_vmax: -60
+verbose: true
+cam_position: [-7.5, -4.0, 50.0]
+cam_orientation: [0.0, 0.0, 0.0]
+cam_look_at: [-7.5, -4.0, 0.0]
+frequency: 28e9
+synthetic_array: true
+
+# RIS parameters
+ris_positions: [[2.09223, -3.88804, 2.06059]]
+
+# Transmitter and receiver parameters
+tx_num_rows: 2
+tx_num_cols: 2
+tx_vertical_spacing: 0.5
+tx_horizontal_spacing: 0.5
+tx_pattern: tr38901
+tx_polarization: V
+tx_positions: [[1.0, 0.0, 2.5]]
+tx_orientations: [[0.0, 0.0, 0.0]]
+rx_num_rows: 1
+rx_num_cols: 1
+rx_vertical_spacing: 0.5
+rx_horizontal_spacing: 0.5
+rx_pattern: iso
+rx_polarization: V
+rx_positions: [[-5.6, 1.1, 1.5], [-5.4, -6.7, 1.5], [-13.6, -1.0, 1.5]]
+rx_orientations: [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]]
+
+# Path tracing parameters
+cm_max_depth: 10
+cm_cell_size: [0.2, 0.2]
+cm_num_samples: 1e6
+path_max_depth: 8
+path_num_samples: 1e6
+diffraction: true
