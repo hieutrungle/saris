@@ -1,4 +1,4 @@
-# SARIS
+# Self Adjustable Reconfigurable Intelligent Surfaces (SARIS)
 
 [![Documentation Status](https://readthedocs.org/projects/saris/badge/?version=latest)](https://saris.readthedocs.io/en/latest/?badge=latest)
 [![PyPI version](https://badge.fury.io/py/saris.svg)](https://badge.fury.io/py/saris)
