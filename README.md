@@ -62,6 +62,7 @@ source venv/bin/activate
 get the blender from Google Drive
 
 ```bash
+cd home
 pip install gdown
 gdown --folder https://drive.google.com/drive/u/1/folders/1sHqz5PRKtLQI0aEcByzKMyNwIOSG557l
 ```
@@ -69,10 +70,13 @@ gdown --folder https://drive.google.com/drive/u/1/folders/1sHqz5PRKtLQI0aEcByzKM
 There are two zip files, one for the blender/saved models and one for the blender config. Unzip them and put them in the root directory `home` of the system.
 
 ```bash
+cd blender_gdown
 unzip blender.zip
 mv blender home
 unzip blender_config.zip
 mv blender home/.cache
+cd ..
+rm -rf blender_gdown
 ```
 
 Now, the home directory should look like this:
