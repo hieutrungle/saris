@@ -284,9 +284,9 @@ class SingleRoomV0(Env):
 
         adjusted_gain = np.mean(cur_gains)
         adjusted_gain = np.where(
-            adjusted_gain < -82.5,
-            (adjusted_gain + 82.5) / 10.0,
-            (adjusted_gain + 82.5) / 5.0 + 1.5,
+            adjusted_gain < -85,
+            (adjusted_gain + 85) / 10.0,
+            (adjusted_gain + 85) / 5.0 + 1.5,
         )
         gain_diff = np.mean(cur_gains - prev_gains)
 
