@@ -79,5 +79,5 @@ mkdir -p ${OPTIX_CACHE_PATH}
 # DRL run
 ##############################
 export OPTIX_CACHE_PATH=${TMP_DIR}/optix_cache_1
-python ./saris/run_sac.py --sionna_config_file ${SIONNA_CONFIG_FILE} --verbose True --env_id "wireless-moving-v0" --ep_len 70 --group "SAC_Moving_Shaped_Reward" --name "Unchanged_NN"
-# --seed 22 --num_envs 2 --total_timesteps 18 --batch_size 3 --learning_starts 10 --warmup_steps 5 --ep_len 8 --save_interval 25 --eval_ep_len 10 --wandb "offline" 
+python ./saris/run_sac.py --sionna_config_file ${SIONNA_CONFIG_FILE} --verbose True --env_id "wireless-moving-v0" --group "SAC_Hallway_moving" --name "short_long_NN" 
+# --seed 22 --num_envs 2 --total_timesteps 15 --batch_size 4 --learning_starts 0 --ep_len 10 --save_interval 25 --eval_ep_len 10 --wandb "offline"  --init_learning_start 5 --n_runs 2
