@@ -1,5 +1,6 @@
 gymnasium==0.29.1
 PyYAML
+mitsuba==3.5.2
 sionna==0.15
 torchinfo
 pyrallis
