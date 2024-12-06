@@ -122,6 +122,53 @@ cd home/research/saris
 bash run_wireless_sac_moving.sh
 ```
 
+## Post-Processing
+
+After running the DRL SAC, the directory should look like this:
+
+```bash
+./home/research/saris
+├── configs
+├── default_scenes
+├── docs
+├── notebooks
+├── local_assets
+│   ├── blender
+│   ├── images
+│   │   ├── Parallel_env_0
+│   │   │   ├── env_name_idx_00000.png
+│   │   │   ├── env_name_idx_00001.png
+│   │   │   ├── env_name_idx_00002.png
+│   │   ├── Parallel_env_1
+│   │   │   ├── env_name_idx_00000.png
+│   │   │   ├── env_name_idx_00001.png
+│   └── logs
+│       ├── Run_name_idx_0
+│       │   ├── all_path_gain.png
+│       │   ├── all_path_gain.npy
+│       │   ├── all_rewards.npy
+│       │   ├── path_gain.png
+│       │   ├── rewards.png
+│       │   └── train_config.yaml
+│       ├── Run_name_idx_1
+├── saris
+...
+```
+
+### Video Generation
+
+Remember to create a directory for the videos: `mkdir {OUTPUT_VIDEO_DIR}`
+
+```bash
+ffmpeg -framerate 5 -i {PATH_TO_IMAGES}_%05d.png -r 30 -pix_fmt yuv420p {OUTPUT_VIDEO_PATH}.mp4
+```
+
+Example:
+
+```bash
+ffmpeg -framerate 5 -i ./tmp_long_short_mean_adjusted_local_assets/images/SAC_Mean_Adjusted__orin__wireless-sigmap-v0__fecc18e6_03-12-2024_17-09-34_0/hallway_L_0_%05d.png -r 30 -pix_fmt yuv420p ./tmp_long_short_mean_adjusted_local_assets/videos/SAC_Mean_Adjusted__orin__wireless-sigmap-v0__fecc18e6_03-12-2024_17-09-34_0.mp4
+```
+
 ## Completed Tasks
 
 ```markdown
