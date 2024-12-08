@@ -104,12 +104,12 @@ class WirelessMovingV0(Env):
         )
         self.l_min = 0
         self.l_max = 0
-        num_rxs = len(self.sionna_config["rx_positions"])
+        self.num_rxs = len(self.sionna_config["rx_positions"])
         num_tx_ants = self.sionna_config["tx_num_rows"] * self.sionna_config["tx_num_cols"]
         self.channel_space = spaces.Box(
             low=-1.0,
             high=1.0,
-            shape=(num_rxs, num_tx_ants, 2 * int(self.l_max - self.l_min + 1)),
+            shape=(self.num_rxs, num_tx_ants, 2 * int(self.l_max - self.l_min + 1)),
             dtype=np.float32,
         )
 
@@ -157,7 +157,9 @@ class WirelessMovingV0(Env):
         self.info = {}
         self.eval_mode = eval_mode
 
-        self.position_3rd = [[-8.0 - i, y, 1.5] for i in range(5) for y in [-4.25, -3.5, -3.0]]
+        self.position_pool = [
+            [-8.0 - i, y, 1.5] for i in range(7) for y in [-4.25, -3.75, -3.25, -2.75]
+        ]
 
         self.default_positions = copy.deepcopy(self.positions)
         self.default_sionna_config = copy.deepcopy(self.sionna_config)
@@ -166,8 +168,13 @@ class WirelessMovingV0(Env):
         super().reset(seed=seed)
 
         self.sionna_config = copy.deepcopy(self.default_sionna_config)
-        rx_positions = self.sionna_config["rx_positions"]
-        rx_positions[2] = self.position_3rd[self.np_rng.choice(len(self.position_3rd))]
+        # rx_positions = self.sionna_config["rx_positions"]
+        rx_pos_idxs = self.np_rng.choice(
+            len(self.position_pool), size=(self.num_rxs,), replace=False
+        )
+        rx_positions = [self.position_pool[i] for i in rx_pos_idxs]
+        print(f"rx_positions: {rx_positions}")
+        # rx_positions[2] = self.position_3rd[self.np_rng.choice(len(self.position_3rd))]
         self.sionna_config["rx_positions"] = rx_positions
         self.positions = np.asarray(rx_positions, dtype=np.float32).flatten()
 
@@ -244,7 +251,6 @@ class WirelessMovingV0(Env):
 
         self.angles = self._blender_step(self.spherical_focal_vecs)
         self.angles = np.asarray(self.angles, dtype=np.float32)
-        # print(f"done blender_step")
         # print(f"angles: {np.rad2deg(self.angles).reshape(-1, 8)}")
         # if angles values are out of bounds, print warning
         # if np.any(self.angles < self.angle_space.low) or np.any(
@@ -257,7 +263,6 @@ class WirelessMovingV0(Env):
             truncated = True
         terminated = False
         self.channels, self.cur_gains = self._run_sionna_dB(eval_mode=self.eval_mode)
-        # print(f"done run_sionna_dB")
 
         real_channels = np.asarray(self.channels.real, dtype=np.float32)
         imag_channels = np.asarray(self.channels.imag, dtype=np.float32)
@@ -272,7 +277,6 @@ class WirelessMovingV0(Env):
             "prev_path_gains": self.prev_gains,
             "path_gains": self.cur_gains,
         }
-        # print(f"done step")
 
         return next_observation, reward, terminated, truncated, step_info
 
@@ -282,9 +286,9 @@ class WirelessMovingV0(Env):
 
         adjusted_gain = np.mean(cur_gains)
         adjusted_gain = np.where(
-            adjusted_gain < -82.5,
-            (adjusted_gain + 82.5) / 10.0,
-            (adjusted_gain + 82.5) / 5.0 + 1.5,
+            adjusted_gain < -85,
+            (adjusted_gain + 85) / 10.0,
+            (adjusted_gain + 85) / 5.0 + 1.5,
         )
         gain_diff = np.mean(cur_gains - prev_gains)
 
