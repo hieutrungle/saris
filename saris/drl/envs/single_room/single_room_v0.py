@@ -179,7 +179,11 @@ class SingleRoomV0(Env):
             )
             self.spherical_focal_vecs += noise
         else:
-            self.spherical_focal_vecs = self.focal_vec_space.sample()
+            low = self.focal_vec_space.low
+            high = self.focal_vec_space.high
+            self.spherical_focal_vecs = self.np_rng.normal(
+                loc=(low + high) / 2.0, scale=abs(high - low) / 9.0
+            )
 
         # tmp = np.reshape(copy.deepcopy(self.spherical_focal_vecs), (self.num_groups, 3))
         # tmp[:, 1:] = np.rad2deg(tmp[:, 1:])
