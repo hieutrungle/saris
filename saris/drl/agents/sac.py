@@ -82,11 +82,179 @@ class Embedder(nn.Module):
         return encoded_inputs
 
 
+# class SoftQNetwork(nn.Module):
+#     def __init__(
+#         self,
+#         # ob_space: spaces.Tuple,
+#         # ac_space: spaces.Box,
+#         envs: vector.VectorEnv,
+#         ff_dim: int = 256,
+#         device: torch.device = torch.device("cpu"),
+#     ):
+#         super().__init__()
+
+#         self.ff_dim = ff_dim
+#         ac_space = envs.single_action_space
+
+#         channel_space = envs.get_attr("channel_space")
+#         angle_space = envs.get_attr("angle_space")
+#         position_space = envs.get_attr("position_space")
+
+#         self.channel_shape = channel_space[0].shape
+#         self.angle_shape = angle_space[0].shape
+#         self.position_shape = position_space[0].shape
+
+#         # positions
+#         self.pos_embed = Embedder(np.prod(self.position_shape), num_freqs=5)
+#         pos_out_dim = self.pos_embed.out_dim
+
+#         self.ob_layers = [
+#             nn.Linear(
+#                 np.prod(self.channel_shape) + np.prod(self.angle_shape) + pos_out_dim,
+#                 ff_dim,
+#                 device=device,
+#             ),
+#             nn.GELU(),
+#         ]
+#         self.connect_network = nn.Sequential(*self.ob_layers)
+
+#         # action
+#         action_layers = [nn.Linear(np.prod(ac_space.shape), ff_dim, device=device), nn.GELU()]
+#         self.action_network = nn.Sequential(*action_layers)
+
+#         # Combine all
+#         self.combine_network = nn.Sequential(
+#             nn.Linear(ff_dim * 2, ff_dim, device=device),
+#             nn.GELU(),
+#             MLPBlock(ff_dim, ff_dim, device=device),
+#             MLPBlock(ff_dim, ff_dim, device=device),
+#         )
+#         self.combine_layer = nn.Linear(ff_dim, 1, device=device)
+
+#     def forward(self, obs, acs):
+#         batch_size = obs.shape[0]
+#         pos = obs[..., -np.prod(self.position_shape) :]
+
+#         # positions
+#         pos = self.pos_embed(pos)
+
+#         # angles
+#         channel_angle = obs[..., : -np.prod(self.position_shape)]
+
+#         ob = torch.cat([channel_angle, pos], dim=-1)
+#         combined = self.connect_network(ob)
+
+#         # action
+#         action = self.action_network(acs)
+
+#         # combine
+#         ob_ac = self.combine_network(torch.cat([combined, action], dim=-1))
+#         q_values = self.combine_layer(ob_ac)
+#         return q_values
+
+
+# LOG_STD_MAX = 2
+# LOG_STD_MIN = -5
+
+
+# class Actor(nn.Module):
+#     def __init__(
+#         self,
+#         envs: vector.VectorEnv,
+#         ff_dim: int = 256,
+#         device: torch.device = torch.device("cpu"),
+#     ):
+#         super().__init__()
+
+#         ac_space = envs.single_action_space
+#         self.ac_shape = ac_space.shape
+
+#         channel_space = envs.get_attr("channel_space")
+#         angle_space = envs.get_attr("angle_space")
+#         position_space = envs.get_attr("position_space")
+
+#         self.channel_shape = channel_space[0].shape
+#         self.angle_shape = angle_space[0].shape
+#         self.position_shape = position_space[0].shape
+
+#         # positions
+#         self.pos_embed = Embedder(np.prod(self.position_shape), num_freqs=5)
+#         pos_out_dim = self.pos_embed.out_dim
+
+#         self.ob_layers = [
+#             nn.Linear(
+#                 np.prod(self.channel_shape) + np.prod(self.angle_shape) + pos_out_dim,
+#                 ff_dim,
+#                 device=device,
+#             ),
+#             nn.GELU(),
+#             MLPBlock(ff_dim, ff_dim, device=device),
+#             MLPBlock(ff_dim, ff_dim, device=device),
+#         ]
+#         self.connect_network = nn.Sequential(*self.ob_layers)
+
+#         self.fc_mean = nn.Linear(ff_dim, np.prod(self.ac_shape), device=device)
+#         self.fc_log_std = nn.Linear(ff_dim, np.prod(self.ac_shape), device=device)
+
+#         # action rescaling
+#         self.register_buffer(
+#             "action_scale",
+#             torch.tensor(
+#                 (envs.single_action_space.high - envs.single_action_space.low) / 2.0,
+#                 dtype=torch.float32,
+#                 device=device,
+#             ),
+#         )
+#         self.register_buffer(
+#             "action_bias",
+#             torch.tensor(
+#                 (envs.single_action_space.high + envs.single_action_space.low) / 2.0,
+#                 dtype=torch.float32,
+#                 device=device,
+#             ),
+#         )
+
+#     def forward(self, obs):
+#         batch_size = obs.shape[0]
+#         pos = obs[..., -np.prod(self.position_shape) :]
+
+#         # positions
+#         pos = self.pos_embed(pos)
+
+#         # angles
+#         channel_angle = obs[..., : -np.prod(self.position_shape)]
+
+#         ob = torch.cat([channel_angle, pos], dim=-1)
+#         combined = self.connect_network(ob)
+
+#         # mean and log_std
+#         mean = self.fc_mean(combined)
+#         log_std = self.fc_log_std(combined)
+#         log_std = torch.tanh(log_std)
+#         log_std = LOG_STD_MIN + 0.5 * (LOG_STD_MAX - LOG_STD_MIN) * (
+#             log_std + 1
+#         )  # From SpinUp / Denis Yarats
+
+#         return mean, log_std
+
+#     def get_action(self, x):
+#         mean, log_std = self(x)
+#         std = log_std.exp()
+#         normal = torch.distributions.Normal(mean, std)
+#         x_t = normal.rsample()  # for reparameterization trick (mean + std * N(0,1))
+#         y_t = torch.tanh(x_t)
+#         action = y_t * self.action_scale + self.action_bias
+#         log_prob = normal.log_prob(x_t)
+#         # Enforcing Action Bound
+#         log_prob -= torch.log(self.action_scale * (1 - y_t.pow(2)) + 1e-8)
+#         log_prob = log_prob.sum(1, keepdim=True)
+#         mean = torch.tanh(mean) * self.action_scale + self.action_bias
+#         return action, log_prob, mean
+
+
 class SoftQNetwork(nn.Module):
     def __init__(
         self,
-        # ob_space: spaces.Tuple,
-        # ac_space: spaces.Box,
         envs: vector.VectorEnv,
         ff_dim: int = 256,
         device: torch.device = torch.device("cpu"),
@@ -115,19 +283,22 @@ class SoftQNetwork(nn.Module):
                 device=device,
             ),
             nn.GELU(),
+            MLPBlock(ff_dim, ff_dim, device=device),
+            MLPBlock(ff_dim, ff_dim, device=device),
         ]
         self.connect_network = nn.Sequential(*self.ob_layers)
 
         # action
-        action_layers = [nn.Linear(np.prod(ac_space.shape), ff_dim, device=device), nn.GELU()]
+        action_layers = [
+            nn.Linear(np.prod(ac_space.shape), ff_dim, device=device),
+            nn.GELU(),
+            MLPBlock(ff_dim, ff_dim, device=device),
+        ]
         self.action_network = nn.Sequential(*action_layers)
 
         # Combine all
         self.combine_network = nn.Sequential(
-            nn.Linear(ff_dim * 2, ff_dim, device=device),
-            nn.GELU(),
-            MLPBlock(ff_dim, ff_dim, device=device),
-            MLPBlock(ff_dim, ff_dim, device=device),
+            nn.Linear(ff_dim * 2, ff_dim, device=device), nn.GELU()
         )
         self.combine_layer = nn.Linear(ff_dim, 1, device=device)
 
@@ -250,180 +421,6 @@ class Actor(nn.Module):
         log_prob = log_prob.sum(1, keepdim=True)
         mean = torch.tanh(mean) * self.action_scale + self.action_bias
         return action, log_prob, mean
-
-
-# class SoftQNetwork(nn.Module):
-#     def __init__(
-#         self,
-#         ob_space: spaces.Tuple,
-#         ac_space: spaces.Box,
-#         envs: vector.VectorEnv,
-#         ff_dim: int = 256,
-#         device: torch.device = torch.device("cpu"),
-#     ):
-#         super().__init__()
-
-#         self.ff_dim = ff_dim
-
-#         channel_space = envs.get_attr("channel_space")
-#         angle_space = envs.get_attr("angle_space")
-#         position_space = envs.get_attr("position_space")
-
-#         self.channel_shape = channel_space[0].shape
-#         self.angle_shape = angle_space[0].shape
-#         self.position_shape = position_space[0].shape
-
-#         # positions
-#         self.pos_embed = Embedder(np.prod(self.position_shape), num_freqs=5)
-#         pos_out_dim = self.pos_embed.out_dim
-
-#         self.ob_layers = [
-#             nn.Linear(
-#                 np.prod(self.channel_shape) + np.prod(self.angle_shape) + pos_out_dim,
-#                 ff_dim,
-#                 device=device,
-#             ),
-#             nn.GELU(),
-#             MLPBlock(ff_dim, ff_dim, device=device),
-#             MLPBlock(ff_dim, ff_dim, device=device),
-#         ]
-#         self.connect_network = nn.Sequential(*self.ob_layers)
-
-#         # action
-#         action_layers = [
-#             nn.Linear(np.prod(ac_space.shape), ff_dim, device=device),
-#             nn.GELU(),
-#             nn.Linear(ff_dim, ff_dim, device=device),
-#             nn.GELU(),
-#         ]
-#         self.action_network = nn.Sequential(*action_layers)
-
-#         # Combine all
-#         self.combine_network = nn.Sequential(
-#             nn.Linear(ff_dim * 2, ff_dim, device=device), nn.GELU()
-#         )
-#         self.combine_layer = nn.Linear(ff_dim, 1, device=device)
-
-#     def forward(self, obs, acs):
-#         batch_size = obs.shape[0]
-#         pos = obs[..., -np.prod(self.position_shape) :]
-
-#         # positions
-#         pos = self.pos_embed(pos)
-
-#         # angles
-#         channel_angle = obs[..., : -np.prod(self.position_shape)]
-
-#         ob = torch.cat([channel_angle, pos], dim=-1)
-#         combined = self.connect_network(ob)
-
-#         # action
-#         action = self.action_network(acs)
-
-#         # combine
-#         ob_ac = self.combine_network(torch.cat([combined, action], dim=-1))
-#         q_values = self.combine_layer(ob_ac)
-#         return q_values
-
-
-# LOG_STD_MAX = 2
-# LOG_STD_MIN = -5
-
-
-# class Actor(nn.Module):
-#     def __init__(
-#         self,
-#         ob_space: spaces.Tuple,
-#         ac_space: spaces.Box,
-#         envs: vector.VectorEnv,
-#         ff_dim: int = 256,
-#         device: torch.device = torch.device("cpu"),
-#     ):
-#         super().__init__()
-
-#         self.ac_shape = ac_space.shape
-
-#         channel_space = envs.get_attr("channel_space")
-#         angle_space = envs.get_attr("angle_space")
-#         position_space = envs.get_attr("position_space")
-
-#         self.channel_shape = channel_space[0].shape
-#         self.angle_shape = angle_space[0].shape
-#         self.position_shape = position_space[0].shape
-
-#         # positions
-#         self.pos_embed = Embedder(np.prod(self.position_shape), num_freqs=5)
-#         pos_out_dim = self.pos_embed.out_dim
-
-#         self.ob_layers = [
-#             nn.Linear(
-#                 np.prod(self.channel_shape) + np.prod(self.angle_shape) + pos_out_dim,
-#                 ff_dim,
-#                 device=device,
-#             ),
-#             nn.GELU(),
-#             MLPBlock(ff_dim, ff_dim, device=device),
-#             MLPBlock(ff_dim, ff_dim, device=device),
-#         ]
-#         self.connect_network = nn.Sequential(*self.ob_layers)
-
-#         self.fc_mean = nn.Linear(ff_dim, np.prod(self.ac_shape), device=device)
-#         self.fc_log_std = nn.Linear(ff_dim, np.prod(self.ac_shape), device=device)
-
-#         # action rescaling
-#         self.register_buffer(
-#             "action_scale",
-#             torch.tensor(
-#                 (envs.single_action_space.high - envs.single_action_space.low) / 2.0,
-#                 dtype=torch.float32,
-#                 device=device,
-#             ),
-#         )
-#         self.register_buffer(
-#             "action_bias",
-#             torch.tensor(
-#                 (envs.single_action_space.high + envs.single_action_space.low) / 2.0,
-#                 dtype=torch.float32,
-#                 device=device,
-#             ),
-#         )
-
-#     def forward(self, obs):
-#         batch_size = obs.shape[0]
-#         pos = obs[..., -np.prod(self.position_shape) :]
-
-#         # positions
-#         pos = self.pos_embed(pos)
-
-#         # angles
-#         channel_angle = obs[..., : -np.prod(self.position_shape)]
-
-#         ob = torch.cat([channel_angle, pos], dim=-1)
-#         combined = self.connect_network(ob)
-
-#         # mean and log_std
-#         mean = self.fc_mean(combined)
-#         log_std = self.fc_log_std(combined)
-#         log_std = torch.tanh(log_std)
-#         log_std = LOG_STD_MIN + 0.5 * (LOG_STD_MAX - LOG_STD_MIN) * (
-#             log_std + 1
-#         )  # From SpinUp / Denis Yarats
-
-#         return mean, log_std
-
-#     def get_action(self, x):
-#         mean, log_std = self(x)
-#         std = log_std.exp()
-#         normal = torch.distributions.Normal(mean, std)
-#         x_t = normal.rsample()  # for reparameterization trick (mean + std * N(0,1))
-#         y_t = torch.tanh(x_t)
-#         action = y_t * self.action_scale + self.action_bias
-#         log_prob = normal.log_prob(x_t)
-#         # Enforcing Action Bound
-#         log_prob -= torch.log(self.action_scale * (1 - y_t.pow(2)) + 1e-8)
-#         log_prob = log_prob.sum(1, keepdim=True)
-#         mean = torch.tanh(mean) * self.action_scale + self.action_bias
-#         return action, log_prob, mean
 
 
 class Scalar(nn.Module):
