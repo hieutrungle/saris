@@ -131,7 +131,7 @@ class WirelessEnvV0(Env):
         # focal vecs space for action space
         self.init_focal_vecs = np.asarray([10.0, init_theta, np.deg2rad(125)] * self.num_groups)
         # self.init_focal_vecs = np.asarray([10.0, init_theta, init_phi] * self.num_groups)
-        r_high = 35.0
+        r_high = 40.0
         focal_vec_high = np.asarray([r_high, theta_high, phi_high] * self.num_groups)
         r_low = 5.0
         focal_vec_low = np.asarray([r_low, theta_low, phi_low] * self.num_groups)
@@ -172,19 +172,26 @@ class WirelessEnvV0(Env):
         self.sionna_config = copy.deepcopy(self.default_sionna_config)
 
         # noise to spherical_focal_vecs
-        noise = self.np_rng.uniform(low=self.focal_noise_low, high=self.focal_noise_high)
         if start_init:
+            noise = self.np_rng.uniform(low=self.focal_noise_low, high=self.focal_noise_high)
             self.spherical_focal_vecs = np.asarray(
                 [10.0, np.deg2rad(90), np.deg2rad(135)] * self.num_groups
             )
+            self.spherical_focal_vecs += noise
         else:
-            self.spherical_focal_vecs = copy.deepcopy(self.init_focal_vecs)
+            low = self.focal_vec_space.low
+            high = self.focal_vec_space.high
+            self.spherical_focal_vecs = self.np_rng.normal(
+                loc=(low + high) / 2.0, scale=abs(high - low) / 9.0
+            )
+            # self.spherical_focal_vecs = self.focal_vec_space.sample()
+            # print(f"self.spherical_focal_vecs: {self.spherical_focal_vecs}")
 
         # tmp = np.reshape(copy.deepcopy(self.spherical_focal_vecs), (self.num_groups, 3))
         # tmp[:, 1:] = np.rad2deg(tmp[:, 1:])
         # print(f"init_focal_vecs: {tmp}")
 
-        self.spherical_focal_vecs += noise
+        # self.spherical_focal_vecs += noise
         self.spherical_focal_vecs = np.clip(
             self.spherical_focal_vecs, self.focal_vec_space.low, self.focal_vec_space.high
         )
@@ -216,9 +223,9 @@ class WirelessEnvV0(Env):
 
         # action: [num_groups * 3]: num_groups * [phi, theta, r]
         tmp = np.reshape(action, (self.num_groups, 3))
-        tmp[:, 0] = tmp[:, 0] * 1.5
-        tmp[:, 1] = np.deg2rad(tmp[:, 1] * 5.0)
-        tmp[:, 2] = np.deg2rad(tmp[:, 2] * 5.0)
+        tmp[:, 0] = tmp[:, 0]
+        tmp[:, 1] = np.deg2rad(tmp[:, 1] * 1.5)
+        tmp[:, 2] = np.deg2rad(tmp[:, 2] * 1.5)
         action = np.reshape(tmp, action.shape)
 
         self.spherical_focal_vecs = self.spherical_focal_vecs + action
