@@ -11,7 +11,7 @@ frequency: 28e9
 synthetic_array: true
 
 # RIS parameters
-ris_positions: [[2.09223, -4.28042, 2.06059]]
+ris_positions: [[2.09223, -5.36251, 2.06059]]
 
 # Transmitter and receiver parameters
 tx_num_rows: 2
