@@ -177,7 +177,7 @@ class SingleRoomV0(Env):
             self.spherical_focal_vecs = np.asarray(
                 [10.0, np.deg2rad(90), np.deg2rad(135)] * self.num_groups
             )
-            self.spherical_focal_vecs += noise
+            # self.spherical_focal_vecs += noise
         else:
             low = self.focal_vec_space.low
             high = self.focal_vec_space.high
@@ -278,9 +278,9 @@ class SingleRoomV0(Env):
 
         adjusted_gain = np.mean(cur_gains)
         adjusted_gain = np.where(
-            adjusted_gain < -87.5,
-            (adjusted_gain + 87.5) / 10.0,
-            (adjusted_gain + 87.5) / 5.0 + 1.5,
+            adjusted_gain < -95.0,
+            (adjusted_gain + 95.0) / 10.0,
+            (adjusted_gain + 95.0) / 5.0 + 1.5,
         )
         gain_diff = np.mean(cur_gains - prev_gains)
 
