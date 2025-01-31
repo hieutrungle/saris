@@ -222,8 +222,8 @@ class SingleRoomV0(Env):
         # action: [num_groups * 3]: num_groups * [phi, theta, r]
         tmp = np.reshape(action, (self.num_groups, 3))
         tmp[:, 0] = tmp[:, 0]
-        tmp[:, 1] = np.deg2rad(tmp[:, 1] * 1.5)
-        tmp[:, 2] = np.deg2rad(tmp[:, 2] * 1.5)
+        tmp[:, 1] = np.deg2rad(tmp[:, 1])
+        tmp[:, 2] = np.deg2rad(tmp[:, 2])
         action = np.reshape(tmp, action.shape)
 
         self.spherical_focal_vecs = self.spherical_focal_vecs + action
