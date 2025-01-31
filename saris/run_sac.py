@@ -18,6 +18,7 @@ class TrainConfig:
     # Run arguments
     init_learning_starts: int = 1001  # the timestep to start learning
     n_runs: int = 11  # the number of runs
+    no_eval: bool = False  # whether to evaluate the model
 
     # General arguments
     command: str = "train"  # the command to run
@@ -159,15 +160,16 @@ def main(config: TrainConfig):
         print("*" * 50)
         print()
 
-    eval_config = copy.deepcopy(config)
-    eval_config.replay_buffer_dir = os.path.join(
-        config.source_dir, "local_assets", "replay_buffers", "tmp"
-    )
-    eval_cmd = get_base_cmd(eval_config)
-    eval_cmd = eval_cmd + ["--command", "eval"]
-    eval_cmd = eval_cmd + ["--load_eval_model", str(config.load_eval_model)]
+    if not config.no_eval:
+        eval_config = copy.deepcopy(config)
+        eval_config.replay_buffer_dir = os.path.join(
+            config.source_dir, "local_assets", "replay_buffers", "tmp"
+        )
+        eval_cmd = get_base_cmd(eval_config)
+        eval_cmd = eval_cmd + ["--command", "eval"]
+        eval_cmd = eval_cmd + ["--load_eval_model", str(config.load_eval_model)]
 
-    subprocess.run(eval_cmd, check=True)
+        subprocess.run(eval_cmd, check=True)
 
 
 def get_base_cmd(config: TrainConfig):
