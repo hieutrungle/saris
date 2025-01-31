@@ -184,8 +184,6 @@ class WirelessEnvV0(Env):
             self.spherical_focal_vecs = self.np_rng.normal(
                 loc=(low + high) / 2.0, scale=abs(high - low) / 9.0
             )
-            # self.spherical_focal_vecs = self.focal_vec_space.sample()
-            # print(f"self.spherical_focal_vecs: {self.spherical_focal_vecs}")
 
         # tmp = np.reshape(copy.deepcopy(self.spherical_focal_vecs), (self.num_groups, 3))
         # tmp[:, 1:] = np.rad2deg(tmp[:, 1:])
@@ -244,7 +242,6 @@ class WirelessEnvV0(Env):
 
         self.angles = self._blender_step(self.spherical_focal_vecs)
         self.angles = np.asarray(self.angles, dtype=np.float32)
-        # print(f"done blender_step")
         # print(f"angles: {np.rad2deg(self.angles).reshape(-1, 8)}")
         # if angles values are out of bounds, print warning
         if np.any(self.angles < self.angle_space.low) or np.any(
@@ -257,7 +254,6 @@ class WirelessEnvV0(Env):
             truncated = True
         terminated = False
         self.channels, self.cur_gains = self._run_sionna_dB(eval_mode=self.eval_mode)
-        # print(f"done run_sionna_dB")
 
         real_channels = np.asarray(self.channels.real, dtype=np.float32)
         imag_channels = np.asarray(self.channels.imag, dtype=np.float32)
@@ -273,7 +269,6 @@ class WirelessEnvV0(Env):
             "prev_path_gains": self.prev_gains,
             "path_gains": self.cur_gains,
         }
-        # print(f"done step")
 
         return next_observation, reward, terminated, truncated, step_info
 
