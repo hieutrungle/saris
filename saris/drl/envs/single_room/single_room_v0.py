@@ -139,7 +139,7 @@ class SingleRoomV0(Env):
 
         # noise for init
         self.focal_noise_high = np.asarray(
-            [2.0, np.deg2rad(5.0), np.deg2rad(5.0)] * self.num_groups
+            [5.0, np.deg2rad(10.0), np.deg2rad(10.0)] * self.num_groups
         )
         self.focal_noise_low = -self.focal_noise_high
 
@@ -175,9 +175,9 @@ class SingleRoomV0(Env):
         if start_init:
             noise = self.np_rng.uniform(low=self.focal_noise_low, high=self.focal_noise_high)
             self.spherical_focal_vecs = np.asarray(
-                [10.0, np.deg2rad(90), np.deg2rad(135)] * self.num_groups
+                [15.0, np.deg2rad(90), np.deg2rad(135)] * self.num_groups
             )
-            # self.spherical_focal_vecs += noise
+            self.spherical_focal_vecs += noise
         else:
             low = self.focal_vec_space.low
             high = self.focal_vec_space.high
