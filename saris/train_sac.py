@@ -247,6 +247,35 @@ def main(config: TrainConfig):
         shape=(math.prod(channel_space[0].shape)),
     )
 
+    # ##################
+    # # TESTING
+    # obs, _ = envs.reset(options={"start_init": True})
+    # # actions = np.array([envs.single_action_space.sample() for _ in range(envs.num_envs)])
+    # # next_obs, rewards, terminations, truncations, infos = envs.step(actions)
+
+    # # TRY NOT TO MODIFY: record rewards for plotting purposes
+    # # if "final_info" in infos:
+
+    # #     # get path gains
+    # #     prev_path_gains = [info["prev_path_gains"] for info in infos["final_info"]]
+    # #     path_gains = [info["path_gains"] for info in infos["final_info"]]
+    # # else:
+    # #     prev_path_gains = infos["prev_path_gains"]
+    # #     path_gains = infos["path_gains"]
+    # # prev_path_gains = np.stack(prev_path_gains)
+    # # path_gains = np.stack(path_gains)
+    # # prev_path_gains = torch.as_tensor(prev_path_gains, dtype=torch.float)
+    # # path_gains = torch.as_tensor(path_gains, dtype=torch.float)
+
+    # # # TRY NOT TO MODIFY: save data to reply buffer; handle `final_observation`
+    # # real_next_obs = list(copy.deepcopy(next_obs))
+    # # for idx, trunc in enumerate(truncations):
+    # #     if trunc:
+    # #         real_next_obs[idx] = infos["final_observation"][idx]
+
+    # exit(0)
+    # ##################
+
     # Init checkpoints
     print(f"Checkpoints dir: {config.checkpoint_dir}")
     os.makedirs(config.checkpoint_dir, exist_ok=True)
@@ -495,11 +524,6 @@ def train_agent(
                     [envs.single_action_space.sample() for _ in range(envs.num_envs)]
                 )
             else:
-                # if global_step < config.learning_starts * 9 / 10:
-                #     actions = np.array(
-                #         [envs.single_action_space.sample() for _ in range(envs.num_envs)]
-                #     )
-                # else:
                 torch_obs = torch.Tensor(copy.deepcopy(obs)).float().to(config.device)
                 torch_obs = normalize_obs(torch_obs, channel_rms, envs)
                 actions, _, _ = policy(torch_obs.to(config.device))
@@ -638,7 +662,7 @@ def train_agent(
                         with torch.no_grad():
                             log_alpha.clamp_(-5.0, 1.0)
                             alpha.copy_(log_alpha.detach().exp())
-                            alpha = torch.clamp(alpha, 0.15, 0.9)
+                            alpha = torch.clamp(alpha, 0.1, 0.95)
 
                 # update the target networks
                 if global_step % config.target_network_frequency == 0:
