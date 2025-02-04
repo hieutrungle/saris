@@ -31,3 +31,9 @@ def register_envs():
         entry_point="saris.drl.envs.single_room:SingleRoomV0",
         max_episode_steps=100,
     )
+
+    register(
+        id="single-room-moving-v0",
+        entry_point="saris.drl.envs.single_room_moving:SingleRoomMovingV0",
+        max_episode_steps=100,
+    )
