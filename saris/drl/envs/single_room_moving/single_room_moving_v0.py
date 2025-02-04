@@ -187,7 +187,7 @@ class SingleRoomMovingV0(Env):
 
         self.sionna_config = copy.deepcopy(self.default_sionna_config)
 
-        # get new rx_positions that are not in the restricted_areas
+        # append new rx_positions that are not in the restricted_areas
         rx_positions = []
         while len(rx_positions) < len(self.sionna_config["rx_positions"]):
             x = self.np_rng.uniform(low=self.range[0][0], high=self.range[0][1])
@@ -209,13 +209,8 @@ class SingleRoomMovingV0(Env):
                 if not too_close:
                     rx_positions.append([x, y, 1.5])
 
-        # for _ in range(len(self.sionna_config["rx_positions"])):  # 8
-        #     x = self.np_rng.uniform(low=self.range[0][0], high=self.range[0][1])
-        #     y = self.np_rng.uniform(low=self.range[1][0], high=self.range[1][1])
-        #     rx_positions.append([x, y, 1.5])
         self.sionna_config["rx_positions"] = rx_positions
         self.positions = np.asarray(rx_positions, dtype=np.float32)
-        print(f"rx_positions: {rx_positions}")
 
         start_init = False
         if options is not None:
