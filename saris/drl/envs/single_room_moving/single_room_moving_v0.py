@@ -210,7 +210,7 @@ class SingleRoomMovingV0(Env):
                     rx_positions.append([x, y, 1.5])
 
         self.sionna_config["rx_positions"] = rx_positions
-        self.positions = np.asarray(rx_positions, dtype=np.float32)
+        self.positions = np.asarray(rx_positions, dtype=np.float32).flatten()
 
         start_init = False
         if options is not None:
