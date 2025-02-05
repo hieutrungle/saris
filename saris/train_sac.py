@@ -615,8 +615,8 @@ def train_agent(
             rewards=rewards,
             terminations=terminations,
             truncations=truncations,
-            path_gains=prev_path_gains,
-            next_path_gains=path_gains,
+            path_gains=path_gains,
+            prev_path_gain=prev_path_gains,
             batch_size=obs.shape[0],
         )
         rb.extend(transition)
@@ -682,6 +682,7 @@ def train_agent(
                     logs = {
                         "train/path_gain": path_gains.mean(),
                         "train/path_gain_std": path_gains.std(),
+                        "train/path_gain_diff": np.mean(path_gains - prev_path_gains),
                         "train/reward_mean": rewards.mean(),
                         "train/reward_std": rewards.std(),
                         "train/actor_loss": log_infos["actor_loss"].mean().item(),
@@ -691,8 +692,8 @@ def train_agent(
                         "train/log_alpha": log_alpha.clone().detach().item(),
                         "train/actor_entropy": (-log_infos["log_pi"]).mean().item(),
                         "train/actor_min_q": log_infos["qf_pi"].mean().item(),
-                        "train/q_lr": q_lr,
-                        "train/a_lr": a_lr,
+                        # "train/q_lr": q_lr,
+                        # "train/a_lr": a_lr,
                     }
 
                 wandb.log({**logs}, step=global_step)
