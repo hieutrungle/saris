@@ -36,7 +36,7 @@
 		<rgb value="0.952030 1.000000 0.152920" name="reflectance"/>
 	</bsdf>
 	<bsdf type="diffuse" id="mat-itu_wood" name="mat-itu_wood">
-		<rgb value="0.800000 0.246933 0.730543" name="reflectance"/>
+		<rgb value="0.971429 0.015133 0.010332" name="reflectance"/>
 	</bsdf>
 
 <!-- Emitters -->
