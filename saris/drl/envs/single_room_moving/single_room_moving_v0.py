@@ -160,7 +160,7 @@ class SingleRoomMovingV0(Env):
         self.default_sionna_config = copy.deepcopy(self.sionna_config)
 
         # range for new rx positions
-        self.range = [[-15.0, -7.0], [-7.0, 3.5]]  # x  # y
+        self.rangee = [[-15.0, -7.0], [-7.0, 3.5]]  # x  # y
         self.restricted_areas = [
             [[-5.01257, 0.896045], [-9.01329, -3.62248], [-3.87024, -7.24338]],
             [[-12.3042, 0.034565], [-14.487, -1.39775], [-12.2953, -2.18156]],
@@ -173,14 +173,39 @@ class SingleRoomMovingV0(Env):
             / 2.0
         )
 
-    def is_inside(self, pt1, pt2, pt3, pt):
+    def _cal_distance(self, x1, y1, x2, y2):
+        return np.sqrt((x1 - x2) ** 2 + (y1 - y2) ** 2)
 
-        area = self._cal_area(pt1, pt2, pt3)
-        area1 = self._cal_area(pt, pt2, pt3)
-        area2 = self._cal_area(pt1, pt, pt3)
-        area3 = self._cal_area(pt1, pt2, pt)
+    def _is_inside(self, border, target):
+        # borrow and modified from https://stackoverflow.com/questions/217578/how-can-i-determine-whether-a-2d-point-is-within-a-polygon
+        degree = 0
+        for i in range(len(border)):
+            a = border[i]
+            b = border[(i + 1) % len(border)]
 
-        return area == area1 + area2 + area3
+            # calculate distance of vector
+            e1 = self._cal_distance(a[0], a[1], b[0], b[1])
+            e2 = self._cal_distance(target[0], target[1], a[0], a[1])
+            e3 = self._cal_distance(target[0], target[1], b[0], b[1])
+
+            # calculate direction of vector
+            ta_x = a[0] - target[0]
+            ta_y = a[1] - target[1]
+            tb_x = b[0] - target[0]
+            tb_y = b[1] - target[1]
+
+            cross = tb_y * ta_x - tb_x * ta_y
+            clockwise = cross < 0
+
+            # calculate sum of angles
+            if clockwise:
+                degree += math.degrees(math.acos((e2 * e2 + e3 * e3 - e1 * e1) / (2.0 * e2 * e3)))
+            else:
+                degree -= math.degrees(math.acos((e2 * e2 + e3 * e3 - e1 * e1) / (2.0 * e2 * e3)))
+
+        if abs(abs(round(degree)) - 360.0) <= 2.0:
+            return True
+        return False
 
     def reset(self, seed: int = None, options: dict = None) -> Tuple[dict, dict]:
         super().reset(seed=seed)
@@ -190,12 +215,12 @@ class SingleRoomMovingV0(Env):
         # append new rx_positions that are not in the restricted_areas
         rx_positions = []
         while len(rx_positions) < len(self.sionna_config["rx_positions"]):
-            x = self.np_rng.uniform(low=self.range[0][0], high=self.range[0][1])
-            y = self.np_rng.uniform(low=self.range[1][0], high=self.range[1][1])
+            x = self.np_rng.uniform(low=self.rangee[0][0], high=self.rangee[0][1])
+            y = self.np_rng.uniform(low=self.rangee[1][0], high=self.rangee[1][1])
             pt = [x, y]
             is_inside = False
             for area in self.restricted_areas:
-                if self.is_inside(area[0], area[1], area[2], pt):
+                if self._is_inside(area, pt):
                     is_inside = True
                     break
 
