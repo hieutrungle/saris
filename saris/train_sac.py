@@ -507,10 +507,10 @@ def train_agent(
     stored_obs.append(obs)
     last_step = config.start_step + config.total_timesteps
     pbar = tqdm.tqdm(
-        range(config.start_step, config.start_step + config.total_timesteps),
+        range(config.start_step, config.start_step + config.total_timesteps + 1),
         dynamic_ncols=True,
         initial=config.start_step,
-        total=config.start_step + config.total_timesteps,
+        total=config.start_step + config.total_timesteps + 1,
     )
     max_ep_ret = -float("inf")
     avg_returns = deque(maxlen=envs.num_envs)
