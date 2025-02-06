@@ -682,7 +682,7 @@ def train_agent(
                     logs = {
                         "train/path_gain": path_gains.mean(),
                         "train/path_gain_std": path_gains.std(),
-                        "train/path_gain_diff": np.mean(path_gains - prev_path_gains),
+                        "train/path_gain_diff": (path_gains - prev_path_gains).mean(),
                         "train/reward_mean": rewards.mean(),
                         "train/reward_std": rewards.std(),
                         "train/actor_loss": log_infos["actor_loss"].mean().item(),
