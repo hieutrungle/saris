@@ -37,3 +37,9 @@ def register_envs():
         entry_point="saris.drl.envs.single_room_moving:SingleRoomMovingV0",
         max_episode_steps=100,
     )
+
+    register(
+        id="shared-ap-v0",
+        entry_point="saris.drl.envs.shared_ap:SharedAPV0",
+        max_episode_steps=100,
+    )

@@ -51,21 +51,21 @@ def get_reflector_config():
     return theta_config, phi_config, num_groups, num_elements_per_group
 
 
-def get_config_reflectors():
+def get_config_shared_ap():
     """
-    Set up reflector configuration.
+    Set up reflector configuration for Shared AP senarios.
     """
-    max_delta = math.radians(30.0)
-    min_delta = math.radians(-30.0)
+    max_delta = math.radians(29.9)
+    min_delta = math.radians(-29.9)
 
     # Rotation in x-y plane, horizontal rotation
-    init_thetas = [math.radians(135.0), math.radians(90.0)]
+    init_thetas = [math.radians(90.0), math.radians(90.0)]
     min_thetas = [init_thetas[i] + min_delta for i in range(len(init_thetas))]
     max_thetas = [init_thetas[i] + max_delta for i in range(len(init_thetas))]
     theta_config = (init_thetas, min_thetas, max_thetas)
 
     # Rotation in x-z plane, vertical rotation
-    init_phis = [math.radians(90.0), math.radians(90.0)]
+    init_phis = [math.radians(22.7), math.radians(-25.0)]
     min_phis = [init_phis[i] + min_delta for i in range(len(init_phis))]
     max_phis = [init_phis[i] + max_delta for i in range(len(init_phis))]
     phi_config = (init_phis, min_phis, max_phis)

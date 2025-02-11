@@ -14,7 +14,7 @@ def prepare_scene(config, filename, cam=None):
     # in Hz; implicitly updates RadioMaterials
     scene.frequency = config["frequency"]
     # If set to False, ray tracing will be done per antenna element (slower for large arrays)
-    scene.synthetic_array = config["synthetic_array"]
+    # scene.synthetic_array = config["synthetic_array"]
 
     if cam is not None:
         scene.add(cam)
@@ -52,7 +52,8 @@ def prepare_camera(config):
     cam = Camera(
         "my_cam",
         position=config["cam_position"],
-        orientation=config["cam_orientation"],
+        # orientation=config["cam_orientation"],
+        look_at=config["cam_look_at"],
     )
     cam.look_at(config["cam_look_at"])
     return cam
