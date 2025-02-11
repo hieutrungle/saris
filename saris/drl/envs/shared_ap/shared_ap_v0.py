@@ -61,7 +61,7 @@ class SharedAPV0(Env):
         # self.sionna_config["tx_orientations"] = [[phi, theta - math.pi / 2, 0.0]]
 
         # TODO: orient the tx
-        tx_orientations = copy.deepcopy(self.sionna_config["tx_orientations"])
+        tx_orientations = []
         for i in range(len(self.rt_pos)):
             r, theta, phi = compute_rot_angle(self.tx_pos[i], self.rt_pos[i])
             tx_orientations.append([phi, theta - math.pi / 2, 0.0])
@@ -298,6 +298,7 @@ class SharedAPV0(Env):
         # reset rx_pos
         rx_pos = self._prepare_rx_positions()
         self.sionna_config["rx_positions"] = rx_pos
+        self.rx_pos = np.array(rx_pos, dtype=np.float32)
         # print(f"rx_pos: {rx_pos}")
         # self.positions = np.asarray(rx_pos, dtype=np.float32).flatten()
 
@@ -323,8 +324,6 @@ class SharedAPV0(Env):
             high = self.focal_spaces[i].high
             if start_init:
                 self.focals[i] = self.np_rng.uniform(low=low, high=high)
-                # TODO use for testing blender
-                self.focals[i] = (low + high) / 2.0
             else:
                 self.focals[i] = self.np_rng.normal(
                     loc=(low + high) / 2.0, scale=abs(high - low) / 9.0
@@ -362,23 +361,36 @@ class SharedAPV0(Env):
         # Local observation is placed in the info dictionary
         # info: {[channel[0], angles[0], rx_pos + self.rt_pos[0]], [channel[1], angles[1], rx_pos + self.rt_pos[1]]}
 
-        channels = np.asarray(channels, dtype=np.float32)
+        channels = np.asarray(channels)
         real_channels = np.asarray(channels.real, dtype=np.float32)
         imag_channels = np.asarray(channels.imag, dtype=np.float32)
-        global_channels = np.concatenate([channels, imag_channels], axis=-1).flatten()
-        global_angles = np.concatenate(self.angles, axis=-1).flatten()
-        global_positions = np.concatenate([self.rx_pos, self.rt_pos], axis=-1).flatten()
+        global_channels = np.concatenate([real_channels, imag_channels], axis=0).flatten()
+        global_angles = self.angles.flatten()
+        global_positions = np.concatenate([self.rx_pos, self.rt_pos], axis=0).flatten()
+        # print(f"global_channels: {global_channels}")
+        # print(f"global_positions: {global_positions}")
+        # print(f"global_positions shape: {global_positions.shape}")
+        # print(f"global_channels shape: {global_channels.shape}")
+        # print(f"global_angles shape: {global_angles.shape}")
         observation = np.concatenate(
             [global_channels, global_angles, global_positions], axis=-1
         ).flatten()
 
         # Reflector local observation
         info = {}
-        for i in range(self.num_ues):
-            local_channels = np.concatenate([real_channels[i], imag_channels[i]], axis=-1)
-            local_positions = np.concatenate([self.rx_pos, self.self.rt_pos[i]], axis=-1).flatten()
-            local_ob = np.concatenate([local_channels, self.angles[i], local_positions], axis=-1)
-
+        for i in range(len(self.rt_pos)):
+            local_channels = np.concatenate(
+                [real_channels[i : i + 1], imag_channels[i : i + 1]], axis=0
+            ).flatten()
+            local_positions = np.concatenate(
+                [self.rx_pos, self.rt_pos[i : i + 1]], axis=0
+            ).flatten()
+            # print(f"local_channels: {local_channels}")
+            # print(f"local_channels shape: {local_channels.shape}")
+            # print(f"local_positions shape: {local_positions.shape}")
+            local_ob = np.concatenate(
+                [local_channels, self.angles[i].flatten(), local_positions], axis=-1
+            ).flatten()
             info[i] = local_ob
 
         # real_channels = np.asarray(channels.real, dtype=np.float32)
@@ -507,7 +519,7 @@ class SharedAPV0(Env):
         data_path = os.path.join(
             tmp_dir, f"data-{self.log_string}-{self.current_time}-{self.idx}.pkl"
         )
-        # TODO: fix blender script for 2 reflectors
+
         with open(data_path, "wb") as f:
             pickle.dump(focals, f)
 
@@ -524,9 +536,9 @@ class SharedAPV0(Env):
             "-o",
             blender_output_dir,
         ]
-        # bl_output_txt = os.path.join(tmp_dir, "bl_outputs.txt")
-        # subprocess.run(blender_cmd, check=True, stdout=open(bl_output_txt, "w"))
-        subprocess.run(blender_cmd, check=True)
+        bl_output_txt = os.path.join(tmp_dir, "bl_outputs.txt")
+        subprocess.run(blender_cmd, check=True, stdout=open(bl_output_txt, "w"))
+        # subprocess.run(blender_cmd, check=True)
 
         with open(data_path, "rb") as f:
             angles = pickle.load(f)
@@ -543,7 +555,6 @@ class SharedAPV0(Env):
 
     def _run_sionna(self, eval_mode: bool = False) -> Tuple[tf.Tensor, np.ndarray]:
 
-        # TODO: fix sionna script for 2 reflectors, check output of channels
         # Set up geometry paths for Sionna script
         assets_dir = utils.get_os_dir("ASSETS_DIR")
         scene_name = f"{self.sionna_config['scene_name']}_{self.idx}"
@@ -566,11 +577,11 @@ class SharedAPV0(Env):
         channels: tf.Tensor = cir_to_time_channel(self.bandwidth, a, tau, self.l_min, self.l_max)
 
         coverage_map = sig_cmap.compute_cmap()
-        path_gains = sig_cmap.get_path_gain(coverage_map)
-        # path_gains = []
-        # for pos in coverage_map.rx_pos:
-        #     path_gain = coverage_map.path_gain[:, pos[1], pos[0]]
-        #     path_gains.append(path_gain[0])
+        # path_gains = sig_cmap.get_path_gain(coverage_map)
+        path_gains = []
+        for pos in coverage_map.rx_pos:
+            path_gain = coverage_map.path_gain[:, pos[1], pos[0]]
+            path_gains.append(path_gain[0])
         path_gains = np.asarray(path_gains)
 
         if eval_mode:
@@ -581,7 +592,8 @@ class SharedAPV0(Env):
             render_filename = utils.create_filename(img_dir, f"{scene_name}_00000.png")
             sig_cmap.render_to_file(coverage_map, filename=render_filename)
 
-        channels = tf.squeeze(channels, axis=(0, 2, 3, 5))
+        channels = tf.squeeze(channels, axis=(0, 2, 5, 6))
+        channels = tf.transpose(channels, perm=[1, 0, 2])
         channels = np.asarray(channels, dtype=np.complex64)
         sig_cmap.free_memory()
 

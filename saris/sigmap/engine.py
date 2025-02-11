@@ -14,7 +14,7 @@ def prepare_scene(config, filename, cam=None):
     # in Hz; implicitly updates RadioMaterials
     scene.frequency = config["frequency"]
     # If set to False, ray tracing will be done per antenna element (slower for large arrays)
-    # scene.synthetic_array = config["synthetic_array"]
+    scene.synthetic_array = config["synthetic_array"]
 
     if cam is not None:
         scene.add(cam)
@@ -29,7 +29,7 @@ def prepare_scene(config, filename, cam=None):
         polarization=config["tx_polarization"],
     )
     for i, (tx_pos, tx_orient) in enumerate(zip(config["tx_positions"], config["tx_orientations"])):
-        tx = Transmitter(f"tx_{i}", tx_pos, tx_orient)
+        tx = Transmitter(f"tx_{i}", tx_pos, tx_orient, color=[0.05, 0.05, 0.9])
         scene.add(tx)
 
     scene.rx_array = PlanarArray(
@@ -42,7 +42,7 @@ def prepare_scene(config, filename, cam=None):
     )
 
     for i, (rx_pos, rx_orient) in enumerate(zip(config["rx_positions"], config["rx_orientations"])):
-        rx = Receiver(f"rx_{i}", rx_pos, rx_orient)
+        rx = Receiver(f"rx_{i}", rx_pos, rx_orient, color=[0.99, 0.01, 0.99])
         scene.add(rx)
 
     return scene

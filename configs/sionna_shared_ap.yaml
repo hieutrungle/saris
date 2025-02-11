@@ -6,7 +6,6 @@ cm_vmax: -60
 verbose: true
 cam_position: [0.0, -11.1, 50.0]
 cam_orientation: [0.0, 0.0, 0.0]
-# cam_look_at: [0.0, -4.0, 0.0]
 cam_look_at: [0.0, -11.0, 0.0]
 frequency: 28e9
 synthetic_array: true
@@ -20,15 +19,15 @@ tx_num_cols: 2
 tx_vertical_spacing: 0.5
 tx_horizontal_spacing: 0.5
 tx_pattern: tr38901
-tx_polarization: cross
-tx_positions: [[0.4, -2.3, 3.5], [-0.4, -2.3, 3.5]]
+tx_polarization: V
+tx_positions: [[0.0, -2.3, 3.5], [0.0, -2.3, 3.5]]
 tx_orientations: [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0]]
 rx_num_rows: 1
 rx_num_cols: 1
 rx_vertical_spacing: 0.5
 rx_horizontal_spacing: 0.5
 rx_pattern: iso
-rx_polarization: cross
+rx_polarization: V
 rx_positions: [[-8.58, 0.25, 1.5], [-14.2, -2.6, 1.5], [-10.7, -5.3, 1.5]]
 rx_orientations: [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]]
 

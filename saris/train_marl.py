@@ -241,9 +241,6 @@ def main(config: TrainConfig):
     channel_spaces = envs.get_attr("channel_spaces")[0]  # from 1st env
     angles_spaces = envs.get_attr("angle_spaces")[0]
     focal_spaces = envs.get_attr("focal_spaces")[0]
-    print(f"Channel spaces: {channel_spaces}")
-    print(f"Angle spaces: {angles_spaces}")
-    print(f"Focal spaces: {focal_spaces}")
     channel_rms1 = running_mean.RunningMeanStd(
         shape=(math.prod(channel_spaces[0].shape)),
     )
@@ -253,7 +250,14 @@ def main(config: TrainConfig):
 
     ##################
     # TESTING
-    obs, _ = envs.reset(options={"start_init": True, "eval_mode": True})
+    # TODO:
+    # info: {'env_idx': [num_envs, local_obs]}
+    obs, info = envs.reset(options={"start_init": True, "eval_mode": True})
+    # print(f"obs: {obs.shape}")
+    # print(f"obs: {obs}")
+    # print(f"info: {info}")
+    # for k, v in info.items():
+    #     print(f"{k}: {v.shape}")
     # actions = np.array([envs.single_action_space.sample() for _ in range(envs.num_envs)])
     # next_obs, rewards, terminations, truncations, infos = envs.step(actions)
 
