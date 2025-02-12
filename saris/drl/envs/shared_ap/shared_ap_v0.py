@@ -54,13 +54,7 @@ class SharedAPV0(Env):
         self.rt_pos = np.array(self.sionna_config["rt_positions"], dtype=np.float32)
         self.tx_pos = np.array(self.sionna_config["tx_positions"], dtype=np.float32)
 
-        # # orient the tx
-        # self.rt_pos = self.sionna_config["rt_positions"][0]
-        # self.tx_pos = self.sionna_config["tx_positions"][0]
-        # r, theta, phi = compute_rot_angle(self.tx_pos, self.rt_pos)
-        # self.sionna_config["tx_orientations"] = [[phi, theta - math.pi / 2, 0.0]]
-
-        # TODO: orient the tx
+        # orient the tx
         tx_orientations = []
         for i in range(len(self.rt_pos)):
             r, theta, phi = compute_rot_angle(self.tx_pos[i], self.rt_pos[i])
@@ -164,6 +158,8 @@ class SharedAPV0(Env):
 
         self.default_sionna_config = copy.deepcopy(self.sionna_config)
 
+        self.eval_mode = False
+
     def _initialize_focal_spaces(self, theta_highs, phi_highs, theta_lows, phi_lows):
         r_high = 40.0
         r_low = 5.0
@@ -188,8 +184,8 @@ class SharedAPV0(Env):
             action_spaces.append(
                 spaces.Box(low=-1.0, high=1.0, shape=action_space_shape, dtype=np.float32)
             )
-        low = np.concatenate([space.low for space in action_spaces])
-        high = np.concatenate([space.high for space in action_spaces])
+        low = np.asarray([space.low for space in action_spaces])
+        high = np.asarray([space.high for space in action_spaces])
         self.action_space = spaces.Box(low=low, high=high, dtype=np.float32)
 
     def _initialize_observation_space(self):
@@ -258,7 +254,7 @@ class SharedAPV0(Env):
             return True
         return False
 
-    def is_eligible(self, pt, obstacle_pos, rx_pos):
+    def _is_eligible(self, pt, obstacle_pos, rx_pos):
         """
         Check if the position is eligible for new rx_pos.
         This function checks if the new rx_pos is not too close to obstacles and not too close to existing rx_pos.
@@ -285,7 +281,7 @@ class SharedAPV0(Env):
             x = self.np_rng.uniform(low=self.rx_pos_range[0][0], high=self.rx_pos_range[0][1])
             y = self.np_rng.uniform(low=self.rx_pos_range[1][0], high=self.rx_pos_range[1][1])
             pt = [x, y]
-            if self.is_eligible(pt, self.obstacle_pos, rx_pos):
+            if self._is_eligible(pt, self.obstacle_pos, rx_pos):
                 rx_pos.append([x, y, 1.5])
 
         return rx_pos
@@ -330,6 +326,7 @@ class SharedAPV0(Env):
                 )
 
             self.focals[i] = np.clip(self.focals[i], low, high)
+        self.focals = np.asarray(self.focals, dtype=np.float32)
 
         # angles is a sets of angles from two reflectors
         # angles[0] is from reflector 1, angles[1] is from reflector 2
@@ -341,7 +338,12 @@ class SharedAPV0(Env):
             )
             self.angles[i] = np.asarray(self.angles[i], dtype=np.float32)
 
-        eval_mode = False if options is None else options.get("eval_mode", False)
+        eval_mode = self.eval_mode
+        if options is not None:
+            if "eval_mode" in options:
+                eval_mode = options["eval_mode"]
+        # eval_mode = False if options is None else options.get("eval_mode", False)
+        self.eval_mode = eval_mode
         channels, self.prev_gains = self._run_sionna_dB(eval_mode)
         self.cur_gains = self.prev_gains
 
@@ -437,30 +439,39 @@ class SharedAPV0(Env):
         # return observation, {}
 
     def step(self, action: np.ndarray, **kwargs) -> Tuple[dict, float, bool, bool, dict]:
-        # TODO: change step function for 2 reflectors
+
         self.taken_steps += 1.0
         self.prev_gains = self.cur_gains
 
-        # action: [num_groups * 3]: num_groups * [phi, theta, r]
-        tmp = np.reshape(action, (self.num_groups, 3))
-        tmp[:, 0] = tmp[:, 0]
-        tmp[:, 1] = np.deg2rad(tmp[:, 1])
-        tmp[:, 2] = np.deg2rad(tmp[:, 2])
-        action = np.reshape(tmp, action.shape)
+        # actions: [num_reflectors, num_groups * 3]: [r, theta, phi] for each group
+        acs = []
+        for a in action:
+            tmp = np.reshape(a, (self.num_groups, 3))
+            tmp[:, 0] = tmp[:, 0]
+            tmp[:, 1] = np.deg2rad(tmp[:, 1])
+            tmp[:, 2] = np.deg2rad(tmp[:, 2])
+            a = np.reshape(tmp, a.shape)
+            acs.append(a)
+        action = np.asarray(acs, dtype=np.float32)
+
+        # tmp = np.reshape(action, (self.num_groups, 3))
+        # tmp[:, 0] = tmp[:, 0]
+        # tmp[:, 1] = np.deg2rad(tmp[:, 1])
+        # tmp[:, 2] = np.deg2rad(tmp[:, 2])
+        # action = np.reshape(tmp, action.shape)
 
         self.focals = self.focals + action
-        out_of_bounds = np.sum(
-            (self.focals < self.focal_vec_space.low) + (self.focals > self.focal_vec_space.high),
-            dtype=np.float32,
-        )
-        self.focals = np.clip(self.focals, self.focal_vec_space.low, self.focal_vec_space.high)
+        low = np.asarray([space.low for space in self.focal_spaces])
+        high = np.asarray([space.high for space in self.focal_spaces])
+        out_of_bounds = np.sum((self.focals < low) + (self.focals > high), dtype=np.float32)
+        self.focals = np.clip(self.focals, low, high)
 
         self.angles = self._blender_step(self.focals)
         self.angles = np.asarray(self.angles, dtype=np.float32)
         # if angles values are out of bounds, print warning
-        if np.any(self.angles < self.angle_space.low) or np.any(
-            self.angles > self.angle_space.high
-        ):
+        low = np.asarray([space.low for space in self.angle_spaces])
+        high = np.asarray([space.high for space in self.angle_spaces])
+        if np.any(self.angles < low) or np.any(self.angles > high):
             print("Warning: angles out of bounds")
 
         truncated = False
@@ -469,19 +480,44 @@ class SharedAPV0(Env):
         terminated = False
         channels, self.cur_gains = self._run_sionna_dB(eval_mode=self.eval_mode)
 
-        real_channels = np.asarray(channels.real, dtype=np.float32)
-        imag_channels = np.asarray(channels.imag, dtype=np.float32)
-        channels = np.concatenate([real_channels, imag_channels], axis=-1)
-        next_observation = OrderedDict(
-            channels=channels, angles=self.angles, positions=self.positions
-        )
-
         reward = self._cal_reward(self.prev_gains, self.cur_gains, out_of_bounds)
 
         step_info = {
             "prev_path_gains": self.prev_gains,
             "path_gains": self.cur_gains,
         }
+
+        channels = np.asarray(channels)
+        real_channels = np.asarray(channels.real, dtype=np.float32)
+        imag_channels = np.asarray(channels.imag, dtype=np.float32)
+        global_channels = np.concatenate([real_channels, imag_channels], axis=0).flatten()
+        global_angles = self.angles.flatten()
+        global_positions = np.concatenate([self.rx_pos, self.rt_pos], axis=0).flatten()
+        next_observation = np.concatenate(
+            [global_channels, global_angles, global_positions], axis=-1
+        ).flatten()
+
+        for i in range(len(self.rt_pos)):
+            local_channels = np.concatenate(
+                [real_channels[i : i + 1], imag_channels[i : i + 1]], axis=0
+            ).flatten()
+            local_positions = np.concatenate(
+                [self.rx_pos, self.rt_pos[i : i + 1]], axis=0
+            ).flatten()
+            # print(f"local_channels: {local_channels}")
+            # print(f"local_channels shape: {local_channels.shape}")
+            # print(f"local_positions shape: {local_positions.shape}")
+            local_ob = np.concatenate(
+                [local_channels, self.angles[i].flatten(), local_positions], axis=-1
+            ).flatten()
+            step_info[f"local_ob_{i}"] = local_ob
+
+        # real_channels = np.asarray(channels.real, dtype=np.float32)
+        # imag_channels = np.asarray(channels.imag, dtype=np.float32)
+        # channels = np.concatenate([real_channels, imag_channels], axis=-1)
+        # next_observation = OrderedDict(
+        #     channels=channels, angles=self.angles, positions=self.positions
+        # )
 
         return next_observation, reward, terminated, truncated, step_info
 

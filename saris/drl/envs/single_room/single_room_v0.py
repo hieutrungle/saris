@@ -363,11 +363,11 @@ class SingleRoomV0(Env):
         channels: tf.Tensor = cir_to_time_channel(self.bandwidth, a, tau, self.l_min, self.l_max)
 
         coverage_map = sig_cmap.compute_cmap()
-        path_gains = sig_cmap.get_path_gain(coverage_map)
-        # path_gains = []
-        # for pos in coverage_map.rx_pos:
-        #     path_gain = coverage_map.path_gain[:, pos[1], pos[0]]
-        #     path_gains.append(path_gain[0])
+        # path_gains = sig_cmap.get_path_gain(coverage_map)
+        path_gains = []
+        for pos in coverage_map.rx_pos:
+            path_gain = coverage_map.path_gain[:, pos[1], pos[0]]
+            path_gains.append(path_gain[0])
         path_gains = np.asarray(path_gains)
 
         if eval_mode:
